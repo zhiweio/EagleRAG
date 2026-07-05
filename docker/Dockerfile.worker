@@ -1,0 +1,85 @@
+# syntax=docker/dockerfile:1.7
+# Eagle-RAG Celery Worker 镜像（多阶段构建，非 root 运行）。
+# 与 API 共享同一套系统依赖与虚拟环境；额外安装 Chromium 浏览器二进制供 pixelrag 队列渲染。
+# 启动命令参数化：QUEUES / CONCURRENCY 由 docker-compose 注入，决定消费队列与并发。
+# 构建：docker build -f docker/Dockerfile.worker -t eagle-rag-worker .
+ARG PYTHON_VERSION=3.12
+
+# ---------------- builder ----------------
+FROM python:${PYTHON_VERSION}-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers \
+    # 强制 uv 使用 base 镜像的系统 Python（/usr/local/bin/python3.12），
+    # 否则 uv 默认下载 cpython-3.14 到 /root/.local/share/uv/ 并把 venv 的
+    # python 软链指向那里；runtime 阶段只 COPY /opt/venv，软链目标不存在
+    # → 容器内 exec 任何 venv 脚本报 "no such file or directory"。
+    UV_PYTHON_PREFERENCE=only-system
+
+WORKDIR /app
+
+# 系统依赖：Playwright 浏览器运行库、字体、curl、git（LibreOffice 已移除，Excel 改走 Knowhere 直连）。
+# git：vision extra 的 pixelrag 是 git+https 依赖，uv clone 需要 git。
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libdrm2 libxkbcommon0 \
+        libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
+        libcups2 libxshmfence1 libpangocairo-1.0-0 libpango-1.0-0 libcairo2 \
+        fonts-noto-cjk fonts-noto-color-emoji \
+        curl git \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+COPY pyproject.toml uv.lock ./
+# pixelrag_render / pixelrag_embed 已在核心 dependencies 中，默认安装，
+# 使 worker-pixelrag 能真实渲染/编码（否则 render_to_tiles / embed_tiles 回退 mock 纯色 Tile + random 向量）。
+RUN uv sync --frozen --no-dev --no-install-project
+
+# pixelrag 队列需要渲染：安装 Chromium 浏览器二进制（系统库已具备）。
+RUN /opt/venv/bin/playwright install chromium \
+    && ln -sf /opt/pw-browsers/chromium-*/chrome-linux/chrome /usr/local/bin/chrome
+
+# ---------------- runtime ----------------
+FROM python:${PYTHON_VERSION}-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:${PATH}" \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers \
+    QUEUES=router_queue \
+    CONCURRENCY=4
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libdrm2 libxkbcommon0 \
+        libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
+        libcups2 libxshmfence1 libpangocairo-1.0-0 libpango-1.0-0 libcairo2 \
+        fonts-noto-cjk fonts-noto-color-emoji \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# 虚拟环境 + 浏览器二进制。
+COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /opt/pw-browsers /opt/pw-browsers
+
+# Stable symlink for pixelrag_render CHROME_PATH (survives Playwright version bumps).
+RUN ln -sf /opt/pw-browsers/chromium-*/chrome-linux/chrome /usr/local/bin/chrome
+
+# 非 root 用户：先创建并 chown /app 及运行期可写目录（logs / data），再切换 USER。
+# settings.yaml 默认 op_log_file/ai_log_file 在 logs/、data_dir=./data，相对 /app；
+# 若 /app 归 root，eagle 无权创建 logs/ → 启动期 PermissionError（uv-docker 最佳实践）。
+RUN useradd --create-home --uid 1000 eagle \
+    && mkdir -p /app/logs /app/data \
+    && chown -R eagle:eagle /app
+
+COPY --chown=eagle:eagle pyproject.toml uv.lock ./
+COPY --chown=eagle:eagle eagle_rag ./eagle_rag
+
+USER eagle
+
+# 队列与并发由环境变量传入（docker-compose 按服务覆盖）。
+CMD ["sh", "-c", "celery -A eagle_rag.tasks.celery_app worker -Q ${QUEUES} -c ${CONCURRENCY} --loglevel=info"]

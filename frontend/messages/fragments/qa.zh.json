@@ -1,0 +1,205 @@
+{
+  "qa": {
+    "title": "多模态问答与溯源",
+    "assistantTitle": "Eagle-RAG 知识助手",
+    "subtitle": "基于文本与图像的知识检索",
+    "clear": "Clear Chat",
+    "composer": {
+      "placeholder": "输入你的问题，或输入 @ 指定知识库与检索范围…",
+      "send": "发送",
+      "attach": "上传附件",
+      "attachRemove": "移除附件",
+      "mode": "检索模式",
+      "scope": "检索范围",
+      "scopeClear": "清除范围",
+      "mentionHint": "输入 @ 可提及文档以限定检索范围",
+      "mentionEmpty": "未找到匹配文档",
+      "mentionLoading": "搜索中…",
+      "uploading": "上传中…",
+      "filter": "过滤",
+      "kbName": "知识库",
+      "kbNameAll": "全部",
+      "kbNamePlaceholder": "输入知识库标识，如 finance",
+      "kbNameClear": "清除",
+      "kbNameHint": "留空使用系统默认知识库；设置后仅检索该知识库"
+    },
+    "mode": {
+      "auto": "自动路由",
+      "text": "文本",
+      "visual": "图像",
+      "hybrid": "混合",
+      "autoDesc": "由路由器自动选择最优管线",
+      "textDesc": "仅文本向量召回",
+      "visualDesc": "仅图像多模态召回",
+      "hybridDesc": "文本与图像联合召回"
+    },
+    "empty": {
+      "title": "开始你的第一个问题",
+      "desc": "你好，我是 Eagle-RAG 知识助手。我会从知识库中检索文本与图像来源，并在答案中标注引用。试试下面的问题，或直接输入你的问题。",
+      "pill1": "这份文档的核心要点是什么？",
+      "pill2": "帮我对比两份报告的差异",
+      "hint": "试试：「这份文档的核心要点是什么？」"
+    },
+    "loading": {
+      "thinking": "正在检索与生成"
+    },
+    "sources": {
+      "count": "条来源",
+      "title": "来源",
+      "text": "文本来源",
+      "image": "图像来源",
+      "empty": "暂无来源",
+      "emptyHint": "提出问题后，命中的文本片段与视觉切片将在此展示。",
+      "path": "路径",
+      "level": "层级",
+      "score": "相关度",
+      "page": "页码",
+      "position": "位置",
+      "viewImage": "查看大图",
+      "zoom": "放大",
+      "attachment": "会话附件",
+      "pixelSlice": "PixelRAG 切片",
+      "visualCaption": "PixelRAG · 像素级对齐 · Qwen-VL-Max 识别区域",
+      "eagleVisual": "eagle_visual",
+      "eagleText": "eagle_text",
+      "knowhereGraph": "Knowhere 图谱",
+      "sectionSummary": "章节摘要",
+      "tableChunk": "表格",
+      "imageChunk": "图片",
+      "sourceChunk": "块",
+      "previewTable": "预览表格",
+      "previewFile": "预览文件",
+      "adaptiveRender": "自适应渲染",
+      "adaptivePdf": "PDF→图片切片",
+      "adaptiveMd": "MD→文本+面包屑",
+      "adaptiveXlsx": "XLSX→数据表",
+      "openFull": "查看完整来源"
+    },
+    "rail": {
+      "sources": "来源",
+      "structure": "结构",
+      "preview": "预览",
+      "expand": "展开面板",
+      "collapse": "收起面板",
+      "expandedTitle": "证据工作台"
+    },
+    "structure": {
+      "pickHint": "选择一条来源以查看其文档结构。",
+      "loading": "正在加载结构…",
+      "error": "结构不可用",
+      "empty": "该文档暂无解析结构。",
+      "openFile": "打开文件",
+      "visuals": "视觉"
+    },
+    "preview": {
+      "empty": "选择一条来源以预览其文件。",
+      "zoom": "放大",
+      "table": "表格",
+      "download": "下载"
+    },
+    "steps": {
+      "title": "思考与检索步骤",
+      "route": "路由判定",
+      "recall": "召回",
+      "rerank": "重排",
+      "rerankTextKept": "保留 {count} 条文本",
+      "rerankVisualKept": "保留 {count} 张视觉",
+      "textTop": "文本 Top",
+      "visualTop": "视觉 Top",
+      "previewVisual": "预览第 {rank} 张视觉切片",
+      "recallText": "召回 {count} 条文本",
+      "recallVisual": "召回 {count} 张视觉",
+      "generate": "生成",
+      "attach_parse": "附件解析",
+      "warning": "警告",
+      "thinkingLive": "思考中",
+      "thinkingDone": "已思考 · {count} 步",
+      "count": "条",
+      "empty": "无步骤信息"
+    },
+    "search": {
+      "ask": "问答",
+      "search": "检索",
+      "askHint": "流式生成带引用的答案",
+      "searchHint": "仅检索，不生成答案",
+      "retrievalOnly": "仅检索 · {count} 条来源"
+    },
+    "actions": {
+      "copy": "复制答案"
+    },
+    "citation": {
+      "label": "引用"
+    },
+    "history": {
+      "title": "历史记录",
+      "open": "打开历史记录",
+      "searchPlaceholder": "搜索历史对话…",
+      "groupToday": "今天",
+      "groupWeek": "过去 7 天",
+      "groupOlder": "更早",
+      "daysAgo": "{count} 天前",
+      "empty": "暂无历史对话",
+      "noResults": "没有匹配的对话",
+      "loadError": "加载失败，请稍后重试",
+      "new": "新建对话",
+      "loading": "加载中…",
+      "delete": "删除"
+    },
+    "lightbox": {
+      "title": "图片预览",
+      "close": "关闭",
+      "meta": "元数据"
+    },
+    "error": {
+      "query": "查询失败，请稍后重试",
+      "upload": "附件上传失败",
+      "history": "加载历史会话失败",
+      "messages": "加载会话消息失败",
+      "delete": "删除会话失败"
+    },
+    "scope": {
+      "attached": "已限定范围"
+    },
+    "scopeFilter": {
+      "title": "检索范围",
+      "subtitle": "按来源类型、管线与年份过滤",
+      "sourceType": "来源类型",
+      "pipeline": "解析管线",
+      "year": "年份",
+      "reset": "重置",
+      "apply": "应用"
+    },
+    "scopeDrawer": {
+      "open": "作用域筛选",
+      "all": "全部",
+      "title": "作用域筛选",
+      "subtitle": "多选知识库、文档与标签（并集）",
+      "selected": "已选 {count}",
+      "searchPlaceholder": "搜索知识库、文档或标签…",
+      "tabAll": "全部",
+      "tabKb": "知识库",
+      "tabDoc": "文档",
+      "tabTag": "标签",
+      "activeScope": "已选作用域 · {count}",
+      "activeEmpty": "尚未选择任何作用域",
+      "suggestions": "建议作用域",
+      "sectionKb": "知识库",
+      "sectionDoc": "文档",
+      "sectionTag": "标签",
+      "apply": "应用作用域",
+      "clear": "清除",
+      "empty": "无匹配项",
+      "loading": "加载中…",
+      "close": "关闭",
+      "remove": "移除",
+      "kbMeta": "{docs} 文档 · {nodes} 节点",
+      "docMeta": "{kb} · {nodes} 节点",
+      "tagMeta": "命中 {nodes} 节点 · {kb} 库",
+      "navHint": "多选，可跨类型组合"
+    },
+    "role": {
+      "user": "你",
+      "assistant": "Eagle-RAG"
+    }
+  }
+}

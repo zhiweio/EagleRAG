@@ -1,0 +1,38 @@
+Eagle-RAG
+Copyright 2026 Wang Zhiwei
+
+This product includes software developed as part of the Eagle-RAG project
+(https://github.com/zhiweio/eagle-rag), licensed under the Apache License,
+Version 2.0.
+
+This product depends on or integrates with the following third-party
+components. See each project's repository for full license text.
+
+---
+
+Milvus (https://github.com/milvus-io/milvus)
+  Used via pymilvus and llama-index-vector-stores-milvus.
+  Licensed under the Apache License, Version 2.0.
+
+Ontos-AI Knowhere (https://github.com/Ontos-AI/knowhere)
+  External document parsing service (HTTP :5005).
+  Licensed under the Apache License, Version 2.0.
+
+knowhere-python-sdk (https://github.com/Ontos-AI/knowhere-python-sdk)
+  Python client for the Knowhere parsing service.
+  Licensed under the MIT License.
+
+PixelRAG (https://github.com/StarTrail-org/PixelRAG)
+  In-process visual rendering and embedding (pixelrag_render / pixelrag_embed).
+  Licensed under the Apache License, Version 2.0.
+
+MinerU (https://github.com/opendatalab/MinerU)
+  Optional PDF parsing backend for self-hosted Knowhere deployments
+  (not bundled with Eagle-RAG). Licensed under the MinerU Open Source License,
+  based on Apache License 2.0 with additional terms. Deployments that expose
+  MinerU-based parsing as an online service to third parties must comply with
+  MinerU's attribution and commercial-use conditions.
+
+LlamaIndex (https://github.com/run-llama/llama_index)
+  Retrieval orchestration and node abstractions.
+  Licensed under the MIT License.

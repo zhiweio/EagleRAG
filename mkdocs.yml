@@ -1,0 +1,155 @@
+# Eagle-RAG documentation site (mkdocs Material + mkdocs-static-i18n).
+#
+# Bilingual layout: docs/en/ + docs/zh/ (folder structure). Shared assets in docs/assets/.
+# Nav paths omit locale prefixes; the i18n plugin rewrites per language.
+site_name: Eagle-RAG Docs
+site_description: Eagle-RAG — multimodal RAG knowledge base for Agents & LLMs / 面向 Agent 与 LLM 的多模态 RAG 知识库
+site_url: https://eagle-rag.example.com
+docs_dir: docs
+strict: true
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.expand
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  palette:
+    - scheme: default
+      primary: custom
+      accent: custom
+      toggle: false
+
+extra_css:
+  - assets/styles.css
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+  - https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.min.js
+
+plugins:
+  - search
+  - tags
+  - i18n:
+      docs_structure: folder
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+        - locale: zh
+          name: 简体中文
+          build: true
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.critic
+  - pymdownx.mark
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Ontos-AI/knowhere
+      name: Knowhere
+
+nav:
+  - Home: index.md
+  - Learning path: learning-path.md
+  - Getting Started:
+      - getting-started/index.md
+      - Installation: getting-started/installation.md
+      - Configuration: getting-started/configuration.md
+      - Deployment: getting-started/deployment.md
+  - Architecture:
+      - architecture/index.md
+      - System design: architecture/system-design.md
+      - Data flow: architecture/data-flow.md
+      - Routing matrix: architecture/routing-matrix.md
+      - Multi-tenancy: architecture/multi-tenancy.md
+      - Multimodal fusion: architecture/multimodal-fusion.md
+      - Reliability: architecture/reliability.md
+  - Backend:
+      - backend/index.md
+      - API layer: backend/api-layer.md
+      - Ingest pipeline: backend/ingest-pipeline.md
+      - Retrieval: backend/retrieval.md
+      - Vector stores: backend/vector-stores.md
+      - Router engine: backend/router-engine.md
+      - Generation: backend/generation.md
+      - Task queue: backend/task-queue.md
+      - Storage: backend/storage.md
+      - Database: backend/database.md
+      - KB management: backend/kb-management.md
+      - Admin module: backend/admin-module.md
+      - Sessions & notifications: backend/sessions-notifications.md
+      - MCP server: backend/mcp-server.md
+      - Schemas: backend/schemas.md
+  - Frontend:
+      - frontend/index.md
+      - App structure: frontend/app-structure.md
+      - QA module: frontend/qa-module.md
+      - Ingest module: frontend/ingest-module.md
+      - KB module: frontend/kb-module.md
+      - Health module: frontend/health-module.md
+      - API client: frontend/api-client.md
+      - State management: frontend/state-management.md
+      - Design system: frontend/design-system.md
+      - i18n: frontend/i18n.md
+  - API:
+      - api/index.md
+      - Query: api/query.md
+      - Ingest: api/ingest.md
+      - Documents: api/documents.md
+      - Knowledge bases: api/knowledge-bases.md
+      - Tasks: api/tasks.md
+      - Health & admin: api/health-admin.md
+      - Attachments: api/attachments.md
+      - Sessions: api/sessions.md
+      - Notifications: api/notifications.md
+      - MCP tools: api/mcp-tools.md
+  - Operations:
+      - ops/index.md
+      - Docker: ops/docker.md
+      - Observability: ops/observability.md
+      - Troubleshooting: ops/troubleshooting.md
+      - Backup & restore: ops/backup-restore.md
+  - Development:
+      - development/index.md
+      - Project structure: development/project-structure.md
+      - Contributing: development/contributing.md
+      - Coding standards: development/coding-standards.md
+      - Testing: development/testing.md
+  - Glossary: glossary.md

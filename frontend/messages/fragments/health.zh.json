@@ -1,0 +1,279 @@
+{
+  "health": {
+    "title": "MCP 与服务健康",
+    "subtitle": "监控底层引擎连通性，并为 AI Agent 暴露 MCP 端点。",
+    "legend": {
+      "online": "Online",
+      "degraded": "Degraded"
+    },
+    "refresh": "Refresh",
+    "status": {
+      "online": "Online",
+      "degraded": "Degraded",
+      "offline": "Offline",
+      "unknown": "Unknown"
+    },
+    "uptime": "Uptime {value}",
+    "checkedAgo": "刚刚检查",
+    "serviceCards": {
+      "storage": {
+        "name": "MinIO & Redis",
+        "desc": "对象存储 & 消息代理 · 原始文件 / Celery Broker"
+      },
+      "knowhere": {
+        "name": "Knowhere API (:5005)",
+        "desc": "Ontos-AI 文本解析引擎 · HTTP :5005"
+      },
+      "celery": {
+        "name": "Celery Workers",
+        "desc": "Nodes: 2"
+      },
+      "milvus": {
+        "name": "Milvus (eagle_text & eagle_visual)",
+        "desc": "eagle_text & eagle_visual · 统一向量存储"
+      },
+      "pixelrag": {
+        "name": "PixelRAG",
+        "desc": "Library Only · 视觉切片渲染管线"
+      },
+      "models": {
+        "name": "Models (DeepSeek & Qwen)",
+        "desc": "DeepSeek-V4-Pro · Qwen-VL-Max · Qwen3-VL-2B"
+      }
+    },
+    "mcpConfig": {
+      "title": "MCP Server Configuration",
+      "badge": "Streamable HTTP",
+      "desc": "将以下端点配置到你的 Agent / LLM 应用中，即可获得通用知识库检索能力（支持 finance / patent / pharma 多库）。",
+      "copy": "复制",
+      "copied": "已复制",
+      "statusOnline": "在线",
+      "statusOffline": "离线",
+      "toolsLabel": "个工具",
+      "connectionsLabel": "个连接",
+      "transportLabel": "传输协议",
+      "portLabel": "端口",
+      "modeLabel": "模式",
+      "copyJson": "复制 JSON",
+      "jsonCopied": "已复制",
+      "jsonSnippetTitle": "快速接入 — JSON 配置",
+      "protocolVersion": "协议版本",
+      "toolsSectionTitle": "暴露工具列表",
+      "toolParamRequired": "必填",
+      "toolParamOptional": "可选",
+      "toolNoParams": "无参数",
+      "toolCopySchema": "复制 schema",
+      "toolSchemaCopied": "已复制"
+    },
+    "drawer": {
+      "running": "Running · Uptime {uptime}",
+      "close": "关闭",
+      "tabs": {
+        "dashboard": "监控面板",
+        "logs": "实时日志",
+        "config": "配置与探针"
+      },
+      "titles": {
+        "celery": "Celery Async Workers",
+        "milvus": "Milvus / PixelRAG",
+        "vlm": "VLM API / LLM Engine",
+        "mcp": "MCP Server",
+        "knowhere": "Knowhere API",
+        "storage": "MinIO & Redis"
+      },
+      "subtitles": {
+        "celery": "核心异步调度器 · CPU/GPU 任务队列",
+        "milvus": "统一向量存储 · eagle_text & eagle_visual · 维度 / 索引",
+        "vlm": "多模态大模型引擎 · DeepSeek-V4-Pro / Qwen-VL-Max 高可用路由",
+        "mcp": "Agent 工具端点 · Streamable HTTP · JSON-RPC 2.0",
+        "knowhere": "Ontos-AI 文本解析引擎 · HTTP :5005 · 200 OK · Workers Active",
+        "storage": "对象存储 & 消息代理 · 原始文件 / Celery Broker"
+      },
+      "statusPill": {
+        "running": "运行中",
+        "offline": "离线",
+        "unknown": "未知",
+        "noProbe": "未探测"
+      }
+    },
+    "celeryDrawer": {
+      "stats": {
+        "nodes": { "label": "Active Nodes (活跃节点)", "sub": "gpu-node-01 · cpu-node-02" },
+        "pending": { "label": "Tasks Pending (排队中)", "sub": "红色高亮 · 需关注" },
+        "succeeded": { "label": "Tasks Succeeded (今日完成)", "sub": "成功率 99.6%" }
+      },
+      "queueTitle": "队列堆积水位 (knowhere vs pixelrag)",
+      "legend": {
+        "knowhere": "文本队列 (knowhere)",
+        "pixelrag": "GPU 队列 (pixelrag)"
+      },
+      "workers": {
+        "title": "Active Workers (活跃工作进程)",
+        "count": "{n} workers",
+        "cols": {
+          "worker": "Worker",
+          "state": "状态",
+          "current": "当前执行",
+          "memory": "内存"
+        },
+        "busy": "Busy",
+        "idle": "Idle"
+      }
+    },
+    "milvusDrawer": {
+      "stats": {
+        "collections": { "label": "Total Collections", "sub": "eagle_text / eagle_visual" },
+        "indexSize": { "label": "Index Size (索引大小)", "sub": "HNSW / DiskANN · 持续增长中" },
+        "memory": { "label": "Memory (内存占用)", "sub": "59% · Milvus 查询节点" }
+      },
+      "accordionTitle": "Collection 详情 (Accordion)",
+      "count": "{n} collections",
+      "entities": "{n} entities",
+      "tag": {
+        "visual": "视觉库",
+        "text": "文本库"
+      },
+      "fieldLabels": {
+        "dim": "Dim",
+        "metric": "Metric",
+        "index": "Index"
+      },
+      "actions": {
+        "clean": "清理僵尸索引",
+        "flush": "强制落盘 (Flush)"
+      }
+    },
+    "vlmDrawer": {
+      "stats": {
+        "latency": { "label": "Average Latency (平均延迟)", "sub": "p95: 2.1s" },
+        "tokens": { "label": "Tokens / Minute (吞吐)", "sub": "TPM · 峰值 62k" },
+        "errorRate": { "label": "Error Rate (错误率)", "sub": "近 24h" }
+      },
+      "routerTitle": "模型路由配置 (Model Router)",
+      "routerNote": "内网直连 · 三模型协同",
+      "modelNames": {
+        "vlm": "视觉大模型 (VLM)",
+        "textLlm": "文本大模型 (LLM)",
+        "embedding": "向量编码 (Embedding)"
+      },
+      "models": {
+        "vlm": "内网直连 · 图文理解 / 多模态问答",
+        "textLlm": "内网直连 · 文本问答 / 推理主模型",
+        "embedding": "统一多模态向量 · 文本 / 视觉 Embedding"
+      }
+    },
+    "mcpDrawer": {
+      "sse": {
+        "title": "活跃 HTTP 连接数",
+        "unit": "个活跃 Agent",
+        "note": "Streamable HTTP · 无状态 JSON-RPC"
+      },
+      "toolsTitle": "暴露工具列表 (Exposed Tools)",
+      "toolsCount": "{n} tools",
+      "tools": {
+        "query": "多模态联合查询 · kb_name 指定目标知识库",
+        "trace": "精确溯源文档路径",
+        "read": "原始文档截图调阅"
+      },
+      "paramPrefix": "参数: "
+    },
+    "knowhereDrawer": {
+      "stats": {
+        "parsed": { "label": "Parsed Docs (已解析)", "sub": "文本 · 表格 · HTML 块" },
+        "chunks": { "label": "Text Chunks (文本块)", "sub": "段落 · 表格 · 列表" },
+        "memory": {
+          "label": "Memory Usage (内存占用)",
+          "sub": "30% · Knowhere API 常驻 :5005 · 200 OK"
+        }
+      },
+      "partitionsTitle": "eagle_text 写入 · 知识库分区",
+      "count": "{n} partitions",
+      "nodes": "{n} nodes",
+      "tag": {
+        "patent": "专利知识库",
+        "finance": "财务知识库"
+      }
+    },
+    "storageDrawer": {
+      "tag": { "storage": "Bucket" },
+      "minio": {
+        "sectionTitle": "MinIO · 对象存储",
+        "stats": {
+          "buckets": { "label": "Buckets (桶数量)", "sub": "默认桶已高亮" },
+          "objects": { "label": "Objects (默认桶对象)", "sub": "尽力统计" },
+          "endpoint": { "label": "Endpoint (端点)", "sub": "S3 兼容 · TLS 加密" }
+        },
+        "bucketsTitle": "Buckets (桶清单)",
+        "bucketsCount": "{n} buckets",
+        "objects": "{n} objects",
+        "meta": { "created": "创建于", "default": "默认桶" }
+      },
+      "redis": {
+        "sectionTitle": "Redis · 消息代理",
+        "stats": {
+          "clients": { "label": "Connected Clients (连接数)", "sub": "活跃连接" },
+          "dbSize": { "label": "DB Size (键总数)", "sub": "全部键" },
+          "memory": { "label": "Memory Used (内存占用)", "sub": "常驻内存" }
+        },
+        "infoTitle": "Redis INFO (运行信息)",
+        "infoNote": "关键运行指标",
+        "rows": {
+          "version": "版本",
+          "uptime": "运行时长",
+          "role": "角色",
+          "clients": "连接数",
+          "usedMemory": "已用内存",
+          "peakMemory": "峰值内存",
+          "maxMemory": "最大内存"
+        }
+      }
+    },
+    "logs": {
+      "pauseScroll": "暂停滚动",
+      "resumeScroll": "继续滚动",
+      "toBottom": "滚动到底部",
+      "autoScroll": "自动滚动",
+      "filterPlaceholder": "过滤 (grep)…",
+      "levels": {
+        "all": "ALL",
+        "info": "INFO",
+        "warn": "WARN",
+        "error": "ERROR"
+      },
+      "empty": "无匹配日志"
+    },
+    "console": {
+      "pause": "暂停",
+      "resume": "继续",
+      "toBottom": "到底部",
+      "filterPlaceholder": "过滤日志…"
+    },
+    "configProbes": {
+      "probesTitle": "Health Probes (健康探针)",
+      "probesCount": "{n} probes",
+      "probes": {
+        "liveness": { "name": "Liveness Probe", "sub": "活性探针" },
+        "readiness": { "name": "Readiness Probe", "sub": "就绪探针" },
+        "startup": { "name": "Startup Probe", "sub": "启动探针" }
+      },
+      "timingLegend": "delay · period · timeout · failure",
+      "pass": "Pass",
+      "degraded": "Degraded",
+      "resourcesTitle": "Resource Limits (资源配额)",
+      "resourcesNote": "CPU · Memory",
+      "resources": {
+        "cpu": "CPU",
+        "memory": "Memory"
+      },
+      "requestLimit": "request / limit",
+      "used": "{percent}% used",
+      "runtimeTitle": "运行时配置 (Runtime Config)",
+      "runtimeFile": "celeryconfig.py"
+    },
+    "common": {
+      "close": "关闭",
+      "retry": "重试",
+      "na": "—"
+    }
+  }
+}

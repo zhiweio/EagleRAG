@@ -1,0 +1,131 @@
+"""Eagle-RAG Celery app and queue configuration.
+
+Defines three pipeline queues (router / knowhere / pixelrag) and routes tasks via
+``settings.celery.task_routes``. Retry and timeout params are read from config; ingest
+task modules are explicitly registered through the ``include=`` of ``Celery(...)`` below,
+so they are imported at worker startup and bound by the ``@app.task`` decorator.
+
+The module does not connect to the broker/backend at import time; connections are
+established only when the worker starts or a task is dispatched.
+"""
+
+from __future__ import annotations
+
+from celery import Celery
+from celery.signals import task_prerun, worker_process_init
+from kombu import Queue
+
+from eagle_rag.config import get_settings
+
+__all__ = ["app", "celery_app"]
+
+_cfg = get_settings().celery
+
+app = Celery(
+    "eagle_rag",
+    broker=_cfg.broker_url,
+    backend=_cfg.result_backend,
+    include=[
+        "eagle_rag.ingest.router",
+        "eagle_rag.ingest.knowhere_adapter",
+        "eagle_rag.ingest.pixelrag_adapter",
+        "eagle_rag.kb.lifecycle",
+    ],
+)
+
+# Three pipeline queues: router (dispatch) / knowhere (structured parsing)
+# / pixelrag (visual rendering).
+app.conf.task_queues = (
+    Queue("router_queue", routing_key="router_queue"),
+    Queue("knowhere_queue", routing_key="knowhere_queue"),
+    Queue("pixelrag_queue", routing_key="pixelrag_queue"),
+)
+app.conf.task_default_queue = "router_queue"
+app.conf.task_default_routing_key = "router_queue"
+app.conf.task_default_exchange = ""
+
+# Route tasks by name to the matching queue (from settings.yaml task_routes).
+app.conf.task_routes = _cfg.task_routes
+
+# Reliability: ack only after completion, no prefetch (avoids long-task backlog),
+# reject on worker loss so the message is requeued.
+app.conf.task_acks_late = True
+app.conf.worker_prefetch_multiplier = 1
+app.conf.task_reject_on_worker_lost = True
+
+# Retry: default backoff interval and max retries (overridable via self.retry in-task).
+app.conf.task_default_retry_delay = _cfg.retry_backoff
+app.conf.task_default_max_retries = _cfg.max_retries
+
+# Time limits: hard 1h, soft 55m (5m buffer to finalize and handle SoftTimeLimitExceeded).
+app.conf.task_time_limit = 3600
+app.conf.task_soft_time_limit = 3300
+
+# Standardize on JSON serialization so result is consumable across languages.
+app.conf.task_serializer = "json"
+app.conf.result_serializer = "json"
+app.conf.accept_content = ["json"]
+
+# Celery beat: sample queue lengths into metric_samples every 30s.
+# The beat schedule only takes effect in the celery beat process and does not affect
+# workers; ``eagle_rag.admin.metrics`` registers the task name via ``@celery_app.task``,
+# so beat dispatches by name (no autodiscover needed).
+app.conf.beat_schedule = {
+    "sample-queue-metrics": {
+        "task": "eagle_rag.admin.metrics.sample_queue_metrics",
+        "schedule": 30.0,
+    },
+}
+
+
+def autodiscover_tasks() -> None:
+    """No-op: task modules are explicitly registered via ``include=`` above."""
+
+
+# Telemetry: configure dual logger + tracing on worker subprocess startup; register
+# Celery signals to continue traces. telemetry.tracing.send_task_with_trace lazily
+# imports celery_app, so we import telemetry after constructing app to avoid a cycle.
+from eagle_rag.telemetry import (  # noqa: E402
+    configure_telemetry,
+    register_celery_signals,
+)
+
+
+@worker_process_init.connect
+def _init_worker(**kwargs) -> None:  # noqa: ANN001
+    """Configure telemetry (dual logger + tracing) on worker subprocess startup."""
+    from eagle_rag.config import get_settings
+
+    try:
+        configure_telemetry(get_settings())
+    except Exception:  # noqa: BLE001
+        pass
+
+
+@task_prerun.connect
+def _ensure_telemetry_on_task(**kwargs) -> None:  # noqa: ANN001
+    """Fallback: ensure telemetry is configured before each task runs.
+
+    ``worker_process_init`` may not fire reliably in all pool/fork combinations
+    (e.g. when Celery forks after import-time side effects set ``_configured``).
+    This signal fires in the actual task execution context, so telemetry is
+    guaranteed to be initialized. ``configure_telemetry`` is idempotent.
+    """
+    from eagle_rag.config import get_settings
+    from eagle_rag.telemetry.logging_setup import _enabled
+
+    if not _enabled:
+        try:
+            configure_telemetry(get_settings())
+        except Exception:  # noqa: BLE001
+            pass
+
+
+register_celery_signals(app)
+
+
+celery_app = app
+
+
+if __name__ == "__main__":
+    app.start()

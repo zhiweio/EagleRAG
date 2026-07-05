@@ -1,0 +1,349 @@
+# Eagle-RAG 容器编排基础文件（dev/test/prod 共用）。
+#
+# 前置：
+#   1. cp .env.example .env，并填入 VLM/LLM/Embedding API key 与数据库凭证。
+#   2. Knowhere 已拆分为独立 compose（docker/knowhere-self-hosted/compose.yaml），
+#      需先启动：cd docker/knowhere-self-hosted && docker compose up -d
+#      并创建共享网络：docker network create knowhere-net
+#
+# 用法：
+#   dev  : docker compose --profile dev up -d
+#          （自动合并 docker-compose.override.yml：源码热重载 + 暴露基础设施端口）
+#   prod : COMPOSE_FILE=docker-compose.yml docker compose --profile prod up -d
+#          （环境变量锁定 compose 文件清单，排除 dev override 自动合并）
+#   docs : docker compose --profile docs up -d docs
+#
+# 基础设施服务（etcd/minio/milvus/postgres/redis）未设 profile，随任意 profile 启动。
+# 应用服务（api/worker-*/frontend）属 [dev,test,prod]；docs 属 [docs,prod]。
+# Knowhere 文档解析服务不在本文件中，见 docker/knowhere-self-hosted/compose.yaml。
+#
+# 说明：eagle_rag/settings.yaml 已全面改用 ${VAR:-default} 占位（含 milvus.host /
+#   celery.broker_url / minio.endpoint / postgres.dsn / knowhere.base_url / kb_name），
+#   故 compose environment 与 .env 中的同名变量可直达应用。注意各占位默认值仍为
+#   localhost，容器内须显式注入服务名（如 KNOWHERE_BASE_URL=http://knowhere:5005、
+#   MILVUS_HOST=milvus 等），否则会回落到 localhost 而无法连通 compose 服务。
+#   VLM/LLM/Embedding 的 api_key/base_url 经 .env 注入即可生效。
+
+name: eagle-rag
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-worker-build: &worker-build
+  context: .
+  dockerfile: docker/Dockerfile.worker
+
+networks:
+  eagle-net:
+    driver: bridge
+  # 与 docker/knowhere-self-hosted/compose.yaml 共享的外部网络。
+  # eagle-rag 容器据此以 DNS 名 knowhere 访问 Knowhere API :5005。
+  # Knowhere 已拆分为独立 compose，首次部署前需创建：docker network create knowhere-net
+  knowhere-net:
+    external: true
+    name: knowhere-net
+
+volumes:
+  vol-etcd:
+  vol-milvus:
+  vol-minio:
+  vol-redis:
+  vol-postgres:
+
+services:
+  # ======================== 基础设施 ========================
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    volumes:
+      - vol-etcd:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    logging: *default-logging
+    networks: [eagle-net]
+
+  minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    command: server /data --console-address ":9001"
+    volumes:
+      - vol-minio:/data
+    healthcheck:
+      # minio 镜像内 /usr/bin/curl 可用（wget 在 RELEASE.2023-03-20 ubuntu-base 上反而缺失）。
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging: *default-logging
+    networks: [eagle-net]
+
+  milvus:
+    image: milvusdb/milvus:v2.6.19
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    volumes:
+      - vol-milvus:/var/lib/milvus
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 60s
+    logging: *default-logging
+    networks: [eagle-net]
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-eagle}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-eagle}
+      POSTGRES_DB: ${POSTGRES_DB:-eagle_rag}
+    volumes:
+      - vol-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-eagle} -d ${POSTGRES_DB:-eagle_rag}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+    networks: [eagle-net]
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - vol-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+    networks: [eagle-net]
+
+  # ======================== Knowhere 文档语义解析服务（独立 compose） ========================
+  # Knowhere 已从本文件拆分至 docker/knowhere-self-hosted/compose.yaml，独立维护与部署。
+  # eagle-rag 容器经共享外部网络 knowhere-net 以 DNS 名 knowhere 访问 API :5005。
+  # 启动顺序：先启动 Knowhere（cd docker/knowhere-self-hosted && docker compose up -d），
+  #   再启动 eagle-rag。eagle-rag 已 fail-closed：Knowhere 未就绪时解析任务转 FAILED，不静默回退。
+
+  # ======================== 后端 API ========================
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    image: eagle-rag-api:latest
+    env_file: .env
+    environment:
+      APP_ENV: ${APP_ENV:-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Knowhere 解析服务（独立 compose，经 knowhere-net 网络 DNS 名 knowhere 访问 :5005）。
+      KNOWHERE_BASE_URL: ${KNOWHERE_BASE_URL:-http://knowhere:5005}
+      KNOWHERE_API_KEY: ${KNOWHERE_API_KEY:-}
+      KB_NAME: ${KB_NAME:-default}
+      # HuggingFace mirror + cache (shared with worker-pixelrag via ./data volume)
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+      HF_HOME: /app/data/huggingface
+      HF_HUB_DOWNLOAD_TIMEOUT: ${HF_HUB_DOWNLOAD_TIMEOUT:-120}
+    volumes:
+      # settings.yaml storage.data_dir=./data → 容器内 /app/data（WORKDIR /app）。
+      - ./data:/app/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      # Knowhere 不在本 compose 中（已拆分至 docker/knowhere-self-hosted/），
+      # 无法跨 compose depends_on；fail-closed 模式下 Knowhere 未就绪时解析任务转 FAILED。
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    logging: *default-logging
+    networks: [eagle-net, knowhere-net]
+    profiles: [dev, test, prod]
+
+  # ======================== Celery Workers（共享镜像，按队列参数化） ========================
+  worker-router:
+    build: *worker-build
+    image: eagle-rag-worker:latest
+    env_file: .env
+    environment:
+      QUEUES: router_queue
+      CONCURRENCY: "4"
+      APP_ENV: ${APP_ENV:-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      KNOWHERE_BASE_URL: ${KNOWHERE_BASE_URL:-http://knowhere:5005}
+      KNOWHERE_API_KEY: ${KNOWHERE_API_KEY:-}
+      KB_NAME: ${KB_NAME:-default}
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+    # 健康检查：celery inspect ping 限定本机 worker（-d celery@$(hostname)），避免跨 worker 干扰。
+    # start_period 60s 给足 LlamaIndex/Milvus 客户端预热时间。
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A eagle_rag.tasks.celery_app inspect ping -d celery@$(hostname) -t 5 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging: *default-logging
+    networks: [eagle-net]
+    profiles: [dev, test, prod]
+
+  worker-knowhere:
+    build: *worker-build
+    image: eagle-rag-worker:latest
+    env_file: .env
+    environment:
+      QUEUES: knowhere_queue
+      CONCURRENCY: "8"
+      APP_ENV: ${APP_ENV:-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      KNOWHERE_BASE_URL: ${KNOWHERE_BASE_URL:-http://knowhere:5005}
+      KNOWHERE_API_KEY: ${KNOWHERE_API_KEY:-}
+      KB_NAME: ${KB_NAME:-default}
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      # Knowhere 不在本 compose 中（已拆分至 docker/knowhere-self-hosted/），
+      # 无法跨 compose depends_on；fail-closed 模式下 Knowhere 未就绪时解析任务转 FAILED。
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+    # 健康检查：celery inspect ping 限定本机 worker（-d celery@$(hostname)），避免跨 worker 干扰。
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A eagle_rag.tasks.celery_app inspect ping -d celery@$(hostname) -t 5 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging: *default-logging
+    networks: [eagle-net, knowhere-net]
+    profiles: [dev, test, prod]
+
+  worker-pixelrag:
+    build: *worker-build
+    image: eagle-rag-worker:latest
+    env_file: .env
+    environment:
+      QUEUES: pixelrag_queue
+      CONCURRENCY: "1"
+      APP_ENV: ${APP_ENV:-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      KNOWHERE_BASE_URL: ${KNOWHERE_BASE_URL:-http://knowhere:5005}
+      KNOWHERE_API_KEY: ${KNOWHERE_API_KEY:-}
+      KB_NAME: ${KB_NAME:-default}
+      # HuggingFace mirror for China (Qwen3-VL-Embedding-2B model download)
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+      HF_HOME: /app/data/huggingface
+      HF_HUB_DOWNLOAD_TIMEOUT: ${HF_HUB_DOWNLOAD_TIMEOUT:-120}
+      # Chrome binary for pixelrag_render HTML-to-image rendering
+      CHROME_PATH: /usr/local/bin/chrome
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+    # pixelrag 渲染内存密集：严格限内存防 OOM 影响其他服务。
+    # 说明：PixelRAG 已降格为库调用（pixelrag_render / pixelrag_embed），不再依赖 pixelrag-serve。
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+          cpus: "2.0"
+    # 健康检查：celery inspect ping 限定本机 worker（-d celery@$(hostname)），避免跨 worker 干扰。
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A eagle_rag.tasks.celery_app inspect ping -d celery@$(hostname) -t 5 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging: *default-logging
+    networks: [eagle-net]
+    profiles: [dev, test, prod]
+
+  # ======================== 前端 ========================
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    image: eagle-rag-frontend:latest
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    # 健康检查：node:20-slim 无 wget/curl，用 node 内置 http 模块探测 3000。
+    # dev override 的 oven/bun 镜像经 bun 的 node 包装器同样支持 node -e + require('http')。
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    logging: *default-logging
+    networks: [eagle-net]
+    profiles: [dev, test, prod]
+
+  # ======================== 文档站 ========================
+  docs:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.docs
+    image: eagle-rag-docs:latest
+    ports:
+      - "8001:8001"
+    # 健康检查：nginx:alpine 自带 wget，探测 8001。
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8001/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    logging: *default-logging
+    networks: [eagle-net]
+    profiles: [docs, prod]

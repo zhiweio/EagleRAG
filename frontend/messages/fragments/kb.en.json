@@ -1,0 +1,242 @@
+{
+  "kb": {
+    "management": {
+      "breadcrumb": "Knowledge Bases",
+      "title": "Knowledge Bases",
+      "subtitle": "Manage every industry knowledge base instance and routing rule in Eagle-RAG.",
+      "searchPlaceholder": "Search display name or kb_name...",
+      "sort": "Sort by recently updated",
+      "sortRecent": "Sort by recently updated",
+      "sortName": "Sort by name",
+      "sortSize": "Sort by size",
+      "create": "New knowledge base",
+      "empty": "No matching knowledge base",
+      "stats": {
+        "kbCount": "KB instances",
+        "kbCountSub": "{count} active ingestions",
+        "docs": "Total documents",
+        "docsSub": "across all namespaces",
+        "nodes": "Graph nodes (Knowhere)",
+        "nodesSub": "entities + relations",
+        "vectors": "Vector entities (Milvus)",
+        "vectorsSub": "eagle_text + eagle_visual"
+      },
+      "ghost": {
+        "title": "New knowledge base",
+        "sub": "Create an isolated retrieval namespace"
+      }
+    },
+    "card": {
+      "docs": "Documents",
+      "nodes": "Graph nodes",
+      "slices": "Visual slices",
+      "more": "More actions",
+      "open": "Open knowledge base",
+      "edit": "Edit",
+      "delete": "Delete",
+      "deleteConfirm": "Delete knowledge base \"{name}\"? This cannot be undone.",
+      "deleteError": "Delete failed. Please try again.",
+      "rebuild": "Rebuild index"
+    },
+    "picker": {
+      "open": "Select knowledge base",
+      "title": "Select target knowledge base",
+      "count": "{count} KBs",
+      "single": "single-select · writes kb_name",
+      "docsShort": "{count} docs",
+      "searchPlaceholder": "Search name, kb_name or tag…",
+      "recent": "Recent",
+      "all": "All Knowledge Bases ({count})",
+      "nodes": "{count} nodes",
+      "manage": "Manage knowledge bases",
+      "keyboard": "↑↓ navigate · ↵ select · esc cancel",
+      "empty": "No matching knowledge base",
+      "default": "All knowledge bases",
+      "scope": {
+        "all": "All",
+        "recent": "Recent",
+        "starred": "Starred",
+        "archived": "Archived"
+      },
+      "hint": {
+        "nav": "Navigate",
+        "select": "Select",
+        "close": "Close"
+      }
+    },
+    "create": {
+      "title": "New knowledge base",
+      "subtitle": "Create Knowledge Base",
+      "desc": "Create an isolated retrieval namespace. Data and tasks are strictly scoped to this dimension.",
+      "sectionBasic": "BASIC INFO",
+      "sectionAdvanced": "ADVANCED SETTINGS",
+      "themeLabel": "Theme color & icon",
+      "kbNameLabel": "Identifier (kb_name)",
+      "kbNamePlaceholder": "letters, digits and underscore only, e.g. kb_medicine",
+      "kbNameHint": "Immutable after creation; used as the Milvus scalar filter key.",
+      "kbNameError": "lowercase letters, digits and underscore only",
+      "displayLabel": "Display Name",
+      "displayPlaceholder": "e.g. Medicine KB",
+      "descLabel": "Description",
+      "descOptional": "optional",
+      "descPlaceholder": "Clinical inserts, drug registration approvals, etc.",
+      "probeTitle": "PDF Smart Routing Probe",
+      "probeSub": "PDF Form Probe",
+      "probeSliderLabel": "Scan threshold (Text-page Ratio)",
+      "probeExplain": "When the ratio of text-extractable pages in a PDF is below this value, route to PixelRAG for visual rendering; otherwise use Knowhere text parsing.",
+      "probeLow": "below {value}% → PixelRAG",
+      "probeHigh": "above {value}% → Knowhere",
+      "collectionsTitle": "Underlying collection binding",
+      "collectionsSub": "eagle_text · eagle_visual",
+      "collectionsHint": "The new KB reuses the shared dual collections, isolated by the kb_name scalar.",
+      "cancel": "Cancel",
+      "submit": "Create now",
+      "required": "required",
+      "createdToast": "Knowledge base created",
+      "pending": "Creating…"
+    },
+    "edit": {
+      "title": "Edit knowledge base",
+      "save": "Save changes",
+      "cancel": "Cancel",
+      "updatedToast": "Knowledge base updated"
+    },
+    "toast": {
+      "created": "Knowledge base created",
+      "updated": "Knowledge base updated",
+      "deleted": "Knowledge base deleted",
+      "rebuildStarted": "Rebuild job submitted",
+      "purgeSuccess": "Knowledge base purged",
+      "docDeleted": "Document deleted",
+      "error": "Operation failed",
+      "errorDesc": "Please try again later"
+    },
+    "detail": {
+      "back": "Back",
+      "loading": "Loading…",
+      "kbNamePrefix": "kb_name: ",
+      "statusOnline": "Engine Online",
+      "statusOffline": "Offline",
+      "statusDegraded": "Degraded",
+      "config": "Configure",
+      "rebuild": "Rebuild index",
+      "kpi": {
+        "docs": "Documents",
+        "nodes": "Knowhere Nodes",
+        "slices": "PixelRAG Slices",
+        "queries": "Queries / 7d"
+      },
+      "format": {
+        "title": "Document Format Distribution",
+        "pdfText": "PDF·Text",
+        "pdfScan": "PDF·Scan",
+        "docx": "Word (.docx)",
+        "pptx": "PowerPoint (.pptx)",
+        "xlsx": "Excel (.xlsx)",
+        "csv": "CSV",
+        "md": "Markdown",
+        "txt": "Text (.txt)",
+        "json": "JSON",
+        "html": "Web/HTML",
+        "image": "Image",
+        "other": "Other",
+        "types": "Format types",
+        "knowhereShare": "Knowhere",
+        "pixelragShare": "PixelRAG",
+        "empty": "No ready documents in this knowledge base.",
+        "total": "Total"
+      },
+      "volume": {
+        "title": "Ingestion Volume · 7d",
+        "total7d": "7-day total",
+        "avg": "Daily avg",
+        "peak": "Peak",
+        "empty": "No documents ingested in the last 7 days.",
+        "unit": "docs",
+        "mon": "Mon",
+        "tue": "Tue",
+        "wed": "Wed",
+        "thu": "Thu",
+        "fri": "Fri",
+        "sat": "Sat",
+        "sun": "Sun"
+      },
+      "storage": {
+        "title": "Milvus Collections",
+        "entities": "Entities",
+        "entitiesCap": "entities",
+        "dim": "d",
+        "index": "Index",
+        "model": "Model:",
+        "indexKey": "Index:",
+        "textDesc": "Semantic & table index",
+        "visualDesc": "Visual slice index",
+        "capacity": "Capacity",
+        "capacityPct": "{pct}% capacity"
+      },
+      "tabs": {
+        "documents": "Documents",
+        "logs": "Ingest Logs",
+        "maintenance": "Maintenance"
+      },
+      "table": {
+        "name": "Document",
+        "type": "Type",
+        "pipeline": "Pipeline",
+        "nodes": "Graph nodes",
+        "updated": "Updated",
+        "count": "{count} documents",
+        "empty": "No documents in this knowledge base yet.",
+        "chunks": "chunks",
+        "upload": "Upload documents",
+        "delete": "Delete",
+        "deleteDocConfirm": "Delete document \"{name}\"? This will remove its vectors and graph data."
+      },
+      "docDeleteModal": {
+        "title": "Delete Document",
+        "subtitle": "document_id: {id}",
+        "desc": "This will permanently delete the document's vectors, graph nodes, and registry entry for \"{name}\". Original file is preserved.",
+        "hint": "Original document file is preserved, but all index data will be permanently cleared. You will need to re-ingest to restore search.",
+        "confirm": "Confirm Delete",
+        "cancel": "Cancel",
+        "close": "Close"
+      },
+      "logsEmpty": "No ingest tasks for this knowledge base yet.",
+      "logsJob": "Job ID",
+      "logsStatus": "Status",
+      "logsPipeline": "Pipeline",
+      "logsDocument": "Document",
+      "logsUpdated": "Updated",
+      "logsView": "View logs",
+      "purgeConfirm": "Purge knowledge base \"{name}\"? All vectors, graph data and registry entries under this namespace will be removed.",
+      "purgeError": "Purge failed",
+      "rebuildStarted": "Rebuild job submitted",
+      "maintenance": {
+        "title": "Danger zone",
+        "desc": "Rebuilding re-parses and re-vectorizes all documents; purging deletes all vectors and graph data under this namespace.",
+        "rebuild": "Rebuild index",
+        "purge": "Purge knowledge base"
+      },
+      "rebuildModal": {
+        "title": "Rebuild Index",
+        "subtitle": "kb_name: {name}",
+        "desc": "This will re-parse and re-vectorize all documents in this knowledge base. Original files are preserved, but search may return incomplete results during the process.",
+        "hint": "This may take a while. You can track progress in the logs.",
+        "confirm": "Confirm Rebuild",
+        "cancel": "Cancel",
+        "close": "Close"
+      },
+      "purgeModal": {
+        "title": "Purge Knowledge Base",
+        "subtitle": "kb_name: {name}",
+        "desc": "This will permanently delete all vectors, graph data, and registry entries under this namespace. This action cannot be undone.",
+        "hint": "Original document files are preserved, but all index data will be permanently cleared. You will need to re-ingest or rebuild the index to restore search.",
+        "confirm": "Confirm Purge",
+        "cancel": "Cancel",
+        "close": "Close",
+        "error": "Purge failed. Please try again later."
+      },
+      "notFound": "Knowledge base not found"
+    }
+  }
+}

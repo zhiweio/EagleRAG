@@ -1,0 +1,43 @@
+{
+  "app": {
+    "name": "Eagle-RAG",
+    "tagline": "MCP · Vector · Visual",
+    "notifications": "通知",
+    "notificationsEmpty": "暂无通知",
+    "notificationsMarkAll": "全部标为已读",
+    "settings": "设置",
+    "profile": "用户",
+    "manageAccount": "账户与偏好设置",
+    "history": "历史记录",
+    "collapseSidebar": "收起侧边栏",
+    "expandSidebar": "展开侧边栏"
+  },
+  "nav": {
+    "qa": "智能问答",
+    "ingest": "数据摄入",
+    "health": "服务健康",
+    "kb": "知识库管理"
+  },
+  "common": {
+    "search": "搜索",
+    "cancel": "取消",
+    "confirm": "确认",
+    "loading": "加载中…",
+    "empty": "暂无数据",
+    "error": "发生错误"
+  },
+  "composer": {
+    "placeholder": "输入你的财税问题…"
+  },
+  "home": {
+    "title": "Eagle-RAG 财税多模态知识库",
+    "subtitle": "融合政策法规、财报表格、工商网页与图片的多模态检索问答系统，支持来源溯源与视觉看图读数。",
+    "qaDesc": "多模态问答与来源溯源",
+    "ingestDesc": "多源多格式文档摄入与路由",
+    "healthDesc": "服务健康监控与运维",
+    "kbDesc": "多租户知识库实例管理与监控"
+  },
+  "locale": {
+    "switch": "切换语言"
+  }
+}

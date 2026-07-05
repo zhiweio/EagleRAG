@@ -1,0 +1,153 @@
+{
+  "ingest": {
+    "title": "知识库摄入与分流管理",
+    "subtitle": "依赖 PDF 形态探针，自动分流至 Knowhere 文本解析或 PixelRAG 视觉索引",
+    "breadcrumb": "Ingestion",
+    "header": {
+      "kbLabel": "目标知识库 (kb_name)",
+      "inQueue": "{count} in queue",
+      "logs": "Logs"
+    },
+    "upload": {
+      "title": "Upload & Routing Strategy",
+      "autoDetect": "Auto-detect",
+      "step": "Step {current} of {total}",
+      "targetKB": "目标知识库 · Target Knowledge Base",
+      "required": "必填",
+      "current": "当前",
+      "totalLibs": "共 {count} 库",
+      "recent": "最近",
+      "searchAll": "+{count} 全部",
+      "docsCount": "{count} 文档",
+      "updatedAgo": "更新于 {time}",
+      "dropTitle": "拖拽批量上传 · 或点击浏览",
+      "dropHint": "支持 PDF · Word · Excel/CSV · 图片 · URL · 单文件最大 50MB",
+      "submit": "提交到队列",
+      "submitting": "提交中…",
+      "systemDefault": "系统默认命名空间",
+      "filesSelected": "已选 {count} 个文件"
+    },
+    "url": {
+      "tab": {
+        "file": "文件",
+        "url": "URL"
+      },
+      "title": "提交 URL",
+      "placeholder": "粘贴公网可访问的 URL（https://…）— 网页、PDF、图片",
+      "submit": "提交 URL",
+      "submitting": "校验中…",
+      "invalidFormat": "请输入以 http:// 或 https:// 开头的有效 URL",
+      "error": {
+        "invalid_url_format": "URL 格式无效，仅支持 http:// 与 https:// 协议。",
+        "url_target_forbidden": "该 URL 指向私有或受限地址，服务器无法抓取。",
+        "url_unreachable": "服务器无法访问该 URL，请确认链接为公网可访问。",
+        "url_timeout": "该 URL 响应超时，请稍后重试或更换链接。",
+        "url_bad_status": "该 URL 返回了错误状态码。",
+        "fallback": "URL 提交失败，请核对链接后重试。"
+      }
+    },
+    "routing": {
+      "auto": {
+        "title": "Auto · 依赖 PDF 探针自动分流",
+        "desc": "文本/表格走 Knowhere · 影像/网页走 PixelRAG"
+      },
+      "knowhere": {
+        "title": "强制 Knowhere (文本/表格)",
+        "desc": "文本 / HTML 表格解析 · 入 eagle_text"
+      },
+      "pixelrag": {
+        "title": "强制 PixelRAG (网页/扫描件/纯图)",
+        "desc": "渲染切图 · Qwen-VL 视觉 Embedding · 入 eagle_visual"
+      }
+    },
+    "queue": {
+      "title": "Ingestion Queue",
+      "live": "Live",
+      "inQueue": "{count} 个排队中",
+      "text": {
+        "title": "文本解析队列",
+        "worker": "CPU Worker · Knowhere",
+        "idle": "空闲",
+        "busy": "处理中",
+        "concurrency": "并发数: {count}"
+      },
+      "visual": {
+        "title": "视觉渲染队列",
+        "worker": "GPU Worker · PixelRAG",
+        "idle": "空闲",
+        "queued": "排队中",
+        "concurrency": "排队中: {queued} · 并发数: {count}"
+      }
+    },
+    "toolbar": {
+      "search": "搜索文档名称、任务 ID 或扩展名…",
+      "allKB": "所有知识库",
+      "allPipeline": "所有处理链路",
+      "allStatus": "所有状态",
+      "refresh": "刷新"
+    },
+    "filters": {
+      "kbTitle": "按知识库过滤",
+      "pipelineTitle": "按处理链路过滤",
+      "statusTitle": "按状态过滤",
+      "allKB": "全部知识库",
+      "allPipeline": "所有处理链路",
+      "allStatus": "所有状态",
+      "knowhere": "Knowhere (文本)",
+      "pixelrag": "PixelRAG (视觉)"
+    },
+    "table": {
+      "jobId": "任务 ID",
+      "document": "文档名",
+      "pipeline": "处理链路",
+      "state": "当前阶段 (State)",
+      "progress": "进度",
+      "actions": "操作",
+      "cancel": "取消 Cancel",
+      "retry": "重试 Retry",
+      "empty": "暂无摄入任务",
+      "emptyHint": "上传文件或提交 URL 开始摄入",
+      "error": "加载任务失败",
+      "retryLoad": "重试"
+    },
+    "pagination": {
+      "total": "共 {count} 个任务记录",
+      "perPage": "每页显示:"
+    },
+    "status": {
+      "pending": "PENDING",
+      "rendering": "RENDERING",
+      "running": "RUNNING",
+      "success": "SUCCESS",
+      "failed": "FAILED",
+      "unknown": "UNKNOWN"
+    },
+    "logs": {
+      "title": "任务日志面板 / Task Logs",
+      "failed": "Failed 处理失败",
+      "success": "Success 处理成功",
+      "running": "Running 处理中",
+      "pending": "Pending 排队中",
+      "live": "LIVE",
+      "copyLogs": "Copy Logs 复制全部",
+      "copied": "已复制",
+      "retryTask": "Retry Task 重新执行",
+      "close": "Close 关闭",
+      "exitCode": "exit code: {code}",
+      "lines": "{count} lines",
+      "streamEnded": "stream ended",
+      "duration": "{seconds}s",
+      "empty": "暂无日志",
+      "loading": "加载日志中…",
+      "loadError": "加载日志失败"
+    },
+    "toast": {
+      "created": "已成功创建 {count} 个摄入任务，正分配至 Celery 队列。",
+      "createdHint": "队列位置 {range} · 预计 2 分钟内开始 GPU 渲染",
+      "success": "摄入成功",
+      "failed": "摄入失败",
+      "documentId": "文档 ID",
+      "dismiss": "关闭"
+    }
+  }
+}

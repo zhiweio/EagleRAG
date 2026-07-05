@@ -1,0 +1,242 @@
+{
+  "kb": {
+    "management": {
+      "breadcrumb": "知识库",
+      "title": "知识库管理",
+      "subtitle": "管理 Eagle-RAG 系统内所有的行业知识库实例与路由规则。",
+      "searchPlaceholder": "搜索知识库名称或 kb_name...",
+      "sort": "按最近更新排序",
+      "sortRecent": "按最近更新排序",
+      "sortName": "按名称排序",
+      "sortSize": "按规模排序",
+      "create": "新建知识库",
+      "empty": "未找到匹配的知识库",
+      "stats": {
+        "kbCount": "知识库实例",
+        "kbCountSub": "{count} 个活跃摄入",
+        "docs": "文档总量",
+        "docsSub": "跨全部命名空间",
+        "nodes": "图谱节点 (Knowhere)",
+        "nodesSub": "实体 + 关系",
+        "vectors": "向量实体 (Milvus)",
+        "vectorsSub": "eagle_text + eagle_visual"
+      },
+      "ghost": {
+        "title": "新建知识库",
+        "sub": "创建独立检索命名空间"
+      }
+    },
+    "card": {
+      "docs": "文档数",
+      "nodes": "图谱节点",
+      "slices": "视觉切片",
+      "more": "更多操作",
+      "open": "打开知识库",
+      "edit": "编辑",
+      "delete": "删除",
+      "deleteConfirm": "确定删除知识库「{name}」？此操作不可恢复。",
+      "deleteError": "删除失败，请稍后重试",
+      "rebuild": "重建索引"
+    },
+    "picker": {
+      "open": "选择知识库",
+      "title": "选择目标知识库",
+      "count": "共 {count} 库",
+      "single": "single-select · 写入目标 kb_name",
+      "docsShort": "{count} 文档",
+      "searchPlaceholder": "搜索名称、kb_name 或标签…",
+      "recent": "最近使用 · Recent",
+      "all": "全部知识库 · All Knowledge Bases ({count})",
+      "nodes": "{count} 节点",
+      "manage": "管理知识库",
+      "keyboard": "↑↓ 选择 · ↵ 确认 · esc 取消",
+      "empty": "未找到匹配的知识库",
+      "default": "全部知识库",
+      "scope": {
+        "all": "全部",
+        "recent": "最近",
+        "starred": "星标",
+        "archived": "归档"
+      },
+      "hint": {
+        "nav": "导航",
+        "select": "选择",
+        "close": "关闭"
+      }
+    },
+    "create": {
+      "title": "新建知识库实例",
+      "subtitle": "Create Knowledge Base",
+      "desc": "创建一个独立的检索命名空间。数据与任务将在该维度下严格隔离。",
+      "sectionBasic": "基础信息 · BASIC INFO",
+      "sectionAdvanced": "高级配置 · ADVANCED SETTINGS",
+      "themeLabel": "主题色与图标",
+      "kbNameLabel": "知识库标识符 (kb_name)",
+      "kbNamePlaceholder": "仅限英文、数字和下划线，如 kb_medicine",
+      "kbNameHint": "创建后不可修改，将作为 Milvus 的标量过滤键 (scalar filter)。",
+      "kbNameError": "仅限小写英文、数字和下划线",
+      "displayLabel": "显示名称 (Display Name)",
+      "displayPlaceholder": "如：医药知识库",
+      "descLabel": "描述 (Description)",
+      "descOptional": "可选",
+      "descPlaceholder": "包含临床说明书、药品注册审批文件等。",
+      "probeTitle": "PDF 智能路由探针",
+      "probeSub": "PDF Form Probe",
+      "probeSliderLabel": "扫描版判定阈值 (Text-page Ratio)",
+      "probeExplain": "当 PDF 中可提取文本的页面比例低于此值时，强制路由至 PixelRAG 进行视觉渲染；否则走 Knowhere 文本解析。",
+      "probeLow": "低于 {value}% → PixelRAG",
+      "probeHigh": "高于 {value}% → Knowhere",
+      "collectionsTitle": "底层 Collection 绑定",
+      "collectionsSub": "eagle_text · eagle_visual",
+      "collectionsHint": "新知识库将复用共享双 Collection，通过 kb_name 标量隔离数据。",
+      "cancel": "取消",
+      "submit": "立即创建",
+      "required": "必填",
+      "createdToast": "知识库已创建",
+      "pending": "创建中…"
+    },
+    "edit": {
+      "title": "编辑知识库",
+      "save": "保存更改",
+      "cancel": "取消",
+      "updatedToast": "知识库已更新"
+    },
+    "toast": {
+      "created": "知识库已创建",
+      "updated": "知识库已更新",
+      "deleted": "知识库已删除",
+      "rebuildStarted": "重建任务已提交",
+      "purgeSuccess": "知识库已清空",
+      "docDeleted": "文档已删除",
+      "error": "操作失败",
+      "errorDesc": "请稍后重试"
+    },
+    "detail": {
+      "back": "返回",
+      "loading": "加载中…",
+      "kbNamePrefix": "kb_name: ",
+      "statusOnline": "引擎在线 · Engine Online",
+      "statusOffline": "离线",
+      "statusDegraded": "降级",
+      "config": "配置",
+      "rebuild": "重建索引",
+      "kpi": {
+        "docs": "文档总数 · Documents",
+        "nodes": "图谱节点 · Knowhere Nodes",
+        "slices": "视觉切片 · PixelRAG Slices",
+        "queries": "检索请求 / 7d"
+      },
+      "format": {
+        "title": "文档格式分布 · Document Format Distribution",
+        "pdfText": "PDF·文本版",
+        "pdfScan": "PDF·扫描版",
+        "docx": "Word (.docx)",
+        "pptx": "PowerPoint (.pptx)",
+        "xlsx": "Excel (.xlsx)",
+        "csv": "CSV",
+        "md": "Markdown",
+        "txt": "文本 (.txt)",
+        "json": "JSON",
+        "html": "网页/HTML",
+        "image": "图片",
+        "other": "其它",
+        "types": "格式种类",
+        "knowhereShare": "Knowhere",
+        "pixelragShare": "PixelRAG",
+        "empty": "该知识库暂无就绪文档。",
+        "total": "合计"
+      },
+      "volume": {
+        "title": "最近 7 天摄入量 · Ingestion Volume · 7d",
+        "total7d": "7 日合计",
+        "avg": "日均",
+        "peak": "峰值",
+        "empty": "近 7 日暂无新摄入文档。",
+        "unit": "docs",
+        "mon": "周一",
+        "tue": "周二",
+        "wed": "周三",
+        "thu": "周四",
+        "fri": "周五",
+        "sat": "周六",
+        "sun": "周日"
+      },
+      "storage": {
+        "title": "底层存储水位 · Milvus Collections",
+        "entities": "实体数",
+        "entitiesCap": "实体数 · entities",
+        "dim": "维",
+        "index": "索引",
+        "model": "模型:",
+        "indexKey": "索引:",
+        "textDesc": "语义与表格索引",
+        "visualDesc": "视觉切片索引",
+        "capacity": "容量占用",
+        "capacityPct": "{pct}% 容量"
+      },
+      "tabs": {
+        "documents": "文档列表 · Documents",
+        "logs": "摄入日志 · Ingest Logs",
+        "maintenance": "清理与重建 · Maintenance"
+      },
+      "table": {
+        "name": "文档名",
+        "type": "类型",
+        "pipeline": "分流链路",
+        "nodes": "图谱节点",
+        "updated": "更新时间",
+        "count": "{count} 篇文档",
+        "empty": "该知识库暂无文档。",
+        "chunks": "切片",
+        "upload": "上传文档",
+        "delete": "删除",
+        "deleteDocConfirm": "确定删除文档「{name}」？将移除其向量与图谱数据。"
+      },
+      "docDeleteModal": {
+        "title": "删除文档",
+        "subtitle": "document_id: {id}",
+        "desc": "将永久删除文档「{name}」的向量、图谱节点与登记记录。原始文档文件会保留。",
+        "hint": "原始文档文件会保留，但所有索引数据将被永久清除，需重新摄入才能恢复检索。",
+        "confirm": "确认删除",
+        "cancel": "取消",
+        "close": "关闭"
+      },
+      "logsEmpty": "该知识库暂无摄入任务记录。",
+      "logsJob": "任务 ID",
+      "logsStatus": "状态",
+      "logsPipeline": "管线",
+      "logsDocument": "文档",
+      "logsUpdated": "更新时间",
+      "logsView": "查看日志",
+      "purgeConfirm": "确定清空知识库「{name}」？将删除该命名空间下全部向量、图谱与登记数据。",
+      "purgeError": "清空失败",
+      "rebuildStarted": "重建任务已提交",
+      "maintenance": {
+        "title": "危险操作",
+        "desc": "重建索引会重新解析并向量化该知识库全部文档；清空会删除该命名空间下所有向量与图谱数据。",
+        "rebuild": "重建索引",
+        "purge": "清空知识库"
+      },
+      "rebuildModal": {
+        "title": "重建索引",
+        "subtitle": "kb_name: {name}",
+        "desc": "将重新解析并向量化该知识库的全部文档。原始文档不会删除，但期间检索可能返回不完整结果。",
+        "hint": "此操作耗时较长，可在日志中查看进度。",
+        "confirm": "确认重建",
+        "cancel": "取消",
+        "close": "关闭"
+      },
+      "purgeModal": {
+        "title": "清空知识库",
+        "subtitle": "kb_name: {name}",
+        "desc": "将永久删除该命名空间下全部向量、图谱与登记数据。此操作不可撤销。",
+        "hint": "原始文档文件会保留，但所有索引数据将被永久清除，需重新摄入或重建索引才能恢复检索。",
+        "confirm": "确认清空",
+        "cancel": "取消",
+        "close": "关闭",
+        "error": "清空失败，请稍后重试。"
+      },
+      "notFound": "未找到该知识库"
+    }
+  }
+}

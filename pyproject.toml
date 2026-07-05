@@ -1,0 +1,136 @@
+[project]
+name = "eagle-rag"
+version = "0.1.0"
+description = "Eagle-RAG: 通用多模态 RAG 知识库（Agent / LLM 数据层）后端"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+authors = [{ name = "Wang Zhiwei" }]
+
+# 核心运行时依赖：默认 `uv sync` 安装
+dependencies = [
+    # Web 框架与 ASGI
+    "fastapi",
+    "uvicorn[standard]",
+    "sse-starlette",
+    "python-multipart",
+    # 异步调度与缓存
+    "celery[redis]",
+    "redis[hiredis]",
+    # 对象存储
+    "minio",
+    # HTTP 客户端
+    "httpx",
+    # 配置与数据建模
+    "pydantic>=2",
+    "pydantic-settings>=2",
+    "pyyaml",
+    # 数据库迁移（Alembic）与 PostgreSQL 驱动（async + sync）
+    "sqlalchemy>=2",
+    "sqlmodel>=0.0.22",
+    "alembic>=1.14",
+    "asyncpg",
+    "psycopg2-binary",
+    # LlamaIndex 编排与路由
+    "llama-index",
+    "llama-index-vector-stores-milvus",
+    "llama-index-tools-mcp",
+    # DeepSeek / DashScope（通义）集成：LLM / VLM / Embedding / Rerank
+    "llama-index-llms-deepseek",
+    "llama-index-llms-dashscope",
+    "llama-index-multi-modal-llms-dashscope",
+    "llama-index-embeddings-dashscope",
+    "llama-index-postprocessor-dashscope-rerank",
+    # 向量库与视觉/解析
+    "pymilvus",
+    "playwright",
+    "pillow",
+    "pypdf",
+    "pdfplumber",      # PDF 表单探测（与 pypdf 互补）
+    # Knowhere 文档语义解析：官方 Python SDK（import knowhere），经 /v1/jobs 调用自托管 :5005
+    "knowhere-python-sdk",
+    # PixelRAG：视觉编码器 + 切片器（pixelrag_render / pixelrag_embed），必需库，默认安装
+    "pixelrag @ git+https://github.com/StarTrail-org/PixelRAG.git",
+    # 本地 Qwen3-VL-Embedding-2B 视觉编码器（_Qwen3VLVisualEncoder 单例）必需：
+    # transformers 提供 AutoProcessor / Qwen3VLForConditionalGeneration；torch 为推理后端。
+    # 如需纯 CPU 小体积 torch，可用 `uv sync --index-strategy unsafe-best-match` 配
+    # `--torch-backend cpu` 或在 [tool.uv.sources] 指向 cpu 索引。
+    "transformers",
+    "torch",
+    "torchvision",  # Qwen3-VL AutoProcessor video processor dependency
+    "mcp>=1.28.1",
+    "psutil",          # /admin/probes 资源限制探测（CPU/内存）
+    "humanize",        # /health uptime 人类可读持续时长（naturaldelta）
+    # 遥测与可观测性
+    "structlog",
+    "loguru",
+    "opentelemetry-api",
+    "opentelemetry-sdk",
+    "opentelemetry-exporter-otlp",
+    # MCP 云端 HTTP 部署（PrefectHQ/fastmcp streamable HTTP + 弹性 + 指标）
+    "fastmcp>=2.3",
+    "tenacity",        # MCP 工具重试（指数退避）
+    "pybreaker",       # MCP 工具熔断
+    "prometheus-client",  # MCP 指标 /metrics
+]
+
+# 可选依赖：仅文档站构建（`uv sync --extra docs`）。PixelRAG（pixelrag_render /
+# pixelrag_embed）与 knowhere-python-sdk 已移入核心 dependencies 作为必需库，默认安装。
+# 不再安装 pixelrag[serve]（已废弃）。
+# 若 pixelrag git 仓库为 flat-layout 且未声明 package-discovery 导致构建失败，
+# 可替换为本地路径依赖：`pixelrag @ file:///path/to/pixelrag`
+[project.optional-dependencies]
+# Docs site build deps: `uv sync --extra docs`.
+# mkdocs-static-i18n provides bilingual folder layout (en/zh).
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocs-static-i18n>=1.2",
+    "pymdown-extensions>=10.7",
+]
+
+# 开发依赖组：`uv sync --group dev` 安装
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    "mypy",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# 允许 dependencies 中使用直接引用（git+/file:///path）。
+# pixelrag 是 git 依赖，不开启此选项 hatchling 会拒绝构建。
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["eagle_rag"]
+
+# cef-capi-py 是 pixelrag 声明的硬依赖，但 pixelrag_render / pixelrag_embed 代码中
+# 从未 import 它（CDP 后端改用 Chrome DevTools Protocol over WebSocket，非 CEF）。
+# 该包仅有 manylinux2014_x86_64 / macOS / Windows wheel，无 linux/aarch64 wheel，
+# 导致 Apple Silicon Docker（linux/arm64）构建失败。此处将其覆盖为平台条件依赖：
+# 仅在非 linux/aarch64 平台安装，linux/aarch64 跳过（不影响功能）。
+[tool.uv]
+override-dependencies = [
+    "cef-capi-py ; sys_platform != 'linux' or platform_machine != 'aarch64'",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

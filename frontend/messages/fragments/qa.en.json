@@ -1,0 +1,205 @@
+{
+  "qa": {
+    "title": "Multimodal Q&A with sourcing",
+    "assistantTitle": "Eagle-RAG Assistant",
+    "subtitle": "Knowledge retrieval over text and images",
+    "clear": "Clear Chat",
+    "composer": {
+      "placeholder": "Ask a question, or type @ to target a knowledge base or scope…",
+      "send": "Send",
+      "attach": "Upload attachment",
+      "attachRemove": "Remove attachment",
+      "mode": "Retrieval mode",
+      "scope": "Scope",
+      "scopeClear": "Clear scope",
+      "mentionHint": "Type @ to mention a document and narrow the scope",
+      "mentionEmpty": "No matching documents",
+      "mentionLoading": "Searching…",
+      "uploading": "Uploading…",
+      "filter": "Filter",
+      "kbName": "Knowledge base",
+      "kbNameAll": "All",
+      "kbNamePlaceholder": "Enter kb name, e.g. finance",
+      "kbNameClear": "Clear",
+      "kbNameHint": "Leave empty for the default kb; setting it narrows retrieval to that kb"
+    },
+    "mode": {
+      "auto": "Auto route",
+      "text": "Text",
+      "visual": "Visual",
+      "hybrid": "Hybrid",
+      "autoDesc": "Router picks the best pipeline",
+      "textDesc": "Text vector recall only",
+      "visualDesc": "Image multimodal recall only",
+      "hybridDesc": "Joint text + image recall"
+    },
+    "empty": {
+      "title": "Ask your first question",
+      "desc": "Hi, I'm the Eagle-RAG knowledge assistant. I retrieve text and image sources from the knowledge base and annotate citations in the answer. Try one of the prompts below, or just type your question.",
+      "pill1": "What are the key points of this document?",
+      "pill2": "Compare the differences between two reports",
+      "hint": "Try: “What are the key points of this document?”"
+    },
+    "loading": {
+      "thinking": "Retrieving and generating"
+    },
+    "sources": {
+      "count": "sources",
+      "title": "Sources",
+      "text": "Text sources",
+      "image": "Image sources",
+      "empty": "No sources yet",
+      "emptyHint": "Ask a question and the matched text passages and visual slices will show up here.",
+      "path": "Path",
+      "level": "Level",
+      "score": "Relevance",
+      "page": "Page",
+      "position": "Position",
+      "viewImage": "View image",
+      "zoom": "Zoom",
+      "attachment": "Session attachment",
+      "pixelSlice": "PixelRAG slice",
+      "visualCaption": "PixelRAG · pixel-aligned · Qwen-VL-Max region",
+      "eagleVisual": "eagle_visual",
+      "eagleText": "eagle_text",
+      "knowhereGraph": "Knowhere graph",
+      "sectionSummary": "Section summary",
+      "tableChunk": "Table",
+      "imageChunk": "Image",
+      "sourceChunk": "chunk",
+      "previewTable": "Preview table",
+      "previewFile": "Preview file",
+      "adaptiveRender": "Adaptive render",
+      "adaptivePdf": "PDF→image slice",
+      "adaptiveMd": "MD→text+breadcrumb",
+      "adaptiveXlsx": "XLSX→data table",
+      "openFull": "Open full source"
+    },
+    "rail": {
+      "sources": "Sources",
+      "structure": "Structure",
+      "preview": "Preview",
+      "expand": "Expand panel",
+      "collapse": "Collapse panel",
+      "expandedTitle": "Evidence workbench"
+    },
+    "structure": {
+      "pickHint": "Pick a source to explore its document structure.",
+      "loading": "Loading structure…",
+      "error": "Structure unavailable",
+      "empty": "No parsed structure for this document.",
+      "openFile": "Open file",
+      "visuals": "Visuals"
+    },
+    "preview": {
+      "empty": "Select a source to preview its file.",
+      "zoom": "Zoom",
+      "table": "Table",
+      "download": "Download"
+    },
+    "steps": {
+      "title": "Reasoning & retrieval steps",
+      "route": "Routing",
+      "recall": "Recall",
+      "rerank": "Rerank",
+      "rerankTextKept": "{count} text kept",
+      "rerankVisualKept": "{count} visual kept",
+      "textTop": "Top text paths",
+      "visualTop": "Top visual slices",
+      "previewVisual": "Preview visual slice {rank}",
+      "recallText": "{count} text recalled",
+      "recallVisual": "{count} visual recalled",
+      "generate": "Generation",
+      "attach_parse": "Attachment parse",
+      "warning": "Warning",
+      "thinkingLive": "Thinking",
+      "thinkingDone": "Thought · {count} steps",
+      "count": "items",
+      "empty": "No step information"
+    },
+    "search": {
+      "ask": "Ask",
+      "search": "Search",
+      "askHint": "Stream a cited answer",
+      "searchHint": "Retrieval only, no answer",
+      "retrievalOnly": "Retrieval only · {count} sources"
+    },
+    "actions": {
+      "copy": "Copy answer"
+    },
+    "citation": {
+      "label": "Citation"
+    },
+    "history": {
+      "title": "History",
+      "open": "Open history",
+      "searchPlaceholder": "Search conversations…",
+      "groupToday": "Today",
+      "groupWeek": "Past 7 days",
+      "groupOlder": "Earlier",
+      "daysAgo": "{count}d ago",
+      "empty": "No conversations yet",
+      "noResults": "No matching conversations",
+      "loadError": "Could not load history",
+      "new": "New chat",
+      "loading": "Loading…",
+      "delete": "Delete"
+    },
+    "lightbox": {
+      "title": "Image preview",
+      "close": "Close",
+      "meta": "Metadata"
+    },
+    "error": {
+      "query": "Query failed, please try again",
+      "upload": "Attachment upload failed",
+      "history": "Failed to load sessions",
+      "messages": "Failed to load session messages",
+      "delete": "Failed to delete session"
+    },
+    "scope": {
+      "attached": "Scope applied"
+    },
+    "scopeFilter": {
+      "title": "Scope filter",
+      "subtitle": "Filter by source type, pipeline and year",
+      "sourceType": "Source type",
+      "pipeline": "Pipeline",
+      "year": "Year",
+      "reset": "Reset",
+      "apply": "Apply"
+    },
+    "scopeDrawer": {
+      "open": "Scope filter",
+      "all": "All",
+      "title": "Scope filter",
+      "subtitle": "Multi-select knowledge bases, documents and tags (union)",
+      "selected": "{count} selected",
+      "searchPlaceholder": "Search knowledge bases, documents or tags…",
+      "tabAll": "All",
+      "tabKb": "Knowledge bases",
+      "tabDoc": "Documents",
+      "tabTag": "Tags",
+      "activeScope": "Active scope · {count}",
+      "activeEmpty": "No scope selected yet",
+      "suggestions": "Suggestions",
+      "sectionKb": "Knowledge bases",
+      "sectionDoc": "Documents",
+      "sectionTag": "Tags",
+      "apply": "Apply scope",
+      "clear": "Clear",
+      "empty": "No matches",
+      "loading": "Loading…",
+      "close": "Close",
+      "remove": "Remove",
+      "kbMeta": "{docs} docs · {nodes} nodes",
+      "docMeta": "{kb} · {nodes} nodes",
+      "tagMeta": "{nodes} nodes · {kb} KBs",
+      "navHint": "Multi-select across dimensions"
+    },
+    "role": {
+      "user": "You",
+      "assistant": "Eagle-RAG"
+    }
+  }
+}

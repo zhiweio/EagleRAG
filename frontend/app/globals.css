@@ -1,0 +1,359 @@
+@import "tailwindcss";
+@import "@heroui/styles";
+
+/* Let Tailwind scan streamdown's compiled classes so the RAG answer renderer is
+   themed by our tokens (light-only). */
+@source "../node_modules/streamdown/dist/index.js";
+
+/*
+ * Eagle-RAG theme — light only.
+ * HeroUI v3 is themed via CSS variables. The block below overrides HeroUI's
+ * default `:root` / `[data-theme="light"]` tokens with the Pencil design tokens.
+ * It is placed after `@import "@heroui/styles"` so equal-specificity rules win.
+ */
+
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Radix Collapsible open/close (AI Elements ChainOfThought / Task / Sources). */
+  --animate-collapsible-down: collapsible-down 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-collapsible-up: collapsible-up 180ms cubic-bezier(0.7, 0, 0.84, 0);
+}
+
+@keyframes collapsible-down {
+  from {
+    height: 0;
+    opacity: 0;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+  }
+}
+
+@keyframes collapsible-up {
+  from {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+  }
+  to {
+    height: 0;
+    opacity: 0;
+  }
+}
+
+/*
+ * shadcn/ui + Vercel AI Elements token bridge (light-only).
+ * HeroUI already maps `--color-*` → Pencil base tokens via `@theme inline`
+ * (background / foreground / border / accent / muted …). This block ADDS the
+ * shadcn-only color tokens (primary / secondary / card / popover / destructive /
+ * input / ring / muted-foreground) and points them at Pencil values, so AI
+ * Elements (which use Tailwind color utilities like `bg-primary`,
+ * `text-muted-foreground`) render on-brand. `accent` (Pencil brand blue) and
+ * `background`/`foreground`/`border` are intentionally left as HeroUI defines
+ * them — existing components rely on brand-blue `text-accent`.
+ */
+@theme inline {
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-foreground);
+  --color-secondary: var(--surface-muted);
+  --color-secondary-foreground: var(--foreground);
+  --color-muted-foreground: var(--foreground-secondary);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--foreground);
+  --color-popover: var(--overlay);
+  --color-popover-foreground: var(--overlay-foreground);
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: var(--danger-foreground);
+  --color-input: var(--border);
+  --color-ring: var(--focus);
+}
+
+:root,
+.light,
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* Spacing base (HeroUI multiplies this for its scale) */
+  --spacing: 0.25rem;
+
+  /* Radius — xs=2 sm=4 md=6 lg=8 xl=12 2xl=16 3xl=24 4xl=32 (derived from --radius=8px) */
+  --radius: 0.5rem; /* 8px */
+  --field-radius: 0.75rem; /* 12px */
+
+  /* Border widths */
+  --border-width: 1px;
+  --field-border-width: 0px; /* border-width-control: 0 */
+  --disabled-opacity: 0.5;
+
+  /* Background */
+  --background: #f5f5f5;
+  --background-secondary: #ebebeb;
+  --background-tertiary: #e1e1e1;
+  --background-inverse: #18181b;
+
+  /* Foreground */
+  --foreground: #18181b;
+  --foreground-secondary: #71717a;
+  --foreground-tertiary: #a1a1aa;
+  --foreground-inverse: #fcfcfc;
+  --foreground-overlay: #18181b;
+  --foreground-link: #18181b;
+  --foreground-segment: #18181b;
+  --muted: #71717a;
+
+  /* Surface */
+  --surface: #ffffff;
+  --surface-foreground: #18181b;
+  --surface-secondary: transparent;
+  --surface-tertiary: #e1e1e1;
+  /* Muted fill for composer / bubbles / soft chips (Pencil #EFEFF0) */
+  --surface-muted: #efeff0;
+  /* Bubble + avatar fill (Pencil #EBEBEC, == --default) */
+  --bubble: #ebebec;
+
+  /* Overlay */
+  --overlay: #ffffff;
+  --overlay-foreground: #18181b;
+
+  /* Default */
+  --default: #ebebec;
+  --default-foreground: #18181b;
+  --default-hover: #e1e1e2;
+
+  /* Accent */
+  --accent: #0485f7;
+  --accent-foreground: #fcfcfc;
+  --accent-hover: #3592f9;
+  --accent-soft: #0485f726;
+  --accent-soft-foreground: #0485f7;
+  --accent-soft-hover: #0485f733;
+
+  /* Success */
+  --success: #17c964;
+  --success-foreground: #fcfcfc;
+  --success-hover: color-mix(in oklab, #17c964 90%, #fcfcfc 10%);
+  --success-soft: #17c96426;
+  --success-soft-foreground: #17c964;
+  --success-soft-hover: #17c96433;
+
+  /* Warning */
+  --warning: #f5a524;
+  --warning-foreground: #18181b;
+  --warning-hover: color-mix(in oklab, #f5a524 90%, #18181b 10%);
+  --warning-soft: #f5a52426;
+  --warning-soft-foreground: #f5a524;
+  --warning-soft-hover: #f5a52433;
+
+  /* Danger */
+  --danger: #ff383c;
+  --danger-foreground: #fcfcfc;
+  --danger-hover: #ff5551;
+  --danger-soft: #ff383c26;
+  --danger-soft-foreground: #ff383c;
+  --danger-soft-hover: #ff555133;
+
+  /* Segment / link / focus / border / separator */
+  --segment: #ffffff;
+  --segment-foreground: #18181b;
+  --link: #18181b;
+  --focus: #0485f7;
+  --border: #dedee0;
+  --separator: #dedee0;
+
+  /* Backdrop */
+  --backdrop: rgba(0, 0, 0, 0.5);
+
+  /* Field */
+  --field-background: #ffffff;
+  --field-foreground: #18181b;
+  --field-placeholder: #71717a;
+  --field-border: transparent;
+  --field-hover: #f9f9f9eb;
+  --field-focus: #ffffff;
+  --field-border-hover: transparent;
+  --field-border-focus: #ababaf;
+
+  /* Shadows (design: field #0000000A, shadow-2 #0000000F) */
+  --field-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+  --surface-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+  --overlay-shadow: 0 2px 8px 0 rgba(0, 0, 0, 0.06);
+}
+
+/*
+ * shadcn `muted` is a light *surface* (`bg-muted` on reasoning/code panels),
+ * whereas Pencil's `--muted` (#71717a) is a *gray text* color used by
+ * `text-muted`. Re-point the base token for the AI Elements subtree only, so
+ * `bg-muted` renders as a light surface there without regressing global
+ * `text-muted`. (`text-muted-foreground` is bridged to `--foreground-secondary`
+ * above and is unaffected.)
+ */
+.ai-scope {
+  --muted: var(--surface-muted);
+}
+
+/* ===== Minimal reset ===== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ===== KB detail: staggered list-row reveal ===== */
+@keyframes kbRowIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.kb-row-in {
+  animation: kbRowIn 380ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ===== AI Elements: HoverCard / Popover mount fade (InlineCitation) ===== */
+@keyframes fadeCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.fade-card[data-state="open"] {
+  animation: fadeCardIn 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ===== Gemini-style thinking indicator (CoT header + active step) ===== */
+@keyframes thinking-shimmer {
+  0% {
+    background-position: 200% center;
+  }
+  100% {
+    background-position: -200% center;
+  }
+}
+
+@keyframes thinking-sparkle {
+  0%,
+  100% {
+    opacity: 0.65;
+    transform: scale(0.9) rotate(0deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08) rotate(14deg);
+  }
+}
+
+@keyframes thinking-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.2;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+@keyframes thinking-step-ring {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+}
+
+@keyframes thinking-step-icon {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.thinking-shimmer {
+  background-image: linear-gradient(
+    105deg,
+    var(--foreground-secondary) 0%,
+    var(--foreground-secondary) 38%,
+    var(--accent) 46%,
+    #7c3aed 50%,
+    #3b82f6 54%,
+    var(--foreground-secondary) 62%,
+    var(--foreground-secondary) 100%
+  );
+  background-size: 220% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: thinking-shimmer 2.4s ease-in-out infinite;
+}
+
+.thinking-sparkle {
+  animation: thinking-sparkle 1.75s ease-in-out infinite;
+}
+
+.thinking-dot {
+  animation: thinking-dot 1.2s ease-in-out infinite;
+}
+
+.thinking-step-ring {
+  animation: thinking-step-ring 2s ease-in-out infinite;
+}
+
+.thinking-step-icon {
+  animation: thinking-step-icon 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-shimmer {
+    animation: none;
+    background: none;
+    color: var(--foreground-secondary);
+    -webkit-background-clip: unset;
+    background-clip: unset;
+  }
+
+  .thinking-sparkle,
+  .thinking-dot,
+  .thinking-step-ring,
+  .thinking-step-icon {
+    animation: none;
+  }
+}

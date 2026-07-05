@@ -1,0 +1,49 @@
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "lint:fix": "biome check --write .",
+    "api:gen": "openapi-ts",
+    "api:gen:watch": "OPENAPI_WATCH=1 openapi-ts",
+    "predev": "bun run api:gen"
+  },
+  "dependencies": {
+    "@heroui/react": "^3.2.1",
+    "@heroui/styles": "^3.2.1",
+    "@hey-api/client-fetch": "^0.13.1",
+    "@streamdown/math": "^1.0.2",
+    "@tailwindcss/postcss": "^4.3.2",
+    "@tanstack/react-query": "^5.101.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.42.0",
+    "lucide-react": "^1.22.0",
+    "next": "16.2.9",
+    "next-intl": "^4.13.0",
+    "radix-ui": "^1.6.1",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "recharts": "^3.9.1",
+    "streamdown": "^2.5.0",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4.3.2",
+    "use-stick-to-bottom": "^1.1.6",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4",
+    "@hey-api/openapi-ts": "^0.99.0",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5"
+  },
+  "ignoreScripts": ["sharp", "unrs-resolver"],
+  "trustedDependencies": ["sharp", "unrs-resolver"]
+}

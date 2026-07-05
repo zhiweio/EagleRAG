@@ -1,0 +1,153 @@
+{
+  "ingest": {
+    "title": "Ingestion & Routing",
+    "subtitle": "PDF form probe auto-routes documents to Knowhere text parsing or PixelRAG visual indexing",
+    "breadcrumb": "Ingestion",
+    "header": {
+      "kbLabel": "Target KB (kb_name)",
+      "inQueue": "{count} in queue",
+      "logs": "Logs"
+    },
+    "upload": {
+      "title": "Upload & Routing Strategy",
+      "autoDetect": "Auto-detect",
+      "step": "Step {current} of {total}",
+      "targetKB": "Target Knowledge Base",
+      "required": "Required",
+      "current": "Current",
+      "totalLibs": "{count} KBs",
+      "recent": "Recent",
+      "searchAll": "+{count} All",
+      "docsCount": "{count} docs",
+      "updatedAgo": "updated {time}",
+      "dropTitle": "Drag to batch upload · or click to browse",
+      "dropHint": "Supports PDF · Word · Excel/CSV · Images · URL · up to 50MB per file",
+      "submit": "Submit to queue",
+      "submitting": "Submitting…",
+      "systemDefault": "System default namespace",
+      "filesSelected": "{count} files selected"
+    },
+    "url": {
+      "tab": {
+        "file": "File",
+        "url": "URL"
+      },
+      "title": "Submit URL",
+      "placeholder": "Paste a public URL (https://...) — web page, PDF, image",
+      "submit": "Submit URL",
+      "submitting": "Validating…",
+      "invalidFormat": "Please enter a valid URL starting with http:// or https://",
+      "error": {
+        "invalid_url_format": "Invalid URL format. Only http:// and https:// URLs are accepted.",
+        "url_target_forbidden": "This URL points to a private or restricted address and cannot be fetched by the server.",
+        "url_unreachable": "The server cannot reach this URL. Check if the link is public and accessible.",
+        "url_timeout": "The URL took too long to respond. Try again later or use a different link.",
+        "url_bad_status": "The URL returned an error status.",
+        "fallback": "URL submission failed. Please verify the link and try again."
+      }
+    },
+    "routing": {
+      "auto": {
+        "title": "Auto · route by PDF probe",
+        "desc": "Text/tables → Knowhere · Images/web → PixelRAG"
+      },
+      "knowhere": {
+        "title": "Force Knowhere (text/tables)",
+        "desc": "Text / HTML table parsing · into eagle_text"
+      },
+      "pixelrag": {
+        "title": "Force PixelRAG (web/scans/images)",
+        "desc": "Render & slice · Qwen-VL visual embedding · into eagle_visual"
+      }
+    },
+    "queue": {
+      "title": "Ingestion Queue",
+      "live": "Live",
+      "inQueue": "{count} in queue",
+      "text": {
+        "title": "Text Parsing Queue",
+        "worker": "CPU Worker · Knowhere",
+        "idle": "Idle",
+        "busy": "Busy",
+        "concurrency": "Concurrency: {count}"
+      },
+      "visual": {
+        "title": "Visual Rendering Queue",
+        "worker": "GPU Worker · PixelRAG",
+        "idle": "Idle",
+        "queued": "Queued",
+        "concurrency": "Queued: {queued} · Concurrency: {count}"
+      }
+    },
+    "toolbar": {
+      "search": "Search document name, task ID or extension…",
+      "allKB": "All KBs",
+      "allPipeline": "All pipelines",
+      "allStatus": "All statuses",
+      "refresh": "Refresh"
+    },
+    "filters": {
+      "kbTitle": "Filter by knowledge base",
+      "pipelineTitle": "Filter by pipeline",
+      "statusTitle": "Filter by status",
+      "allKB": "All KBs",
+      "allPipeline": "All pipelines",
+      "allStatus": "All statuses",
+      "knowhere": "Knowhere (text)",
+      "pixelrag": "PixelRAG (visual)"
+    },
+    "table": {
+      "jobId": "Task ID",
+      "document": "Document",
+      "pipeline": "Pipeline",
+      "state": "State",
+      "progress": "Progress",
+      "actions": "Actions",
+      "cancel": "Cancel",
+      "retry": "Retry",
+      "empty": "No ingest tasks",
+      "emptyHint": "Upload a file or submit a URL to start ingesting",
+      "error": "Failed to load tasks",
+      "retryLoad": "Retry"
+    },
+    "pagination": {
+      "total": "{count} task records",
+      "perPage": "Per page:"
+    },
+    "status": {
+      "pending": "PENDING",
+      "rendering": "RENDERING",
+      "running": "RUNNING",
+      "success": "SUCCESS",
+      "failed": "FAILED",
+      "unknown": "UNKNOWN"
+    },
+    "logs": {
+      "title": "Task Logs",
+      "failed": "Failed",
+      "success": "Success",
+      "running": "Running",
+      "pending": "Pending",
+      "live": "LIVE",
+      "copyLogs": "Copy Logs",
+      "copied": "Copied",
+      "retryTask": "Retry Task",
+      "close": "Close",
+      "exitCode": "exit code: {code}",
+      "lines": "{count} lines",
+      "streamEnded": "stream ended",
+      "duration": "{seconds}s",
+      "empty": "No logs yet",
+      "loading": "Loading logs…",
+      "loadError": "Failed to load logs"
+    },
+    "toast": {
+      "created": "Created {count} ingest tasks, dispatching to Celery queue.",
+      "createdHint": "Queue position {range} · GPU rendering starts within ~2 min",
+      "success": "Ingest succeeded",
+      "failed": "Ingest failed",
+      "documentId": "Document ID",
+      "dismiss": "Dismiss"
+    }
+  }
+}

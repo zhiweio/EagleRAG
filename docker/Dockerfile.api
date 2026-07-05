@@ -1,0 +1,76 @@
+# syntax=docker/dockerfile:1.7
+# Eagle-RAG 后端 API 镜像（多阶段构建，非 root 运行）。
+# 构建：docker build -f docker/Dockerfile.api -t eagle-rag-api .
+ARG PYTHON_VERSION=3.12
+
+# ---------------- builder ----------------
+FROM python:${PYTHON_VERSION}-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    # 强制 uv 使用 base 镜像的系统 Python（/usr/local/bin/python3.12），
+    # 否则 uv 默认下载 cpython-3.14 到 /root/.local/share/uv/ 并把 venv 的
+    # python 软链指向那里；runtime 阶段只 COPY /opt/venv，软链目标不存在
+    # → 容器内 exec 任何 venv 脚本报 "no such file or directory"。
+    UV_PYTHON_PREFERENCE=only-system
+
+WORKDIR /app
+
+# 系统依赖：Playwright 浏览器运行库、CJK/Emoji 字体、curl、git。
+# git：vision extra 的 pixelrag 是 git+https 依赖，uv clone 需要 git。
+# 说明：LibreOffice 已移除（Excel 改走 Knowhere 直连）；保留浏览器运行库以兼容渲染预处理路径，
+#       浏览器二进制不在本镜像安装。
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libdrm2 libxkbcommon0 \
+        libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
+        fonts-noto-cjk fonts-noto-color-emoji \
+        curl git \
+    && rm -rf /var/lib/apt/lists/*
+
+# uv（固定来源镜像，不单独安装）。
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# 先装依赖（利用层缓存）：仅按锁文件同步，不安装项目自身（源码稍后复制）。
+# pixelrag_render / pixelrag_embed 已在核心 dependencies 中，默认安装，
+# 使 /health 探测能真实报告 pixelrag 为 up（而非 unknown mock 回退）。
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+
+# ---------------- runtime ----------------
+FROM python:${PYTHON_VERSION}-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:${PATH}"
+
+WORKDIR /app
+
+# 运行期同样需要上述系统库（浏览器运行时依赖）+ curl（健康检查）。
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libdrm2 libxkbcommon0 \
+        libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
+        fonts-noto-cjk fonts-noto-color-emoji \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# 从 builder 拷贝虚拟环境。
+COPY --from=builder /opt/venv /opt/venv
+
+# 非 root 用户：先创建并 chown /app 及运行期可写目录（logs / data），
+# 再切换 USER。settings.yaml 默认 op_log_file=logs/eagle_rag.log、
+# ai_log_file=logs/ai_telemetry.jsonl、storage.data_dir=./data，均为相对 /app 的路径；
+# 若 /app 归 root，eagle 无权创建 logs/ → 启动期 PermissionError（uv-docker 最佳实践）。
+RUN useradd --create-home --uid 1000 eagle \
+    && mkdir -p /app/logs /app/data \
+    && chown -R eagle:eagle /app
+
+# 源码与锁文件（eagle_rag/settings.yaml 随包内）。
+COPY --chown=eagle:eagle pyproject.toml uv.lock ./
+COPY --chown=eagle:eagle eagle_rag ./eagle_rag
+
+USER eagle
+
+EXPOSE 8000
+CMD ["uvicorn", "eagle_rag.api.app:app", "--host", "0.0.0.0", "--port", "8000"]

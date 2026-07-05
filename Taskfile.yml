@@ -1,0 +1,285 @@
+# Eagle-RAG 统一任务编排（taskfile.dev，version 3）。
+# 用法：
+#   task               # 列出全部任务
+#   task setup         # 初始化项目（复制 .env、安装前后端依赖）
+#   task up            # 一键启动 Docker 全栈（dev profile）
+#   task dev           # 本机并行启动前后端（热重载）
+#   task be:worker QUEUES=router_queue,knowhere_queue,pixelrag_queue CONCURRENCY=4
+#
+# 架构说明：
+#   - PixelRAG 降格为「视觉编码器 + 切片器」库调用（pixelrag_render / pixelrag_embed），
+#     不再独立部署 serve，亦无 FAISS；视觉向量直写 Milvus eagle_visual Collection。
+#   - Knowhere（Ontos-AI/knowhere）为文档语义解析服务（HTTP :5005，POST /v1/documents），
+#     以独立 compose project（docker/knowhere-self-hosted/）部署，经 task up 一并拉起。
+#     eagle-rag 容器经共享网络 knowhere-net 以 DNS 名 knowhere 访问；本机直连用 localhost:5005。
+#     文本版 PDF / Excel / Word 等走 Knowhere 解析。
+#   - 文档路由：PDF 形态探针（pypdf/pdfplumber）判定文本版→Knowhere、扫描版→PixelRAG；
+#     Excel 直连 Knowhere（已移除 LibreOffice）。
+#   - 模型仅 DeepSeek（文本 LLM/路由）+ Qwen 系列（VLM / 文本嵌入 dim1536 /
+#     视觉嵌入 dim2048 / rerank）；单一 Milvus 集群双 Collection（eagle_text + eagle_visual）。
+
+version: '3'
+
+# 从 .env 注入环境变量（若不存在则跳过，由 setup 任务创建）。
+dotenv: ['.env']
+
+vars:
+  FRONTEND_DIR: ./frontend
+  API_HOST: 0.0.0.0
+  API_PORT: '8000'
+  DOCS_PORT: '8001'
+  # Knowhere 自托管栈目录（独立 compose project，env_file 在该目录解析）。
+  KNOWHERE_DIR: ./docker/knowhere-self-hosted
+  # KNOWHERE_BASE_URL 优先取 .env，缺省回退本机 5005。
+  KNOWHERE_BASE_URL: '{{.KNOWHERE_BASE_URL | default "http://localhost:5005"}}'
+
+# ======================== 前端组 ========================
+tasks:
+  fe:dev:
+    desc: 启动前端开发服务器（热重载）
+    dir: '{{.FRONTEND_DIR}}'
+    cmds:
+      - bun run dev
+
+  fe:build:
+    desc: 构建前端生产产物
+    dir: '{{.FRONTEND_DIR}}'
+    sources:
+      - app/**
+      - components/**
+      - package.json
+    generates:
+      - .next
+    cmds:
+      - bun run build
+
+  fe:lint:
+    desc: Biome 检查前端代码
+    dir: '{{.FRONTEND_DIR}}'
+    cmds:
+      - bun run lint
+
+  fe:format:
+    desc: Biome 格式化前端代码
+    dir: '{{.FRONTEND_DIR}}'
+    cmds:
+      - bun run format
+
+  fe:start:
+    desc: 启动前端生产服务器
+    dir: '{{.FRONTEND_DIR}}'
+    cmds:
+      - bun run start
+
+  fe:deps:
+    desc: 同步 Docker 前端容器的 node_modules（匿名卷与 bun.lock 不一致时执行）
+    cmds:
+      - docker compose --profile dev exec -T frontend bun install
+      - docker compose --profile dev restart frontend
+
+  # ======================== 后端组 ========================
+  be:api:
+    desc: 启动后端 API（热重载）
+    cmds:
+      - uv run uvicorn eagle_rag.api.app:app --reload --host {{.API_HOST}} --port {{.API_PORT}}
+
+  be:worker:
+    desc: 启动 Celery Worker（参数化队列，默认消费全部三队列；用法 task be:worker QUEUES=router_queue,knowhere_queue,pixelrag_queue CONCURRENCY=4）
+    cmds:
+      - uv run celery -A eagle_rag.tasks.celery_app worker -Q {{.QUEUES | default "router_queue,knowhere_queue,pixelrag_queue"}} -c {{.CONCURRENCY | default 4}} --loglevel=info
+
+  be:test:
+    desc: 运行后端测试
+    cmds:
+      - uv run pytest
+
+  be:lint:
+    desc: Ruff 检查后端代码
+    cmds:
+      - uv run ruff check
+
+  be:format:
+    desc: Ruff 格式化后端代码
+    cmds:
+      - uv run ruff format
+
+  be:typecheck:
+    desc: Mypy 类型检查
+    cmds:
+      - uv run mypy eagle_rag
+
+  # ======================== Docker 组 ========================
+  # 确保共享外部网络 knowhere-net 存在（eagle-rag 与 knowhere-self-hosted compose 共用，
+  # 主 compose 声明其为 external: true，缺失时 `task up` 报 "could not be found"）。
+  # internal:true 不列入 task --list，仅作 deps 被其他任务调用。
+  net:ensure:
+    internal: true
+    cmds:
+      - docker network create knowhere-net 2>/dev/null || true
+
+  up:
+    desc: 一键启动全部服务（knowhere + eagle-rag dev，含前端 HMR）
+    deps: [knowhere:up]
+    preconditions:
+      - sh: test -f .env
+        msg: "缺少 .env，请先执行 task setup 或 cp .env.example .env"
+    cmds:
+      # 拉起本仓库 compose 全部 dev 服务（含前端 HMR，不再 --scale frontend=0）。
+      - docker compose --profile dev up -d
+      - 'echo "全部服务已启动：knowhere API :5005 / api :8000 / frontend :3000"'
+
+  up:prod:
+    desc: 启动生产环境（knowhere + eagle-rag prod，排除 dev override）
+    deps: [knowhere:up]
+    preconditions:
+      - sh: test -f .env
+        msg: "缺少 .env，请先执行 task setup 或 cp .env.example .env"
+    cmds:
+      - COMPOSE_FILE=docker-compose.yml docker compose --profile prod up -d
+
+  down:
+    desc: 停止全部服务（eagle-rag + knowhere 两个 compose project）
+    cmds:
+      # --profile dev：api/worker-*/frontend 带 profiles:[dev,test,prod]，不传则不会被 down 触及。
+      - docker compose --profile dev down
+      - 'cd {{.KNOWHERE_DIR}} && unset POSTGRES_PASSWORD APP_ENV && docker compose down'
+
+  build:
+    desc: 构建全部镜像
+    cmds:
+      # api/worker-*/frontend 均带 profiles: [dev,test,prod]，须显式传 --profile 才会被 build 识别。
+      - docker compose --profile dev build
+
+  build:prod:
+    desc: 构建生产环境镜像
+    cmds:
+      - docker compose --profile prod build
+
+  logs:
+    desc: 查看全部服务日志（跟随）
+    cmds:
+      - docker compose logs -f
+
+  ps:
+    desc: 查看服务状态（eagle-rag + knowhere 两个 compose project）
+    cmds:
+      - docker compose ps
+      - 'cd {{.KNOWHERE_DIR}} && unset POSTGRES_PASSWORD APP_ENV && docker compose ps'
+
+  clean:
+    desc: 停止并删除卷（清空数据，慎用；eagle-rag + knowhere 两个 project）
+    cmds:
+      - docker compose --profile dev down -v
+      - 'cd {{.KNOWHERE_DIR}} && unset POSTGRES_PASSWORD APP_ENV && docker compose down -v'
+
+  # ======================== 文档组 ========================
+  docs:serve:
+    desc: 本地预览文档站（http://127.0.0.1:8001）
+    cmds:
+      - mkdocs serve -a 0.0.0.0:{{.DOCS_PORT}}
+
+  docs:build:
+    desc: 构建文档站（strict 模式）
+    sources:
+      - docs/**
+      - mkdocs.yml
+    generates:
+      - site
+    cmds:
+      - mkdocs build --strict
+
+  docs:up:
+    desc: Docker 启动文档站
+    cmds:
+      - docker compose --profile docs up -d docs
+
+  # ======================== 数据组 ========================
+  db:migrate:
+    desc: 执行 Alembic 数据库迁移（alembic upgrade head）
+    cmds:
+      - uv run alembic upgrade head
+
+  # ======================== 部署/监控组 ========================
+  health:
+    desc: 检查 API 健康状态
+    cmds:
+      - curl -s http://localhost:{{.API_PORT}}/health | python3 -m json.tool
+
+  # ======================== Knowhere 组（独立自托管栈） ========================
+  # Knowhere 文档语义解析服务从主 compose 拆分至 docker/knowhere-self-hosted/compose.yaml，
+  # 独立维护与部署。eagle-rag 容器经共享外部网络 knowhere-net 以 DNS 名 knowhere 访问 :5005。
+  # 启动顺序：task up 自动先 knowhere:up 再启 eagle-rag（fail-closed：Knowhere 未就绪则解析任务转 FAILED）。
+  #
+  # 隔离说明：Taskfile 顶层 dotenv:['.env'] 会把根目录 .env 的 POSTGRES_PASSWORD / APP_ENV 注入
+  # shell，因 shell 环境变量优先级高于 compose 的 .env / ${VAR:-default}，会覆盖 knowhere 的
+  # 默认值（root123 / production）→ postgres 口令与 app 不一致 / app 误入 dev 模式。故每个
+  # knowhere 任务先 unset 这两项，由 knowhere 自身 env.defaults / .env 决定。
+  knowhere:up:
+    desc: 启动 Knowhere 自托管栈（docker/knowhere-self-hosted，文档解析 :5005）
+    dir: '{{.KNOWHERE_DIR}}'
+    deps: [net:ensure]
+    cmds:
+      - unset POSTGRES_PASSWORD APP_ENV && docker compose up -d
+
+  knowhere:down:
+    desc: 停止 Knowhere 自托管栈
+    dir: '{{.KNOWHERE_DIR}}'
+    cmds:
+      - unset POSTGRES_PASSWORD APP_ENV && docker compose down
+
+  knowhere:restart:
+    desc: 重启 Knowhere 自托管栈
+    dir: '{{.KNOWHERE_DIR}}'
+    cmds:
+      - unset POSTGRES_PASSWORD APP_ENV && docker compose restart
+
+  knowhere:logs:
+    desc: 查看 Knowhere 日志（跟随）
+    dir: '{{.KNOWHERE_DIR}}'
+    cmds:
+      - unset POSTGRES_PASSWORD APP_ENV && docker compose logs -f
+
+  knowhere:ps:
+    desc: 查看 Knowhere 服务状态
+    dir: '{{.KNOWHERE_DIR}}'
+    cmds:
+      - unset POSTGRES_PASSWORD APP_ENV && docker compose ps
+
+  knowhere:health:
+    desc: 探测 Knowhere 解析服务（外部 HTTP :5005，POST /v1/documents）可用性
+    cmds:
+      # 与 eagle_rag.api.health._probe_knowhere 一致：HTTP GET base_url 判定 up/down。
+      # knowhere 由 task up / task knowhere:up 启动；本机直连用 http://localhost:5005。
+      - 'curl -s -o /dev/null -w "knowhere -> HTTP %{http_code}\n" --max-time 5 {{.KNOWHERE_BASE_URL}} || echo "knowhere 不可达：请确认 {{.KNOWHERE_BASE_URL}} 已启动"'
+
+  logs:api:
+    desc: 查看 API 日志
+    cmds:
+      - docker compose logs -f api
+
+  logs:worker:
+    desc: 查看 Worker 日志（参数化，默认 worker-router，用法 task logs:worker SERVICE=worker-knowhere）
+    cmds:
+      - docker compose logs -f {{.SERVICE | default "worker-router"}}
+
+  # ======================== 顶层快捷 ========================
+  setup:
+    desc: 初始化项目：复制两个 .env、建网、安装前后端依赖（傻瓜式一键）
+    cmds:
+      - cp -n .env.example .env || true
+      - 'cp -n {{.KNOWHERE_DIR}}/.env.example {{.KNOWHERE_DIR}}/.env || true'
+      - docker network create knowhere-net 2>/dev/null || true
+      - uv sync
+      - cd {{.FRONTEND_DIR}} && bun install
+      - 'echo "已生成 .env 与 knowhere/.env 并创建 knowhere-net 网络；请填入 API key 后 task up"'
+
+  dev:
+    desc: 开发模式：并行启动前后端（或用 task up 走 Docker）
+    deps:
+      - be:api
+      - fe:dev
+
+  default:
+    desc: 显示帮助（task --list）
+    cmds:
+      - task --list

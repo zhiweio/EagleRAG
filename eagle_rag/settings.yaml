@@ -1,0 +1,238 @@
+app:
+  name: Eagle-RAG
+  env: ${APP_ENV:-dev}
+  host: ${APP_HOST:-0.0.0.0}
+  port: ${APP_PORT:-8000}
+
+# Knowledge-base identifier: a single instance can host multiple KBs; kb_name isolates collections and object-storage prefixes.
+kb_name: ${KB_NAME:-default}
+
+milvus:
+  host: ${MILVUS_HOST:-localhost}
+  port: ${MILVUS_PORT:-19530}
+  text_collection: eagle_text
+  visual_collection: eagle_visual
+  dim_text: 1536
+  dim_visual: 2048  # Qwen3-VL-Embedding-2B outputs 2048-dim
+  visual_index_type: ${MILVUS_VISUAL_INDEX_TYPE:-hnsw}   # hnsw | diskann
+
+# Knowhere parsing service: official knowhere-python-sdk (import knowhere) calling a self-hosted :5005.
+# Knowhere is split into a standalone compose (docker/knowhere-self-hosted/); deployment vars live in that directory's .env.
+# Client args and parsing_params are forwarded to Knowhere(api_key, base_url).parse(file=...).
+# Inside the container, reach it via the shared knowhere-net network as the DNS name `knowhere`; from the host use localhost.
+knowhere:
+  base_url: ${KNOWHERE_BASE_URL:-http://localhost:5005}
+  api_key: ${KNOWHERE_API_KEY:-}
+  timeout: ${KNOWHERE_TIMEOUT:-60}
+  upload_timeout: ${KNOWHERE_UPLOAD_TIMEOUT:-600}
+  max_retries: ${KNOWHERE_MAX_RETRIES:-5}
+  poll_interval: ${KNOWHERE_POLL_INTERVAL:-10}
+  poll_timeout: ${KNOWHERE_POLL_TIMEOUT:-1800}
+  parsing_params:
+    model: ${KNOWHERE_PARSING_MODEL:-advanced}
+    ocr_enabled: true        # YAML bool (not an env placeholder, to avoid string injection); set to false to disable.
+
+# PixelRAG used as a library (pixelrag_render / pixelrag_embed); serve mode is not launched.
+pixelrag:
+  chunk_size: 1024
+  top_k: 5
+  tile_height: 8192        # Per-page tile height (px).
+  quality: 85              # Render JPEG quality.
+  viewport_width: 875      # Render viewport width.
+  backend: ${PIXELRAG_BACKEND:-cdp}   # cdp | playwright
+  pdf_dpi: 200             # PDF render DPI.
+  embed_device: ${PIXELRAG_EMBED_DEVICE:-auto}   # auto | cuda | mps | cpu (for the local Qwen3-VL encoder).
+  embed_instruction: "Represent the user's input."   # Encoding instruction, shared by image and text.
+
+# PDF form probing: detect scanned vs text-based PDFs.
+pdf_probe:
+  text_page_ratio: 0.2       # Threshold ratio of extractable-text pages; below this is treated as scanned.
+  avg_chars_per_page: 50     # Threshold for average characters per page.
+
+vlm:
+  provider: dashscope
+  model: ${VLM_MODEL:-qwen3.6-flash}
+  api_key: ${VLM_API_KEY:-}
+  base_url: ${VLM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+
+llm:
+  provider: dashscope
+  model: ${LLM_MODEL:-deepseek-v4-pro}   # DeepSeek-V4-Pro
+  api_key: ${LLM_API_KEY:-}
+  base_url: ${LLM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+
+embedding:
+  text:
+    provider: dashscope
+    model: ${TEXT_EMBEDDING_MODEL:-text-embedding-v4}
+    api_key: ${DASHSCOPE_API_KEY:-}
+    base_url: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+    dim: 1536
+  visual:
+    provider: pixelrag
+    model: ${VISUAL_EMBEDDING_MODEL:-Qwen/Qwen3-VL-Embedding-2B}
+    dim: 2048
+
+rerank:
+  text:
+    provider: dashscope
+    model: ${RERANK_TEXT_MODEL:-qwen3-rerank}
+    api_key: ${DASHSCOPE_API_KEY:-}
+  visual:
+    provider: pixelrag
+    model: ${VISUAL_EMBEDDING_MODEL:-Qwen/Qwen3-VL-Embedding-2B}
+
+router:
+  mode: ${ROUTER_MODE:-auto}  # auto | text | visual | hybrid
+  # Upper bound on document_ids folded into the advanced scope filter (bounds tag-resolved documents in the Milvus `document_id in [...]` predicate).
+  max_scope_documents: ${ROUTER_MAX_SCOPE_DOCUMENTS:-500}
+  # Max chars of chunk body echoed back on each retrieval source (bounds /search and /query payloads).
+  source_content_max_chars: ${ROUTER_SOURCE_CONTENT_MAX_CHARS:-4000}
+  # Upper bound on section nodes persisted / served for a document's semantic tree.
+  structure_max_nodes: ${ROUTER_STRUCTURE_MAX_NODES:-2000}
+  llm:
+    enabled: ${ROUTER_LLM_ENABLED:-true}   # When false, skip LLM intent classification and go straight to heuristics.
+    prompt_template: |-
+      判断以下查询应使用哪种检索方式，只回复一个单词：text、visual 或 hybrid。
+      - text：政策/法规/条例等纯文本问题
+      - visual：报表/表格/图表/截图/看图读数/工商招投标等需要图片的问题
+      - hybrid：同时需要文本与图片
+
+      查询：{query}
+      回答：
+  heuristic:
+    rules:
+      - keywords: [架构图, 结构图, 示意图, 流程图, 展示图, 原理图, 插图, 图片, diagram, figure, architecture]
+        route: hybrid
+      - keywords: [表格, 报表, 图表, 截图, 利润, 资产负债, 收入, 成本, 看图, 读数, table, chart, report]
+        route: visual
+      - keywords: [政策, 法规, 条例, 规定, 第几条, 依据, policy, law, regulation]
+        route: text
+      - keywords: [工商, 招投标, 中标, 企业信息, business, bid, tender]
+        route: visual
+    default: text
+
+celery:
+  broker_url: ${CELERY_BROKER_URL:-redis://localhost:6379/0}
+  result_backend: ${CELERY_RESULT_BACKEND:-redis://localhost:6379/1}
+  task_routes:
+    eagle_rag.tasks.ingest_router: router_queue
+    eagle_rag.tasks.knowhere_parse: knowhere_queue
+    eagle_rag.tasks.pixelrag_build: pixelrag_queue
+  queues:
+    router_queue:
+      concurrency: 4
+    knowhere_queue:
+      concurrency: 8
+    pixelrag_queue:
+      concurrency: 1        # Strict low concurrency to avoid OOM.
+  max_retries: 3
+  retry_backoff: 60         # Seconds.
+
+minio:
+  endpoint: ${MINIO_ENDPOINT:-localhost:9000}
+  access_key: ${MINIO_ACCESS_KEY:-minioadmin}
+  secret_key: ${MINIO_SECRET_KEY:-minioadmin}
+  secure: false
+  bucket: ${MINIO_BUCKET:-eagle-rag}
+
+postgres:
+  dsn: ${POSTGRES_DSN:-postgresql://eagle:eagle@localhost:5432/eagle_rag}
+
+storage:
+  data_dir: ${STORAGE_DATA_DIR:-./data}
+  image_store: ${IMAGE_STORE:-./data/images}
+
+kb:
+  text_entity_limit: ${KB_TEXT_ENTITY_LIMIT:-500000}
+  visual_entity_limit: ${KB_VISUAL_ENTITY_LIMIT:-200000}
+
+attachments:
+  ttl_hours: ${ATTACHMENTS_TTL_HOURS:-24}
+  parse:
+    max_bytes: ${ATTACHMENTS_PARSE_MAX_BYTES:-10485760}
+    max_chunks: ${ATTACHMENTS_PARSE_MAX_CHUNKS:-50}
+    timeout_sec: ${ATTACHMENTS_PARSE_TIMEOUT_SEC:-120}
+    cache_enabled: ${ATTACHMENTS_PARSE_CACHE_ENABLED:-true}
+    chunk_size: ${ATTACHMENTS_PARSE_CHUNK_SIZE:-2000}
+
+# Ingest routing config: extension / prefix / content_type rules plus source_type keywords (all configurable; defaults match the prior hardcoded values).
+ingest:
+  routing:
+    prefix_force:                     # Filename prefix → forced pipeline.
+      "knowhere:": knowhere
+      "pixelrag:": pixelrag
+    knowhere_exts: [.docx, .doc, .md, .markdown, .txt, .xlsx, .xls, .csv, .pptx, .json]
+    pixelrag_exts: [.png, .jpg, .jpeg, .webp, .gif, .bmp, .tiff, .tif, .htm, .html]
+    pdf_exts: [.pdf]
+    content_type_rules:               # content_type fallback (no extension / unknown extension).
+      - {match: "text/", mode: startswith, pipeline: knowhere}
+      - {match: markdown, mode: contains, pipeline: knowhere}
+      - {match: msword, mode: contains, pipeline: knowhere}
+      - {match: wordprocessing, mode: contains, pipeline: knowhere}
+      - {match: "image/", mode: startswith, pipeline: pixelrag}
+      - {match: spreadsheet, mode: contains, pipeline: pixelrag}
+      - {match: excel, mode: contains, pipeline: pixelrag}
+    default_pipeline: knowhere        # Fallback for unknown sources.
+  source_type:                        # source_type inference keywords (metadata tag only; does not affect routing).
+    rules:
+      - {keywords: [财报, 报表, 资产负债, 利润表, 现金流量, 审计报告, financial, balance, income, cashflow, table], source_type: financial}
+      - {keywords: [政策, 法规, 条例, 办法, 通知, 公告, policy, law, regulation, act], source_type: policy}
+      - {keywords: [招标, 中标, 投标, 采购, bidding, tender], source_type: bidding}
+      - {keywords: [税, 税务, 个税, 增值税, tax, vat], source_type: tax}
+      - {keywords: [工商, 企业信息, 营业执照, 公司简介, business, company], source_type: business}
+    default: other
+  url_prefetch:
+    timeout_sec: ${INGEST_URL_PREFETCH_TIMEOUT:-10}
+    max_redirects: ${INGEST_URL_PREFETCH_MAX_REDIRECTS:-3}
+
+auth:
+  enabled: ${AUTH_ENABLED:-false}
+  api_key: ${AUTH_API_KEY:-}
+
+# MCP cloud HTTP deployment config (fastmcp streamable HTTP, stateless + JSON-only).
+# When redis_url is empty, the runtime falls back to celery.broker_url.
+mcp:
+  transport: ${MCP_TRANSPORT:-http}              # stdio | http (fastmcp streamable HTTP).
+  streamable_http_path: ${MCP_HTTP_PATH:-/mcp}
+  stateless_http: true                            # Mapped to FASTMCP_STATELESS_HTTP=true at startup.
+  json_response: true
+  standalone: ${MCP_STANDALONE:-false}            # true = standalone uvicorn process.
+  host: ${MCP_HOST:-0.0.0.0}
+  port: ${MCP_PORT:-8081}
+  workers: ${MCP_WORKERS:-4}
+  tool_timeout: 30
+  max_retries: 3
+  circuit_fail_threshold: 5
+  cache_ttl: 300
+  event_store_enabled: false
+  redis_url: ${MCP_REDIS_URL:-}                   # Empty falls back to celery.broker_url.
+  auth_provider: ${MCP_AUTH_PROVIDER:-static-token}  # static-token | oauth-github | oauth-custom
+  oauth:
+    enabled: false
+    issuer_url: ""
+    client_id: ""
+    client_secret: ""
+    required_scopes: []
+  mtls:
+    enabled: false
+
+# Telemetry and observability: structlog (AI event JSONL) + loguru (ops logs) + OpenTelemetry tracing.
+telemetry:
+  enabled: ${TELEMETRY_ENABLED:-true}
+  service_name: ${OTEL_SERVICE_NAME:-eagle-rag}
+  environment: ${APP_ENV:-dev}
+  ai_log_file: ${AI_TELEMETRY_LOG_FILE:-logs/ai_telemetry.jsonl}
+  ai_log_level: ${AI_TELEMETRY_LOG_LEVEL:-INFO}
+  ai_log_max_bytes: 10485760       # 10 MB
+  ai_log_backup_count: 10
+  prompt_truncate: 512
+  completion_truncate: 1024
+  op_log_file: ${OP_LOG_FILE:-logs/eagle_rag.log}
+  op_log_level: ${OP_LOG_LEVEL:-INFO}
+  op_log_rotation: "10 MB"
+  op_log_retention: "30 days"
+  tracing_enabled: ${OTEL_TRACING_ENABLED:-false}
+  otlp_endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  otlp_insecure: ${OTEL_EXPORTER_OTLP_INSECURE:-true}
+  redis_log_channel: ${REDIS_LOG_CHANNEL:-logs}

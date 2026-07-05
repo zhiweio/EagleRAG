@@ -1,0 +1,78 @@
+# Eagle-RAG dev profile 覆盖（docker compose 在未显式指定 -f 时自动合并本文件）。
+# 仅用于本地开发：源码热重载、暴露基础设施端口、放宽资源限制。
+#
+# ⚠️ prod 部署必须排除本文件，否则 dev 挂载与 --reload 会泄漏到生产：
+#    COMPOSE_FILE=docker-compose.yml docker compose --profile prod up -d
+# （COMPOSE_FILE 环境变量锁定 compose 文件清单，阻止 override 自动合并。）
+
+services:
+  api:
+    # 热重载：仅监听 eagle_rag 源码；勿监视 ./data（HuggingFace 缓存写入会触发 reload 并中断 SSE）。
+    command:
+      [
+        "uvicorn",
+        "eagle_rag.api.app:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload",
+        "--reload-dir",
+        "eagle_rag",
+      ]
+    volumes:
+      - ./eagle_rag:/app/eagle_rag:ro
+
+  # Worker dev：仅挂载源码便于查看版本一致性，不再做热重载。
+  # 之前用 watchfiles 包装 celery 实现 .py 变更自动重启，但 yaml 的 `>` 折叠会
+  # 把 $${VAR} 仍传到 sh 单层解析 → Celery 拿到字面量 '${CONCURRENCY}' →
+  # "Invalid value for '-c': '${CONCURRENCY}' is not a valid integer"。
+  # 改动 celery/任务代码后请用 `docker compose restart worker-*` 手动重启。
+  worker-router:
+    volumes:
+      - ./eagle_rag:/app/eagle_rag:ro
+
+  worker-knowhere:
+    volumes:
+      - ./eagle_rag:/app/eagle_rag:ro
+    deploy: !reset null
+
+  worker-pixelrag:
+    volumes:
+      - ./eagle_rag:/app/eagle_rag:ro
+    deploy: !reset null
+
+  frontend:
+    # dev 模式：直接用 Bun 镜像跑 next dev，跳过多阶段构建。
+    image: oven/bun:1.2.18
+    build: !reset null
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    # next dev 默认绑定 localhost；显式 -H 0.0.0.0 以便宿主经端口映射访问。
+    # 每次启动先 bun install：node_modules 在匿名卷里持久化，仅检测 next 存在会
+    # 跳过安装，导致 package.json / bun.lock 新增依赖（如 AI Elements）缺包。
+    command: ["sh", "-c", "bun install && exec bunx next dev -H 0.0.0.0"]
+
+  # 暴露基础设施端口供宿主调试。
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  minio:
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  milvus:
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+
+  # Knowhere 已拆分为独立 compose（docker/knowhere-self-hosted/），
+  # 其端口暴露在该 compose 中配置，不再由 eagle-rag override 管理。

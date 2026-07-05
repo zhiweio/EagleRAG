@@ -1,0 +1,22 @@
+# 通用排除：减少构建上下集体积、避免泄露本地密钥与缓存进入镜像。
+.git
+.github
+.trae
+node_modules
+.venv
+__pycache__
+*.pyc
+.next
+data
+.env
+.env.local
+*.log
+dist
+build
+site
+.pytest_cache
+.mypy_cache
+.ruff_cache
+frontend/node_modules
+frontend/.next
+frontend/.git

@@ -1,0 +1,276 @@
+{
+  "health": {
+    "title": "MCP & Service Health",
+    "subtitle": "Monitor connectivity of underlying engines and expose MCP endpoints for AI agents.",
+    "legend": {
+      "online": "Online",
+      "degraded": "Degraded"
+    },
+    "refresh": "Refresh",
+    "status": {
+      "online": "Online",
+      "degraded": "Degraded",
+      "offline": "Offline",
+      "unknown": "Unknown"
+    },
+    "uptime": "Uptime {value}",
+    "checkedAgo": "checked just now",
+    "serviceCards": {
+      "storage": {
+        "name": "MinIO & Redis",
+        "desc": "Object storage & message broker · raw files / Celery Broker"
+      },
+      "knowhere": {
+        "name": "Knowhere API (:5005)",
+        "desc": "Ontos-AI text parsing engine · HTTP :5005"
+      },
+      "celery": {
+        "name": "Celery Workers",
+        "desc": "Nodes: 2"
+      },
+      "milvus": {
+        "name": "Milvus (eagle_text & eagle_visual)",
+        "desc": "eagle_text & eagle_visual · unified vector store"
+      },
+      "pixelrag": {
+        "name": "PixelRAG",
+        "desc": "Library Only · visual slice rendering pipeline"
+      },
+      "models": {
+        "name": "Models (DeepSeek & Qwen)",
+        "desc": "DeepSeek-V4-Pro · Qwen-VL-Max · Qwen3-VL-2B"
+      }
+    },
+    "mcpConfig": {
+      "title": "MCP Server Configuration",
+      "badge": "Streamable HTTP",
+      "desc": "Configure the endpoint below in your Agent / LLM app to gain universal knowledge-base retrieval (supports finance / patent / pharma multi-KB).",
+      "copy": "Copy",
+      "copied": "Copied",
+      "statusOnline": "Online",
+      "statusOffline": "Offline",
+      "toolsLabel": "tools",
+      "connectionsLabel": "connections",
+      "transportLabel": "Transport",
+      "portLabel": "Port",
+      "modeLabel": "Mode",
+      "copyJson": "Copy JSON",
+      "jsonCopied": "Copied",
+      "jsonSnippetTitle": "Quick Connect — JSON config",
+      "protocolVersion": "Protocol",
+      "toolsSectionTitle": "Exposed Tools",
+      "toolParamRequired": "required",
+      "toolParamOptional": "optional",
+      "toolNoParams": "No parameters",
+      "toolCopySchema": "Copy schema",
+      "toolSchemaCopied": "Copied"
+    },
+    "drawer": {
+      "running": "Running · Uptime {uptime}",
+      "close": "Close",
+      "tabs": {
+        "dashboard": "Dashboard",
+        "logs": "Live Logs",
+        "config": "Config & Probes"
+      },
+      "titles": {
+        "celery": "Celery Async Workers",
+        "milvus": "Milvus / PixelRAG",
+        "vlm": "VLM API / LLM Engine",
+        "mcp": "MCP Server",
+        "knowhere": "Knowhere API",
+        "storage": "MinIO & Redis"
+      },
+      "subtitles": {
+        "celery": "Core async scheduler · CPU/GPU task queues",
+        "milvus": "Unified vector store · eagle_text & eagle_visual · dim / index",
+        "vlm": "Multimodal LLM engine · DeepSeek-V4-Pro / Qwen-VL-Max HA routing",
+        "mcp": "Agent tool endpoint · Streamable HTTP · JSON-RPC 2.0",
+        "knowhere": "Ontos-AI text parsing engine · HTTP :5005 · 200 OK · Workers Active",
+        "storage": "Object storage & message broker · raw files / Celery Broker"
+      },
+      "statusPill": {
+        "running": "Running",
+        "offline": "Offline",
+        "unknown": "Unknown",
+        "noProbe": "Not probed"
+      }
+    },
+    "celeryDrawer": {
+      "stats": {
+        "nodes": { "label": "Active Nodes", "sub": "gpu-node-01 · cpu-node-02" },
+        "pending": { "label": "Tasks Pending", "sub": "Highlighted · needs attention" },
+        "succeeded": { "label": "Tasks Succeeded", "sub": "Success rate 99.6%" }
+      },
+      "queueTitle": "Queue backlog (knowhere vs pixelrag)",
+      "legend": {
+        "knowhere": "Text queue (knowhere)",
+        "pixelrag": "GPU queue (pixelrag)"
+      },
+      "workers": {
+        "title": "Active Workers",
+        "count": "{n} workers",
+        "cols": {
+          "worker": "Worker",
+          "state": "State",
+          "current": "Current",
+          "memory": "Memory"
+        },
+        "busy": "Busy",
+        "idle": "Idle"
+      }
+    },
+    "milvusDrawer": {
+      "stats": {
+        "collections": { "label": "Total Collections", "sub": "eagle_text / eagle_visual" },
+        "indexSize": { "label": "Index Size", "sub": "HNSW / DiskANN · growing" },
+        "memory": { "label": "Memory", "sub": "59% · Milvus query node" }
+      },
+      "accordionTitle": "Collection Details (Accordion)",
+      "count": "{n} collections",
+      "entities": "{n} entities",
+      "tag": {
+        "visual": "Visual",
+        "text": "Text"
+      },
+      "fieldLabels": {
+        "dim": "Dim",
+        "metric": "Metric",
+        "index": "Index"
+      },
+      "actions": {
+        "clean": "Clean Zombie Index",
+        "flush": "Force Flush"
+      }
+    },
+    "vlmDrawer": {
+      "stats": {
+        "latency": { "label": "Average Latency", "sub": "p95: 2.1s" },
+        "tokens": { "label": "Tokens / Minute", "sub": "TPM · peak 62k" },
+        "errorRate": { "label": "Error Rate", "sub": "last 24h" }
+      },
+      "routerTitle": "Model Router",
+      "routerNote": "Internal direct · 3-model coordination",
+      "modelNames": {
+        "vlm": "Vision Language Model (VLM)",
+        "textLlm": "Text LLM (LLM)",
+        "embedding": "Embedding Model"
+      },
+      "models": {
+        "vlm": "Internal direct · image-text understanding / multimodal Q&A",
+        "textLlm": "Internal direct · text Q&A / primary reasoning model",
+        "embedding": "Unified multimodal vectors · text / visual embedding"
+      }
+    },
+    "mcpDrawer": {
+      "sse": {
+        "title": "Active HTTP Connections",
+        "unit": "active agents",
+        "note": "Streamable HTTP · stateless JSON-RPC"
+      },
+      "toolsTitle": "Exposed Tools",
+      "toolsCount": "{n} tools",
+      "tools": {
+        "query": "Multimodal joint query · kb_name targets the knowledge base",
+        "trace": "Precise document source tracing",
+        "read": "Read raw document screenshots"
+      },
+      "paramPrefix": "params: "
+    },
+    "knowhereDrawer": {
+      "stats": {
+        "parsed": { "label": "Parsed Docs", "sub": "text · tables · HTML blocks" },
+        "chunks": { "label": "Text Chunks", "sub": "paragraphs · tables · lists" },
+        "memory": { "label": "Memory Usage", "sub": "30% · Knowhere API resident :5005 · 200 OK" }
+      },
+      "partitionsTitle": "eagle_text writes · KB partitions",
+      "count": "{n} partitions",
+      "nodes": "{n} nodes",
+      "tag": {
+        "patent": "Patent KB",
+        "finance": "Finance KB"
+      }
+    },
+    "storageDrawer": {
+      "tag": { "storage": "Bucket" },
+      "minio": {
+        "sectionTitle": "MinIO · Object Storage",
+        "stats": {
+          "buckets": { "label": "Buckets", "sub": "default bucket highlighted" },
+          "objects": { "label": "Objects (default)", "sub": "best-effort count" },
+          "endpoint": { "label": "Endpoint", "sub": "S3-compatible · secure TLS" }
+        },
+        "bucketsTitle": "Buckets",
+        "bucketsCount": "{n} buckets",
+        "objects": "{n} objects",
+        "meta": { "created": "Created", "default": "default" }
+      },
+      "redis": {
+        "sectionTitle": "Redis · Message Broker",
+        "stats": {
+          "clients": { "label": "Connected Clients", "sub": "active connections" },
+          "dbSize": { "label": "DB Size", "sub": "total keys" },
+          "memory": { "label": "Memory Used", "sub": "resident set" }
+        },
+        "infoTitle": "Redis INFO",
+        "infoNote": "key runtime metrics",
+        "rows": {
+          "version": "Version",
+          "uptime": "Uptime",
+          "role": "Role",
+          "clients": "Connected Clients",
+          "usedMemory": "Used Memory",
+          "peakMemory": "Peak Memory",
+          "maxMemory": "Max Memory"
+        }
+      }
+    },
+    "logs": {
+      "pauseScroll": "Pause scroll",
+      "resumeScroll": "Resume scroll",
+      "toBottom": "Scroll to bottom",
+      "autoScroll": "Auto-scroll",
+      "filterPlaceholder": "Filter (grep)…",
+      "levels": {
+        "all": "ALL",
+        "info": "INFO",
+        "warn": "WARN",
+        "error": "ERROR"
+      },
+      "empty": "No matching logs"
+    },
+    "console": {
+      "pause": "Pause",
+      "resume": "Resume",
+      "toBottom": "To bottom",
+      "filterPlaceholder": "Filter logs…"
+    },
+    "configProbes": {
+      "probesTitle": "Health Probes",
+      "probesCount": "{n} probes",
+      "probes": {
+        "liveness": { "name": "Liveness Probe", "sub": "Liveness" },
+        "readiness": { "name": "Readiness Probe", "sub": "Readiness" },
+        "startup": { "name": "Startup Probe", "sub": "Startup" }
+      },
+      "timingLegend": "delay · period · timeout · failure",
+      "pass": "Pass",
+      "degraded": "Degraded",
+      "resourcesTitle": "Resource Limits",
+      "resourcesNote": "CPU · Memory",
+      "resources": {
+        "cpu": "CPU",
+        "memory": "Memory"
+      },
+      "requestLimit": "request / limit",
+      "used": "{percent}% used",
+      "runtimeTitle": "Runtime Config",
+      "runtimeFile": "celeryconfig.py"
+    },
+    "common": {
+      "close": "Close",
+      "retry": "Retry",
+      "na": "—"
+    }
+  }
+}

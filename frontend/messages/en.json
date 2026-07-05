@@ -1,0 +1,43 @@
+{
+  "app": {
+    "name": "Eagle-RAG",
+    "tagline": "MCP · Vector · Visual",
+    "notifications": "Notifications",
+    "notificationsEmpty": "No notifications",
+    "notificationsMarkAll": "Mark all read",
+    "settings": "Settings",
+    "profile": "Profile",
+    "manageAccount": "Account & preferences",
+    "history": "History",
+    "collapseSidebar": "Collapse sidebar",
+    "expandSidebar": "Expand sidebar"
+  },
+  "nav": {
+    "qa": "Q&A",
+    "ingest": "Ingestion",
+    "health": "Service Health",
+    "kb": "Knowledge Bases"
+  },
+  "common": {
+    "search": "Search",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "loading": "Loading…",
+    "empty": "No data",
+    "error": "Something went wrong"
+  },
+  "composer": {
+    "placeholder": "Ask a tax question…"
+  },
+  "home": {
+    "title": "Eagle-RAG Fintax Multimodal Knowledge Base",
+    "subtitle": "Multimodal retrieval & Q&A across tax policies, financial reports, business web pages and images, with source tracing and visual chart reading.",
+    "qaDesc": "Multimodal Q&A with source tracing",
+    "ingestDesc": "Multi-source document ingestion & routing",
+    "healthDesc": "Service health monitoring & ops",
+    "kbDesc": "Multi-tenant knowledge base management & monitoring"
+  },
+  "locale": {
+    "switch": "Switch language"
+  }
+}

@@ -1,0 +1,36 @@
+# syntax=docker/dockerfile:1.7
+# Eagle-RAG mkdocs 文档站镜像（多阶段构建）。
+# builder：安装 mkdocs-material + 扩展，执行 mkdocs build --strict 产出静态 site/。
+# runtime：nginx 托管 site/，监听 8001（与 compose 端口映射一致）。
+# 注意：本镜像依赖根目录 mkdocs.yml 与 docs/ 已存在（由 mkdocs 文档站任务产出）。
+# 构建：docker build -f docker/Dockerfile.docs -t eagle-rag-docs .
+ARG PYTHON_VERSION=3.12
+
+# ---------------- builder ----------------
+FROM python:${PYTHON_VERSION}-slim AS builder
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir \
+        mkdocs-material \
+        mkdocs-material-extensions \
+        pymdown-extensions \
+        mkdocs-static-i18n
+
+COPY mkdocs.yml ./
+COPY docs/ ./docs/
+
+# 严格模式：任何断链或 WARNING 都会令构建失败，保证文档质量。
+RUN mkdocs build --strict
+
+# ---------------- runtime ----------------
+FROM nginx:alpine AS runtime
+
+# nginx 默认监听 80；改写 default.conf 监听 8001 以与 compose 端口对齐。
+# 单引号保证 $uri 不被 shell 展开，由 nginx 解析；printf 解释 \n 为换行。
+RUN printf 'server {\n    listen 8001;\n    listen [::]:8001;\n    server_name _;\n    root /usr/share/nginx/html;\n    index index.html;\n    location / {\n        try_files $uri $uri/ =404;\n    }\n}\n' > /etc/nginx/conf.d/default.conf
+
+COPY --from=builder /app/site /usr/share/nginx/html
+
+EXPOSE 8001
+CMD ["nginx", "-g", "daemon off;"]
