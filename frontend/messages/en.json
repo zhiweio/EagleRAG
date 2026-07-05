@@ -27,6 +27,8 @@
     "error": "Something went wrong"
   },
   "locale": {
-    "switch": "Switch language"
+    "switch": "Switch language",
+    "zh": "中文",
+    "en": "English"
   }
 }

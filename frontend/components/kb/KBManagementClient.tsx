@@ -1,12 +1,13 @@
 "use client";
 
 import { type KBSort, useKBOverview, useKnowledgeBases } from "@/lib/hooks/useKB";
-import { ArrowUpDown, Database, FileStack, LibraryBig, Plus, Search, Share2 } from "lucide-react";
+import { Database, FileStack, LibraryBig, Plus, Search, Share2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { CreateKBDrawer } from "./CreateKBDrawer";
 import { KBCard } from "./KBCard";
 import { KBGhostCard } from "./KBGhostCard";
+import { KBSortPicker } from "./KBSortPicker";
 import { KBStatCard, type KBStatDef } from "./KBStatCard";
 import { KBToastProvider } from "./KBToast";
 
@@ -85,19 +86,7 @@ export function KBManagementClient() {
                 className="w-full min-w-0 bg-transparent text-sm text-foreground outline-none placeholder:text-foreground-secondary sm:w-56"
               />
             </div>
-            <div className="relative flex h-[42px] items-center gap-2 rounded-xl border border-border bg-surface px-3.5 shadow-[0_1px_3px_0_rgba(0,0,0,0.04)]">
-              <ArrowUpDown className="h-[15px] w-[15px] text-foreground-secondary" aria-hidden />
-              <select
-                aria-label={t("sort")}
-                value={sort}
-                onChange={(e) => setSort(e.target.value as KBSort)}
-                className="cursor-pointer appearance-none bg-transparent pr-1 text-sm font-medium text-foreground outline-none"
-              >
-                <option value="recent">{t("sortRecent")}</option>
-                <option value="name">{t("sortName")}</option>
-                <option value="size">{t("sortSize")}</option>
-              </select>
-            </div>
+            <KBSortPicker value={sort} onChange={setSort} />
             <button
               type="button"
               onClick={() => setCreateOpen(true)}

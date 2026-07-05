@@ -27,6 +27,8 @@
     "error": "发生错误"
   },
   "locale": {
-    "switch": "切换语言"
+    "switch": "切换语言",
+    "zh": "中文",
+    "en": "English"
   }
 }
