@@ -6,12 +6,12 @@ import { useUser } from "@/lib/hooks/useUser";
 import { usePrefsStore } from "@/lib/stores/prefsStore";
 import {
   Activity,
+  CloudUpload,
   LibraryBig,
   MessagesSquare,
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
-  Upload,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -20,8 +20,8 @@ import { useEffect, useState } from "react";
 
 /**
  * Sidebar — global left navigation rail (visible on lg+). Houses the brand at
- * the top, the four primary destinations (Service Health / Q&A / Ingestion /
- * Knowledge Bases) as an icon + label list, and — anchored to the bottom like a
+ * the top, the four primary destinations (Q&A / Ingestion / Knowledge Bases /
+ * Service Health) as an icon + label list, and — anchored to the bottom like a
  * mature SaaS shell — a collapse toggle, the account row, and settings.
  *
  * The rail collapses to an icon-only rail; the state is persisted per-browser in
@@ -30,10 +30,10 @@ import { useEffect, useState } from "react";
  * stored preference.
  */
 const ENTRIES: { href: "/health" | "/qa" | "/ingest" | "/kb"; key: string; icon: LucideIcon }[] = [
-  { href: "/health", key: "nav.health", icon: Activity },
   { href: "/qa", key: "nav.qa", icon: MessagesSquare },
-  { href: "/ingest", key: "nav.ingest", icon: Upload },
+  { href: "/ingest", key: "nav.ingest", icon: CloudUpload },
   { href: "/kb", key: "nav.kb", icon: LibraryBig },
+  { href: "/health", key: "nav.health", icon: Activity },
 ];
 
 export function Sidebar() {

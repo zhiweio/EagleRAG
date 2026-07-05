@@ -1,4 +1,5 @@
 import { Providers } from "@/app/providers";
+import { AppShell } from "@/components/AppShell";
 import { Sidebar } from "@/components/Sidebar";
 import { routing } from "@/i18n/routing";
 import type { Metadata } from "next";
@@ -59,7 +60,9 @@ export default async function LocaleLayout({
           <Providers>
             <div className="flex min-h-screen">
               <Sidebar />
-              <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+              <div className="flex min-w-0 flex-1 flex-col">
+                <AppShell>{children}</AppShell>
+              </div>
             </div>
           </Providers>
         </NextIntlClientProvider>

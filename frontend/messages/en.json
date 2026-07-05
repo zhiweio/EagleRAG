@@ -30,5 +30,99 @@
     "switch": "Switch language",
     "zh": "中文",
     "en": "English"
+  },
+  "globalSearch": {
+    "placeholder": "Search documents…",
+    "loading": "Searching…",
+    "empty": "No documents match",
+    "hintNavigate": "Navigate",
+    "hintOpen": "Open preview",
+    "hintClose": "Close",
+    "shortcut": "Search documents"
+  },
+  "dashboard": {
+    "title": "Semantic Depth. Visual Clarity.",
+    "subtitle": "Search knowledge by what documents mean and how they look — not one or the other. Weaving Knowhere semantic chunks with PixelRAG pixel-native perception.",
+    "pulse": {
+      "label": "System pulse",
+      "ok": "All systems operational",
+      "degraded": "Some dependencies need attention",
+      "qa": "Q&A",
+      "ingest": "Ingestion",
+      "kb": "Knowledge bases",
+      "health": "Health"
+    },
+    "open": "Open",
+    "qa": {
+      "title": "Q&A",
+      "sessions": "Recent sessions",
+      "sessionsSub": "{count} in the last fetch",
+      "noSessions": "No conversations yet"
+    },
+    "ingest": {
+      "title": "Ingestion",
+      "active": "Active ingestions",
+      "running": "Running tasks",
+      "queued": "Queue backlog"
+    },
+    "kb": {
+      "title": "Knowledge bases"
+    },
+    "health": {
+      "title": "Service health",
+      "status": "Overall status",
+      "issues": "Dependencies down",
+      "allUp": "All dependencies up"
+    },
+    "modulesLabel": "Modules",
+    "qaCard": {
+      "title": "Multimodal Q&A",
+      "description": "Query across text, diagrams, and ingested documents with grounded citations.",
+      "tryItOut": "Try it out",
+      "noSamples": "No ready documents yet",
+      "placeholder": "Ask about revenue, architecture, or policy…",
+      "submit": "Open Q&A"
+    },
+    "ingestCard": {
+      "title": "Ingestion routing",
+      "knowhereActive": "Knowhere active",
+      "knowhereUnavailable": "Knowhere unavailable",
+      "empty": "No recent ingestion tasks",
+      "viewAll": "View ingestion queue →"
+    },
+    "kbCard": {
+      "title": "Knowledge bases",
+      "manage": "Manage",
+      "totalDocs": "Total docs",
+      "activeTenants": "KB instances",
+      "storageAlerts": "Storage alerts",
+      "colTenant": "Tenant name",
+      "colStorage": "Storage",
+      "colDocuments": "Documents",
+      "colStatus": "Status",
+      "statusActive": "Active",
+      "statusSyncing": "Syncing",
+      "statusDegraded": "Degraded",
+      "empty": "No knowledge bases yet",
+      "alertHint": "{count} tenant(s) need attention"
+    },
+    "healthCard": {
+      "title": "Service health",
+      "operational": "Operational",
+      "degraded": "Degraded",
+      "globalLatency": "Global latency",
+      "avg": "{ms}ms avg",
+      "viewAll": "Open health dashboard →",
+      "status": {
+        "ok": "OK",
+        "warn": "Warn",
+        "down": "Down"
+      },
+      "services": {
+        "milvus": "Milvus vector DB",
+        "knowhere": "Knowhere parser",
+        "mcp": "MCP gateway"
+      }
+    }
   }
 }

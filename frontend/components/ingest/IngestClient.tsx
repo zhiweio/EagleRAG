@@ -1,6 +1,5 @@
 "use client";
 
-import { AppBar } from "@/components/AppBar";
 import { IngestToast, type IngestToastItem } from "@/components/ingest/IngestToast";
 import { QueueMetrics } from "@/components/ingest/QueueMetrics";
 import { type RoutingMode, RoutingModeCards } from "@/components/ingest/RoutingModeCards";
@@ -255,7 +254,6 @@ export function IngestClient() {
 
   return (
     <div className="min-h-screen bg-background">
-      <AppBar />
       <main className="mx-auto max-w-7xl space-y-6 px-6 py-8">
         <PageHeader
           title={t("title")}

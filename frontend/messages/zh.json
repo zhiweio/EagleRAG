@@ -30,5 +30,99 @@
     "switch": "切换语言",
     "zh": "中文",
     "en": "English"
+  },
+  "globalSearch": {
+    "placeholder": "搜索文档…",
+    "loading": "搜索中…",
+    "empty": "没有匹配的文档",
+    "hintNavigate": "导航",
+    "hintOpen": "打开预览",
+    "hintClose": "关闭",
+    "shortcut": "搜索文档"
+  },
+  "dashboard": {
+    "title": "语义深度。视觉清晰。",
+    "subtitle": "按文档的含义与外观检索知识——两者兼备，而非择一。融合 Knowhere 语义切块与 PixelRAG 像素原生感知。",
+    "pulse": {
+      "label": "系统脉搏",
+      "ok": "各服务运行正常",
+      "degraded": "部分依赖需要关注",
+      "qa": "问答",
+      "ingest": "摄入",
+      "kb": "知识库",
+      "health": "健康"
+    },
+    "open": "打开",
+    "qa": {
+      "title": "智能问答",
+      "sessions": "最近会话",
+      "sessionsSub": "本次拉取 {count} 条",
+      "noSessions": "暂无对话"
+    },
+    "ingest": {
+      "title": "数据摄入",
+      "active": "进行中摄入",
+      "running": "运行中任务",
+      "queued": "队列积压"
+    },
+    "kb": {
+      "title": "知识库管理"
+    },
+    "health": {
+      "title": "服务健康",
+      "status": "整体状态",
+      "issues": "异常依赖",
+      "allUp": "全部依赖正常"
+    },
+    "modulesLabel": "功能模块",
+    "qaCard": {
+      "title": "多模态问答",
+      "description": "跨文本、图表与已摄入文档进行问答，并附带可追溯引用。",
+      "tryItOut": "试一试",
+      "noSamples": "暂无就绪文档",
+      "placeholder": "询问营收、架构或政策相关问题…",
+      "submit": "打开问答"
+    },
+    "ingestCard": {
+      "title": "摄入路由",
+      "knowhereActive": "Knowhere 可用",
+      "knowhereUnavailable": "Knowhere 不可用",
+      "empty": "暂无近期摄入任务",
+      "viewAll": "查看摄入队列 →"
+    },
+    "kbCard": {
+      "title": "知识库",
+      "manage": "管理",
+      "totalDocs": "文档总数",
+      "activeTenants": "KB 实例",
+      "storageAlerts": "存储告警",
+      "colTenant": "租户名称",
+      "colStorage": "存储",
+      "colDocuments": "文档数",
+      "colStatus": "状态",
+      "statusActive": "运行中",
+      "statusSyncing": "同步中",
+      "statusDegraded": "异常",
+      "empty": "暂无知识库",
+      "alertHint": "{count} 个租户需要关注"
+    },
+    "healthCard": {
+      "title": "服务健康",
+      "operational": "运行正常",
+      "degraded": "存在异常",
+      "globalLatency": "全局延迟",
+      "avg": "平均 {ms}ms",
+      "viewAll": "打开健康面板 →",
+      "status": {
+        "ok": "正常",
+        "warn": "警告",
+        "down": "离线"
+      },
+      "services": {
+        "milvus": "Milvus 向量库",
+        "knowhere": "Knowhere 解析",
+        "mcp": "MCP 网关"
+      }
+    }
   }
 }

@@ -1,6 +1,5 @@
 "use client";
 
-import { AppBar } from "@/components/AppBar";
 import {
   getSessionApiSessionsSessionIdGet,
   listMessagesApiSessionsSessionIdMessagesGet,
@@ -418,8 +417,7 @@ export function QAClient() {
     focusedMessage && focusedMessage.id === focusedMessageId ? focusedSourceIndex : null;
 
   return (
-    <div className="flex h-screen flex-col bg-background">
-      <AppBar />
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
       <main className="mx-auto flex w-full min-h-0 max-w-360 flex-1 flex-col gap-6 px-4 py-6 sm:px-8 lg:flex-row">
         <ChatPanel
           messages={messages}
