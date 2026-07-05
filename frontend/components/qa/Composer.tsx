@@ -44,6 +44,7 @@ import {
 } from "react";
 import { MentionAutocomplete } from "./MentionAutocomplete";
 import { ScopeFilterDrawer } from "./ScopeFilterDrawer";
+import type { UserMessageAttachment } from "./types";
 import { type AskMode, MODE_OPTIONS, type Mode } from "./types";
 
 const MODE_META: Record<Mode, { icon: LucideIcon; tone: string; iconTone: string }> = {
@@ -94,7 +95,7 @@ function isAllowedImageFile(file: File): boolean {
 }
 
 interface ComposerProps {
-  onSend: (query: string, attachmentIds?: string[]) => void;
+  onSend: (query: string, attachments?: UserMessageAttachment[]) => void;
   disabled: boolean;
   mode: Mode;
   onModeChange: (mode: Mode) => void;
@@ -198,10 +199,12 @@ export function Composer({
   function send() {
     const query = value.trim();
     if ((!query && attachmentIds.length === 0) || disabled) return;
-    onSend(query, attachmentIds.length > 0 ? attachmentIds : undefined);
-    for (const url of Object.values(attachmentPreviews)) {
-      URL.revokeObjectURL(url);
-    }
+    const outgoing: UserMessageAttachment[] = attachmentIds.map((id) => ({
+      id,
+      name: attachmentNames[id],
+      previewUrl: attachmentPreviews[id],
+    }));
+    onSend(query, outgoing.length > 0 ? outgoing : undefined);
     setAttachmentIds([]);
     setAttachmentNames({});
     setAttachmentPreviews({});

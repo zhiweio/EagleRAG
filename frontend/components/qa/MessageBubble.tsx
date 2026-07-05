@@ -5,6 +5,8 @@ import { Loader } from "@/components/ai-elements/loader";
 import { Message, MessageAvatar, MessageContent } from "@/components/ai-elements/message";
 import { Source, Sources, SourcesContent, SourcesTrigger } from "@/components/ai-elements/sources";
 import { ThinkingLabel } from "@/components/ai-elements/thinking-indicator";
+import { attachmentContentUrl } from "@/lib/hooks/useAttachments";
+import { cn } from "@/lib/utils";
 import { CheckIcon, CopyIcon, FileText, ImageIcon, Search, User } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useState } from "react";
@@ -18,7 +20,7 @@ import {
   sourceFileName,
   sourceString,
 } from "./sources-utils";
-import type { ChatMessage, FlatSource } from "./types";
+import type { ChatMessage, FlatSource, UserMessageAttachment } from "./types";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -40,16 +42,7 @@ export function MessageBubble({ message, onCite, onPreviewVisual }: MessageBubbl
   );
 
   if (isUser) {
-    return (
-      <Message className="items-start" from="user">
-        <MessageContent variant="contained">
-          <span className="whitespace-pre-wrap wrap-break-word">{message.content}</span>
-        </MessageContent>
-        <MessageAvatar className="bg-(--bubble) text-foreground-secondary">
-          <User size={16} strokeWidth={2} />
-        </MessageAvatar>
-      </Message>
-    );
+    return <UserMessageBubble message={message} />;
   }
 
   return (
@@ -95,6 +88,56 @@ export function MessageBubble({ message, onCite, onPreviewVisual }: MessageBubbl
         )}
       </MessageContent>
     </Message>
+  );
+}
+
+/** User turn — text, image attachment(s), or both in a contained bubble. */
+function UserMessageBubble({ message }: { message: ChatMessage }) {
+  const attachments = message.attachments ?? [];
+  const hasText = Boolean(message.content.trim());
+  const hasImages = attachments.length > 0;
+  const imageOnly = hasImages && !hasText;
+
+  return (
+    <Message className="items-start" from="user">
+      <MessageContent
+        variant="contained"
+        className={cn(
+          hasImages && "max-w-[min(85%,18rem)]",
+          imageOnly ? "gap-0 p-1.5" : hasImages && hasText ? "gap-2.5" : undefined,
+        )}
+      >
+        {hasImages ? (
+          <div className="flex flex-col gap-1.5">
+            {attachments.map((attachment) => (
+              <UserMessageImage key={attachment.id} attachment={attachment} />
+            ))}
+          </div>
+        ) : null}
+        {hasText ? (
+          <span className="whitespace-pre-wrap wrap-break-word">{message.content}</span>
+        ) : null}
+      </MessageContent>
+      <MessageAvatar className="bg-(--bubble) text-foreground-secondary">
+        <User size={16} strokeWidth={2} />
+      </MessageAvatar>
+    </Message>
+  );
+}
+
+/** Constrained image frame inside a user bubble (not full original dimensions). */
+function UserMessageImage({ attachment }: { attachment: UserMessageAttachment }) {
+  const src = attachment.previewUrl ?? attachmentContentUrl(attachment.id);
+  return (
+    <figure className="overflow-hidden rounded-xl bg-primary-foreground/10 ring-1 ring-primary-foreground/15">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={attachment.name ?? ""}
+        className="block max-h-48 w-full max-w-[15rem] object-contain"
+        loading="lazy"
+      />
+    </figure>
   );
 }
 

@@ -10,12 +10,12 @@ import { useTranslations } from "next-intl";
 import { Composer } from "./Composer";
 import { MessageBubble } from "./MessageBubble";
 import { QAAvatar } from "./QAAvatar";
-import type { AskMode, ChatMessage, Mode } from "./types";
+import type { AskMode, ChatMessage, Mode, UserMessageAttachment } from "./types";
 
 interface ChatPanelProps {
   messages: ChatMessage[];
   sending: boolean;
-  onSend: (query: string, attachmentIds?: string[]) => void;
+  onSend: (query: string, attachments?: UserMessageAttachment[]) => void;
   mode: Mode;
   onModeChange: (mode: Mode) => void;
   askMode: AskMode;

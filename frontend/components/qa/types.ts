@@ -15,6 +15,14 @@ export type AskMode = "ask" | "search";
 
 export const ASK_MODE_OPTIONS: AskMode[] = ["ask", "search"];
 
+/** Image attached to a user turn (session upload). */
+export interface UserMessageAttachment {
+  id: string;
+  name?: string;
+  /** Ephemeral object URL for live sends; omitted when replaying a stored session. */
+  previewUrl?: string;
+}
+
 /**
  * A chat message rendered in the panel. User messages carry only `content`;
  * assistant messages also carry the retrieval `sources`, `steps` and `route`
@@ -25,6 +33,8 @@ export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  /** Session image uploads shown in the user bubble. */
+  attachments?: UserMessageAttachment[];
   sources?: QuerySources | null;
   steps?: Step[] | null;
   route?: RouteInfo | null;

@@ -1,9 +1,15 @@
+import { API_BASE } from "@/lib/api/client";
 import {
   deleteAttachmentAttachmentsAttachmentIdDelete,
   uploadAttachmentAttachmentsPost,
 } from "@/lib/api/generated/sdk.gen";
 
 export const MAX_IMAGE_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+
+/** Public URL for rendering a persisted session attachment. */
+export function attachmentContentUrl(attachmentId: string): string {
+  return `${API_BASE}/attachments/${encodeURIComponent(attachmentId)}/content`;
+}
 
 export async function uploadAttachment(
   file: File,

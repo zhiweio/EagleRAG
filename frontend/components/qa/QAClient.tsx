@@ -27,7 +27,7 @@ import { ImageLightbox } from "./ImageLightbox";
 import { QAToast, type QAToastItem } from "./QAToast";
 import { SourcesPanel } from "./SourcesPanel";
 import { findImageSourceIndex } from "./sources-utils";
-import type { AskMode, ChatMessage, Mode, PreviewTarget } from "./types";
+import type { AskMode, ChatMessage, Mode, PreviewTarget, UserMessageAttachment } from "./types";
 
 /** Turn a persisted id list into scope refs (id doubles as label when no label was stored). */
 function idsToRefs(ids: string[] | null | undefined): ScopeRef[] {
@@ -43,14 +43,28 @@ function hasSources(message: ChatMessage): boolean {
   return Boolean(s && ((s.text?.length ?? 0) > 0 || (s.image?.length ?? 0) > 0));
 }
 
+function revokeAttachmentPreviews(messages: ChatMessage[]) {
+  for (const message of messages) {
+    for (const attachment of message.attachments ?? []) {
+      if (attachment.previewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(attachment.previewUrl);
+      }
+    }
+  }
+}
+
 function toChatMessage(it: Message): ChatMessage {
   const sources = it.sources;
   const normalizedSources = sources && !Array.isArray(sources) ? (sources as QuerySources) : null;
   const steps = Array.isArray(it.steps) ? (it.steps as Step[]) : null;
+  const attachments: UserMessageAttachment[] | undefined = it.attachments?.length
+    ? it.attachments.map((id) => ({ id }))
+    : undefined;
   return {
     id: it.message_id,
     role: it.role === "user" ? "user" : "assistant",
     content: it.content,
+    attachments,
     sources: normalizedSources,
     steps,
     route: null,
@@ -127,7 +141,7 @@ export function QAClient() {
   }, []);
 
   const handleSend = useCallback(
-    (query: string, attachmentIds?: string[]) => {
+    (query: string, attachments?: UserMessageAttachment[]) => {
       streamCancelRef.current?.();
       clearRailFocus();
       const now = new Date().toISOString();
@@ -135,6 +149,7 @@ export function QAClient() {
         id: uid("u"),
         role: "user",
         content: query,
+        attachments,
         createdAt: now,
       };
       const pendingId = uid("a");
@@ -294,12 +309,16 @@ export function QAClient() {
 
       streamCancelRef.current = isSearch
         ? streamSearch(
-            { ...streamBody, attachments: attachmentIds ?? null },
+            { ...streamBody, attachments: attachments?.map((item) => item.id) ?? null },
             onStreamEvent,
             onStreamError,
           )
         : streamQuery(
-            { ...streamBody, session_id: sessionId, attachments: attachmentIds ?? null },
+            {
+              ...streamBody,
+              session_id: sessionId,
+              attachments: attachments?.map((item) => item.id) ?? null,
+            },
             onStreamEvent,
             onStreamError,
           );
@@ -332,7 +351,10 @@ export function QAClient() {
             },
           }),
         ]);
-        setMessages((res?.items ?? []).map(toChatMessage));
+        setMessages((prev) => {
+          revokeAttachmentPreviews(prev);
+          return (res?.items ?? []).map(toChatMessage);
+        });
         setSessionId(id);
         const sf = (session?.scope_filter ?? null) as {
           kb_names?: string[];
@@ -360,7 +382,10 @@ export function QAClient() {
   const handleNewSession = useCallback(() => {
     streamCancelRef.current?.();
     setSending(false);
-    setMessages([]);
+    setMessages((prev) => {
+      revokeAttachmentPreviews(prev);
+      return [];
+    });
     setSessionId(null);
     clearScope();
     clearRailFocus();
