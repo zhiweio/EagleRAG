@@ -548,8 +548,8 @@ def test_upload_attachment(client: TestClient):
     """POST /attachments upload succeeds and returns attachment_id."""
     store_result = {
         "attachment_id": "att-1",
-        "file_name": "test.txt",
-        "mime": "text/plain",
+        "file_name": "test.png",
+        "mime": "image/png",
         "size_bytes": 5,
         "expires_at": "2024-01-01T00:00:00",
     }
@@ -559,23 +559,40 @@ def test_upload_attachment(client: TestClient):
     ) as m_store:
         resp = client.post(
             "/attachments",
-            files={"file": ("test.txt", b"hello", "text/plain")},
+            files={"file": ("test.png", b"\x89PNG", "image/png")},
             data={"session_id": "sess-1"},
         )
     assert resp.status_code == 201
     body = resp.json()
     assert body["attachment_id"] == "att-1"
-    assert body["file_name"] == "test.txt"
+    assert body["file_name"] == "test.png"
     assert body["size_bytes"] == 5
     m_store.assert_called_once()
     assert m_store.call_args.kwargs.get("session_id") == "sess-1"
-    assert m_store.call_args.kwargs.get("data") == b"hello"
-    assert m_store.call_args.kwargs.get("file_name") == "test.txt"
+    assert m_store.call_args.kwargs.get("data") == b"\x89PNG"
+    assert m_store.call_args.kwargs.get("file_name") == "test.png"
+
+
+def test_upload_attachment_rejects_non_image(client: TestClient):
+    resp = client.post(
+        "/attachments",
+        files={"file": ("test.txt", b"hello", "text/plain")},
+        data={"session_id": "sess-1"},
+    )
+    assert resp.status_code == 422
+
+
+def test_upload_attachment_rejects_oversize_image(client: TestClient):
+    resp = client.post(
+        "/attachments",
+        files={"file": ("big.png", b"x" * (5 * 1024 * 1024 + 1), "image/png")},
+    )
+    assert resp.status_code == 422
 
 
 def test_upload_attachment_empty_file(client: TestClient):
     """Empty file -> 422."""
-    resp = client.post("/attachments", files={"file": ("empty.txt", b"", "text/plain")})
+    resp = client.post("/attachments", files={"file": ("empty.png", b"", "image/png")})
     assert resp.status_code == 422
 
 
@@ -589,7 +606,7 @@ def test_upload_attachment_store_returns_no_id():
         local_client = TestClient(app, raise_server_exceptions=False)
         resp = local_client.post(
             "/attachments",
-            files={"file": ("test.txt", b"hello", "text/plain")},
+            files={"file": ("test.png", b"\x89PNG", "image/png")},
         )
     assert resp.status_code >= 500
 

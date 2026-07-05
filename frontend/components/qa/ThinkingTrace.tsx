@@ -20,7 +20,6 @@ import {
   GitFork,
   ImageIcon,
   type LucideIcon,
-  Paperclip,
   PenLine,
   Search,
 } from "lucide-react";
@@ -43,7 +42,7 @@ const RECALL_KEYS = new Set(["text_count", "visual_count"]);
 function stepMeta(name: string | undefined): { icon: LucideIcon; key: string } {
   const lower = (name ?? "").toLowerCase();
   if (lower.includes("route")) return { icon: GitFork, key: "route" };
-  if (lower.includes("attach")) return { icon: Paperclip, key: "attach_parse" };
+  if (lower.includes("attach")) return { icon: ImageIcon, key: "attach_parse" };
   if (lower.includes("rerank")) return { icon: ArrowDownWideNarrow, key: "rerank" };
   if (lower.includes("recall") || lower.includes("retriev")) return { icon: Search, key: "recall" };
   if (lower.includes("gen")) return { icon: PenLine, key: "generate" };

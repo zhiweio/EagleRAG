@@ -15,6 +15,7 @@ from eagle_rag.attachments.store import (
     get_attachment_bytes_sync,
     store_attachment_sync,
 )
+from eagle_rag.attachments.validation import validate_image_attachment
 
 router = APIRouter(tags=["attachments"])
 
@@ -28,6 +29,11 @@ async def upload_attachment(
     if not data:
         raise HTTPException(status_code=422, detail="empty file")
     mime = file.content_type or "application/octet-stream"
+    file_name = file.filename or "upload"
+    try:
+        validate_image_attachment(data=data, mime=mime, file_name=file_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     result = await asyncio.to_thread(
         store_attachment_sync,
         data=data,

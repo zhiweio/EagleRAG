@@ -430,6 +430,11 @@ def embed_query(text: str) -> list[float]:
     return _encoder().embed_text(text)
 
 
+def embed_image_bytes(image_bytes: bytes) -> list[float]:
+    """Encode image bytes into a visual vector (for image-query retrieval)."""
+    return _encoder().embed_image(image_bytes)
+
+
 # ---------------------------------------------------------------------------
 # Celery tasks
 # ---------------------------------------------------------------------------

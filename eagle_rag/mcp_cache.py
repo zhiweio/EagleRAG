@@ -86,6 +86,8 @@ def cache_key(
     scope: list[str] | None = None,
     top_k: int | None = None,
     kb_name: str | None = None,
+    *,
+    image_token: str = "",
 ) -> str:
     """Compute the cache key.
 
@@ -95,6 +97,7 @@ def cache_key(
         scope: List of document_ids (sorted before hashing for determinism).
         top_k: Number of results to return.
         kb_name: Knowledge-base identifier.
+        image_token: Optional hash token when retrieval uses an inline image query.
 
     Returns:
         Cache key in the form ``mcp:{tool}:{sha256_hex}``.
@@ -107,6 +110,7 @@ def cache_key(
             "scope": scope_sorted,
             "top_k": top_k,
             "kb_name": kb_name or "",
+            "image_token": image_token,
         },
         sort_keys=True,
         ensure_ascii=False,

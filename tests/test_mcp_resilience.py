@@ -385,6 +385,90 @@ def test_retrieve_visual_tool_returns_timeout(_mock_record_mcp_call) -> None:
     assert result[0]["error"] == "timeout: retrieve_visual"
 
 
+def test_query_requires_query_or_image_base64(_mock_record_mcp_call) -> None:
+    """``query`` rejects empty text when no inline image is provided."""
+    from eagle_rag.api.mcp_server import query
+
+    assert query() == {"error": "query or image_base64 is required"}
+    assert query(query="   ") == {"error": "query or image_base64 is required"}
+
+
+def test_query_image_only_passes_bytes_to_router(_mock_record_mcp_call) -> None:
+    """``query(image_base64=...)`` decodes bytes and forwards them to the router engine."""
+    import base64
+
+    from eagle_rag.api.mcp_server import query
+
+    image_bytes = b"\x89PNG\r\n\x1a\n" + b"x" * 64
+    image_b64 = base64.b64encode(image_bytes).decode("ascii")
+    engine_result = {
+        "answer": "视觉回答",
+        "sources": [],
+        "route": "visual",
+        "steps": [],
+        "extra": "trimmed",
+    }
+
+    def _run_resilient(_tool: str, fn):
+        return fn()
+
+    with (
+        patch("eagle_rag.api.mcp_server.resilient_call", side_effect=_run_resilient),
+        patch("eagle_rag.router.router_engine.EagleRouterQueryEngine") as mock_engine_cls,
+    ):
+        mock_engine_cls.return_value.query.return_value = engine_result
+        result = query(image_base64=image_b64, image_mime="image/png")
+
+    mock_engine_cls.return_value.query.assert_called_once()
+    assert mock_engine_cls.return_value.query.call_args.kwargs["query_image_bytes"] == image_bytes
+    assert result == {
+        "answer": "视觉回答",
+        "sources": [],
+        "route": "visual",
+        "steps": [],
+    }
+
+
+def test_retrieve_visual_image_only_uses_embed_image_path(_mock_record_mcp_call) -> None:
+    """``retrieve_visual(image_base64=...)`` calls retriever with image bytes only."""
+    import base64
+    from types import SimpleNamespace
+
+    from eagle_rag.api.mcp_server import retrieve_visual
+
+    image_bytes = b"\x89PNG\r\n\x1a\n" + b"y" * 64
+    image_b64 = base64.b64encode(image_bytes).decode("ascii")
+    fake_node = SimpleNamespace(
+        node=SimpleNamespace(
+            metadata={"image_id": "img-1", "document_id": "doc-1", "page": 1, "position": 0}
+        ),
+        score=0.88,
+    )
+
+    def _run_resilient(_tool: str, fn):
+        return fn()
+
+    with (
+        patch("eagle_rag.api.mcp_server.get_cached", return_value=None),
+        patch("eagle_rag.api.mcp_server.set_cached"),
+        patch("eagle_rag.api.mcp_server.resilient_call", side_effect=_run_resilient),
+        patch("eagle_rag.retrievers.pixelrag_visual_retriever.PixelRAGVisualRetriever") as mock_cls,
+    ):
+        mock_cls.return_value.retrieve.return_value = [fake_node]
+        result = retrieve_visual(image_base64=image_b64, image_mime="image/png", top_k=3)
+
+    mock_cls.return_value.retrieve.assert_called_once_with("", query_image_bytes=image_bytes)
+    assert result == [
+        {
+            "image_id": "img-1",
+            "document_id": "doc-1",
+            "page": 1,
+            "position": 0,
+            "score": 0.88,
+        }
+    ]
+
+
 def test_ingest_tool_returns_circuit_open(_mock_record_mcp_call) -> None:
     """``ingest`` returns ``{"error": "circuit_open: ingest"}`` on ``CircuitBreakerError``."""
     from eagle_rag.api.mcp_server import ingest

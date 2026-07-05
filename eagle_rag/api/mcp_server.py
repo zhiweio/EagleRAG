@@ -12,12 +12,12 @@ business logic as the ``/query`` and ``/ingest`` REST routes.
 Tool list:
 1. ``ingest(source_uri, source_type, kb_name)`` -> dispatch document ingest
    (Celery async).
-2. ``query(query, mode, scope, kb_name, scope_filter)`` -> routed Q&A, returns
-   answer / sources / route / steps.
+2. ``query(query, mode, scope, kb_name, scope_filter, image_base64, image_mime)``
+   -> routed Q&A, returns answer / sources / route / steps.
 3. ``retrieve_text(query, scope, top_k, kb_name)`` -> pure text vector retrieval
    (KnowhereGraphRetriever).
-4. ``retrieve_visual(query, scope, top_k, kb_name)`` -> visual Tile retrieval
-   (PixelRAGVisualRetriever).
+4. ``retrieve_visual(query, image_base64, image_mime, scope, top_k, kb_name)``
+   -> visual Tile retrieval (PixelRAGVisualRetriever).
 
 Design notes:
 - Uses FastMCP (``@mcp.tool`` decorator) and calls the service layer
@@ -34,6 +34,7 @@ Design notes:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from typing import Any
@@ -56,6 +57,24 @@ __all__ = ["mcp", "TOOL_DEFINITIONS", "configure_mcp_auth", "main"]
 # before startup per settings (``self.auth`` is a public attribute assignable after
 # construction); supports static-token / oauth-github / oauth-custom.
 mcp = FastMCP("eagle-rag")
+
+
+def _decode_mcp_image(
+    image_base64: str | None,
+    *,
+    image_mime: str | None = None,
+) -> bytes | None:
+    if not image_base64:
+        return None
+    from eagle_rag.attachments.validation import decode_inline_image
+
+    return decode_inline_image(image_base64, mime=image_mime)
+
+
+def _image_cache_token(image_bytes: bytes | None) -> str:
+    if not image_bytes:
+        return ""
+    return hashlib.sha256(image_bytes).hexdigest()[:16]
 
 
 # Tool metadata list: mirrors the functions registered by ``@mcp.tool`` below, for
@@ -99,7 +118,20 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "parameters": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "User natural-language question"},
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "User natural-language question (optional when image_base64 is set)"
+                    ),
+                },
+                "image_base64": {
+                    "type": "string",
+                    "description": "Inline base64 image payload (optional when query is set)",
+                },
+                "image_mime": {
+                    "type": "string",
+                    "description": "Optional MIME hint for image_base64 validation",
+                },
                 "mode": {
                     "type": "string",
                     "enum": ["auto", "text", "visual", "hybrid"],
@@ -127,7 +159,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     },
                 },
             },
-            "required": ["query"],
+            "required": [],
         },
     },
     {
@@ -167,7 +199,18 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "parameters": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Retrieval query string"},
+                "query": {
+                    "type": "string",
+                    "description": "Retrieval query string (optional when image_base64 is set)",
+                },
+                "image_base64": {
+                    "type": "string",
+                    "description": "Inline base64 image for visual similarity search",
+                },
+                "image_mime": {
+                    "type": "string",
+                    "description": "Optional MIME hint for image_base64 validation",
+                },
                 "scope": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -183,7 +226,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "description": "Knowledge base id (multi-tenant); optional, defaults to config",
                 },
             },
-            "required": ["query"],
+            "required": [],
         },
     },
 ]
@@ -310,22 +353,26 @@ def ingest(
 @mcp.tool()
 @with_metrics("query")
 def query(
-    query: str,
+    query: str | None = None,
     mode: str | None = None,
     scope: list[str] | None = None,
     kb_name: str | None = None,
     scope_filter: dict[str, Any] | None = None,
+    image_base64: str | None = None,
+    image_mime: str | None = None,
 ) -> dict[str, Any]:
     """Multimodal Q&A. Auto-routes retrieval and generates the answer.
 
     Args:
-        query: User natural-language question.
+        query: User natural-language question (optional when ``image_base64`` is set).
         mode: Retrieval mode (auto/text/visual/hybrid); defaults to auto.
         scope: List of document_ids to constrain recall.
         kb_name: Knowledge base identifier (multi-tenant isolation); optional,
             defaults to system config.
         scope_filter: Advanced scope filter ``{kb_names, document_ids, tags}``
             combined as a union (OR); optional, overrides ``scope`` when set.
+        image_base64: Inline base64 image submitted with the tool call.
+        image_mime: Optional MIME hint for image validation.
 
     Returns:
         ``{"answer", "sources", "route", "steps"}``, or ``{"error": ...}`` on
@@ -340,18 +387,27 @@ def query(
         "scope": scope,
         "kb_name": kb_name,
         "scope_filter": scope_filter,
+        "image_base64": bool(image_base64),
+        "image_mime": image_mime,
     }
+    if not (query or "").strip() and not image_base64:
+        return {"error": "query or image_base64 is required"}
+    try:
+        image_bytes = _decode_mcp_image(image_base64, image_mime=image_mime)
+    except ValueError as exc:
+        return {"error": str(exc)}
     try:
         from eagle_rag.router.router_engine import EagleRouterQueryEngine
 
         def _do_query():
             engine = EagleRouterQueryEngine()
             return engine.query(
-                query,
+                query or "",
                 mode=mode,
                 scope=scope,
                 kb_name=kb_name,
                 scope_filter=scope_filter,
+                query_image_bytes=image_bytes,
             )
 
         result = resilient_call("query", _do_query)
@@ -577,19 +633,23 @@ def retrieve_text(
 @mcp.tool()
 @with_metrics("retrieve_visual")
 def retrieve_visual(
-    query: str,
+    query: str | None = None,
     scope: list[str] | None = None,
     top_k: int = 5,
     kb_name: str | None = None,
+    image_base64: str | None = None,
+    image_mime: str | None = None,
 ) -> list[dict[str, Any]]:
     """Visual Tile retrieval (PixelRAG).
 
     Args:
-        query: Retrieval query string.
+        query: Retrieval query string (optional when ``image_base64`` is set).
         scope: List of document_ids to constrain recall.
         top_k: Number of results to return; defaults to 5.
         kb_name: Knowledge base identifier (multi-tenant isolation); optional,
             defaults to system config.
+        image_base64: Inline base64 image for visual similarity search.
+        image_mime: Optional MIME hint for image validation.
 
     Returns:
         ``list[{"image_id", "document_id", "page", "position", "score"}]``, or
@@ -598,9 +658,28 @@ def retrieve_visual(
     import time as _time
 
     _start = _time.perf_counter()
-    _args = {"query": query, "scope": scope, "top_k": top_k, "kb_name": kb_name}
-    # Cache read: on hit, return immediately and skip visual Tile retrieval.
-    _ckey = cache_key("retrieve_visual", query, scope=scope, top_k=top_k, kb_name=kb_name)
+    _args = {
+        "query": query,
+        "scope": scope,
+        "top_k": top_k,
+        "kb_name": kb_name,
+        "image_base64": bool(image_base64),
+        "image_mime": image_mime,
+    }
+    if not (query or "").strip() and not image_base64:
+        return [{"error": "query or image_base64 is required"}]
+    try:
+        image_bytes = _decode_mcp_image(image_base64, image_mime=image_mime)
+    except ValueError as exc:
+        return [{"error": str(exc)}]
+    _ckey = cache_key(
+        "retrieve_visual",
+        query or "",
+        scope=scope,
+        top_k=top_k,
+        kb_name=kb_name,
+        image_token=_image_cache_token(image_bytes),
+    )
     _cached = get_cached(_ckey)
     if _cached is not None:
         _latency = int((_time.perf_counter() - _start) * 1000)
@@ -623,7 +702,7 @@ def retrieve_visual(
 
         def _do_retrieve():
             retriever = PixelRAGVisualRetriever(top_k=top_k, kb_name=kb_name)
-            return retriever.retrieve(query)
+            return retriever.retrieve(query or "", query_image_bytes=image_bytes)
 
         nodes = resilient_call("retrieve_visual", _do_retrieve) or []
         scope_set = set(scope) if scope else None

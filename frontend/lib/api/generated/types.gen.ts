@@ -482,6 +482,26 @@ export type AttachmentsSettings = {
      * Ttl Hours
      */
     ttl_hours: number;
+    /**
+     * Max Image Bytes
+     */
+    max_image_bytes?: number;
+    /**
+     * Allowed Image Exts
+     */
+    allowed_image_exts?: Array<string>;
+    /**
+     * Max Count
+     */
+    max_count?: number;
+    /**
+     * Image Only Query
+     */
+    image_only_query?: string;
+    /**
+     * Visual Merge Fetch Multiplier
+     */
+    visual_merge_fetch_multiplier?: number;
     parse: AttachmentsParseSettings;
 };
 
@@ -2109,7 +2129,7 @@ export type QueryRequest = {
     /**
      * Query
      */
-    query: string;
+    query?: string;
     /**
      * Mode
      *
@@ -2507,7 +2527,7 @@ export type SearchRequest = {
     /**
      * Query
      */
-    query: string;
+    query?: string;
     /**
      * Mode
      *
@@ -2526,6 +2546,12 @@ export type SearchRequest = {
      * Knowledge base identifier (multi-tenant)
      */
     kb_name?: string | null;
+    /**
+     * Attachments
+     *
+     * List of attachment_id values
+     */
+    attachments?: Array<string> | null;
     filters?: QueryFilters | null;
     /**
      * Advanced scope filter (knowledge bases / documents / tags, union)

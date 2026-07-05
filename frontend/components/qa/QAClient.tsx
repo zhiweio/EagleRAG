@@ -293,7 +293,11 @@ export function QAClient() {
       };
 
       streamCancelRef.current = isSearch
-        ? streamSearch(streamBody, onStreamEvent, onStreamError)
+        ? streamSearch(
+            { ...streamBody, attachments: attachmentIds ?? null },
+            onStreamEvent,
+            onStreamError,
+          )
         : streamQuery(
             { ...streamBody, session_id: sessionId, attachments: attachmentIds ?? null },
             onStreamEvent,
@@ -362,9 +366,12 @@ export function QAClient() {
     clearRailFocus();
   }, [clearScope, clearRailFocus]);
 
-  const handleUploadError = useCallback(() => {
-    pushToast("error", t("error.upload"));
-  }, [pushToast, t]);
+  const handleUploadError = useCallback(
+    (reason: "upload" | "invalidImageType" | "imageTooLarge" = "upload") => {
+      pushToast("error", t(`error.${reason}`));
+    },
+    [pushToast, t],
+  );
 
   const handleDeleteSessionError = useCallback(
     (err: unknown) => {

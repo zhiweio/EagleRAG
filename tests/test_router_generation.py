@@ -140,7 +140,10 @@ def test_route_financial_query_visual():
 
     assert info.selected == ["visual"]
     assert len(nodes) == 1
-    mock_visual.retrieve.assert_called_once_with("看这张资产负债表，总资产是多少？")
+    mock_visual.retrieve.assert_called_once_with(
+        "看这张资产负债表，总资产是多少？",
+        query_image_bytes=None,
+    )
     mock_text.retrieve.assert_not_called()
 
 
@@ -282,7 +285,7 @@ def test_route_hybrid():
     assert info.selected == ["text", "visual"]
     # Both retrievers are called.
     mock_text.retrieve.assert_called_once_with("任意查询")
-    mock_visual.retrieve.assert_called_once_with("任意查询")
+    mock_visual.retrieve.assert_called_once_with("任意查询", query_image_bytes=None)
     # After merge: 1 text + 1 image.
     assert len(nodes) == 2
 

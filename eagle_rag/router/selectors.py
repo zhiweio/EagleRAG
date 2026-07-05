@@ -6,7 +6,8 @@ tries selectors in order and the first non-None decision wins.
 
 Default chain order (matches the original ``route_query`` auto-mode decision chain):
     1. ``ForcedModeSelector`` — decides text/visual/hybrid directly; defers on auto.
-    2. ``AttachmentSelector`` — when attachments contain documents → hybrid; otherwise defers.
+    2. ``AttachmentSelector`` — when an image attachment is present → visual or hybrid;
+       otherwise defers.
     3. ``LLMIntentSelector`` — LLM intent classification; returns None when
        unconfigured/failing (falls back).
     4. ``HeuristicSelector`` — first-match keyword rules; always decides (including the default).
@@ -70,18 +71,27 @@ class ForcedModeSelector:
 
 
 class AttachmentSelector:
-    """Attachment selector: doc attachments → hybrid retrieval; otherwise defer."""
+    """Attachment selector: image attachments bias routing toward visual or hybrid."""
 
     def select(self, ctx: RouteContext) -> RouteDecision | None:
-        if ctx.has_doc_attachments:
+        if not ctx.has_image_attachment:
+            return None
+        has_text = bool((ctx.query or "").strip())
+        if has_text:
             return RouteDecision(
                 mode="auto",
                 selected=["text", "visual"],
-                reason="attachments include documents; prefer hybrid retrieval",
+                reason="image attachment with text query; prefer hybrid retrieval",
                 kb_name=ctx.kb_name,
                 selector="attachment",
             )
-        return None
+        return RouteDecision(
+            mode="auto",
+            selected=["visual"],
+            reason="image-only attachment; prefer visual retrieval",
+            kb_name=ctx.kb_name,
+            selector="attachment",
+        )
 
 
 class LLMIntentSelector:

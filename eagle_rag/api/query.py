@@ -119,6 +119,7 @@ async def post_search(req: SearchRequest) -> SearchResponse:
             kb_name=req.kb_name,
             filters=filters_dict,
             scope_filter=scope_filter_dict,
+            attachments=req.attachments,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("retrieval engine call failed")
@@ -188,6 +189,7 @@ async def post_search_stream(req: SearchRequest) -> EventSourceResponse:
                     kb_name=req.kb_name,
                     filters=filters_dict,
                     scope_filter=scope_filter_dict,
+                    attachments=req.attachments,
                 ):
                     event_q.put(evt)
             except Exception as exc:  # noqa: BLE001

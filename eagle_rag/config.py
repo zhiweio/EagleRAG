@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = [
@@ -299,6 +299,22 @@ class AttachmentsParseSettings(BaseModel):
 
 class AttachmentsSettings(BaseModel):
     ttl_hours: int
+    max_image_bytes: int = 5_242_880
+    allowed_image_exts: list[str] = Field(
+        default_factory=lambda: [
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".webp",
+            ".gif",
+            ".bmp",
+            ".tiff",
+            ".tif",
+        ]
+    )
+    max_count: int = 1
+    image_only_query: str = "请根据上传的图片，结合知识库相关内容回答。"
+    visual_merge_fetch_multiplier: int = 2
     parse: AttachmentsParseSettings
 
 

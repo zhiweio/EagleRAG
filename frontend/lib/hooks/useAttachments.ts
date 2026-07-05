@@ -1,4 +1,9 @@
-import { uploadAttachmentAttachmentsPost } from "@/lib/api/generated/sdk.gen";
+import {
+  deleteAttachmentAttachmentsAttachmentIdDelete,
+  uploadAttachmentAttachmentsPost,
+} from "@/lib/api/generated/sdk.gen";
+
+export const MAX_IMAGE_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
 export async function uploadAttachment(
   file: File,
@@ -20,4 +25,13 @@ export async function uploadAttachment(
   const data = result.data as { attachment_id?: string };
   if (!data.attachment_id) throw new Error("upload response missing attachment_id");
   return { attachment_id: data.attachment_id };
+}
+
+export async function deleteAttachment(attachmentId: string): Promise<void> {
+  const result = await deleteAttachmentAttachmentsAttachmentIdDelete({
+    path: { attachment_id: attachmentId },
+  });
+  if (result.error) {
+    throw new Error("delete attachment failed");
+  }
 }

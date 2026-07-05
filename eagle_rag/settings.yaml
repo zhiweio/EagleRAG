@@ -149,8 +149,13 @@ kb:
 
 attachments:
   ttl_hours: ${ATTACHMENTS_TTL_HOURS:-24}
+  max_image_bytes: ${ATTACHMENTS_MAX_IMAGE_BYTES:-5242880}
+  allowed_image_exts: [.png, .jpg, .jpeg, .webp, .gif, .bmp, .tiff, .tif]
+  max_count: ${ATTACHMENTS_MAX_COUNT:-1}
+  image_only_query: "请根据上传的图片，结合知识库相关内容回答。"
+  visual_merge_fetch_multiplier: ${ATTACHMENTS_VISUAL_MERGE_FETCH_MULTIPLIER:-2}
   parse:
-    max_bytes: ${ATTACHMENTS_PARSE_MAX_BYTES:-10485760}
+    max_bytes: ${ATTACHMENTS_PARSE_MAX_BYTES:-5242880}
     max_chunks: ${ATTACHMENTS_PARSE_MAX_CHUNKS:-50}
     timeout_sec: ${ATTACHMENTS_PARSE_TIMEOUT_SEC:-120}
     cache_enabled: ${ATTACHMENTS_PARSE_CACHE_ENABLED:-true}

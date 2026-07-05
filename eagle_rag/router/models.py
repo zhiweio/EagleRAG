@@ -23,7 +23,7 @@ class RouteContext:
     mode: str | None = None
     scope: list[str] | None = None
     kb_name: str | None = None
-    has_doc_attachments: bool = False
+    has_image_attachment: bool = False
 
 
 @dataclass(frozen=True)

@@ -7,8 +7,8 @@
     "composer": {
       "placeholder": "输入你的问题，或输入 @ 指定知识库与检索范围…",
       "send": "发送",
-      "attach": "上传附件",
-      "attachRemove": "移除附件",
+      "attach": "上传图片",
+      "attachRemove": "移除图片",
       "mode": "检索模式",
       "scope": "检索范围",
       "scopeClear": "清除范围",
@@ -152,7 +152,9 @@
     },
     "error": {
       "query": "查询失败，请稍后重试",
-      "upload": "附件上传失败",
+      "upload": "图片上传失败",
+      "invalidImageType": "仅支持 PNG、JPEG、WebP、GIF、BMP 或 TIFF 图片",
+      "imageTooLarge": "图片大小不能超过 5 MB",
       "history": "加载历史会话失败",
       "messages": "加载会话消息失败",
       "delete": "删除会话失败"

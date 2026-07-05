@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class QueryFilters(BaseModel):
@@ -35,7 +35,7 @@ class ScopeSelection(BaseModel):
 
 class QueryRequest(BaseModel):
     session_id: str | None = Field(default=None, description="Auto-create a session when omitted")
-    query: str
+    query: str = ""
     mode: str | None = Field(default=None, description="auto | text | visual | hybrid")
     kb_name: str | None = Field(
         default=None, description="Knowledge base identifier (multi-tenant)"
@@ -49,6 +49,16 @@ class QueryRequest(BaseModel):
         default=None,
         description="Advanced scope filter (knowledge bases / documents / tags, union)",
     )
+
+    @model_validator(mode="after")
+    def _validate_query_or_attachments(self) -> QueryRequest:
+        has_query = bool(self.query.strip())
+        has_attachments = bool(self.attachments)
+        if not has_query and not has_attachments:
+            raise ValueError("query or attachments is required")
+        if self.attachments and len(self.attachments) > 1:
+            raise ValueError("at most one attachment is allowed")
+        return self
 
 
 class TextSource(BaseModel):
@@ -138,7 +148,7 @@ class QueryResponse(BaseModel):
 
 
 class SearchRequest(BaseModel):
-    query: str
+    query: str = ""
     mode: str | None = Field(default=None, description="auto | text | visual | hybrid")
     scope: list[str] | None = Field(
         default=None, description="Restrict to these document_id values"
@@ -146,11 +156,22 @@ class SearchRequest(BaseModel):
     kb_name: str | None = Field(
         default=None, description="Knowledge base identifier (multi-tenant)"
     )
+    attachments: list[str] | None = Field(default=None, description="List of attachment_id values")
     filters: QueryFilters | None = None
     scope_filter: ScopeSelection | None = Field(
         default=None,
         description="Advanced scope filter (knowledge bases / documents / tags, union)",
     )
+
+    @model_validator(mode="after")
+    def _validate_query_or_attachments(self) -> SearchRequest:
+        has_query = bool(self.query.strip())
+        has_attachments = bool(self.attachments)
+        if not has_query and not has_attachments:
+            raise ValueError("query or attachments is required")
+        if self.attachments and len(self.attachments) > 1:
+            raise ValueError("at most one attachment is allowed")
+        return self
 
 
 class SearchResponse(BaseModel):

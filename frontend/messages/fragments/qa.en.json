@@ -7,8 +7,8 @@
     "composer": {
       "placeholder": "Ask a question, or type @ to target a knowledge base or scope…",
       "send": "Send",
-      "attach": "Upload attachment",
-      "attachRemove": "Remove attachment",
+      "attach": "Upload image",
+      "attachRemove": "Remove image",
       "mode": "Retrieval mode",
       "scope": "Scope",
       "scopeClear": "Clear scope",
@@ -152,7 +152,9 @@
     },
     "error": {
       "query": "Query failed, please try again",
-      "upload": "Attachment upload failed",
+      "upload": "Image upload failed",
+      "invalidImageType": "Only PNG, JPEG, WebP, GIF, BMP, or TIFF images are supported",
+      "imageTooLarge": "Image must be 5 MB or smaller",
       "history": "Failed to load sessions",
       "messages": "Failed to load session messages",
       "delete": "Failed to delete session"

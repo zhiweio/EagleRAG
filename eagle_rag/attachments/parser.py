@@ -12,6 +12,7 @@ from typing import Any
 from llama_index.core.schema import ImageDocument, TextNode
 
 from eagle_rag.attachments.store import get_attachment_bytes_sync, get_attachment_sync
+from eagle_rag.attachments.validation import is_allowed_image_attachment
 from eagle_rag.config import get_settings
 from eagle_rag.ingest.knowhere_adapter import chunks_to_text_nodes, parse_with_knowhere_sdk
 from eagle_rag.ingest.pixelrag_adapter import render_to_tiles
@@ -41,7 +42,8 @@ class ParsedAttachments:
     errors: list[str] = field(default_factory=list)
     parsed_count: int = 0
     cached_count: int = 0
-    has_doc_attachments: bool = False
+    has_image_attachment: bool = False
+    image_bytes: bytes | None = None
 
     def step_payload(self) -> dict[str, Any]:
         return {
@@ -354,9 +356,8 @@ def parse_attachments(attachment_ids: list[str] | None) -> ParsedAttachments:
     if not attachment_ids:
         return result
 
-    max_bytes = _parse_cfg().max_bytes
-    _, _, pixelrag_exts = _routing_exts()
-    for aid in attachment_ids:
+    max_bytes = get_settings().attachments.max_image_bytes
+    for aid in attachment_ids[: get_settings().attachments.max_count]:
         meta = get_attachment_sync(aid)
         if meta is None:
             result.errors.append(f"attachment not found: {aid}")
@@ -373,10 +374,10 @@ def parse_attachments(attachment_ids: list[str] | None) -> ParsedAttachments:
             continue
 
         mime = (meta.get("mime") or "").lower()
-        ext = _ext(str(meta.get("file_name") or ""))
-        is_doc = not mime.startswith("image/") and ext not in pixelrag_exts
-        if is_doc:
-            result.has_doc_attachments = True
+        file_name = str(meta.get("file_name") or "")
+        if not is_allowed_image_attachment(mime, file_name):
+            result.errors.append(f"unsupported attachment type: {file_name}")
+            continue
 
         try:
             payload, from_cache = _parse_one(meta, data)
@@ -387,10 +388,19 @@ def parse_attachments(attachment_ids: list[str] | None) -> ParsedAttachments:
             nodes, imgs = _materialize(payload)
             result.text_nodes.extend(nodes)
             result.image_docs.extend(imgs)
-            if not nodes and not imgs and payload.get("pipeline") != "image":
-                result.errors.append(f"failed to parse attachment: {meta.get('file_name')}")
+            if imgs and result.image_bytes is None:
+                result.has_image_attachment = True
+                if payload.get("image_b64"):
+                    try:
+                        result.image_bytes = base64.b64decode(payload["image_b64"])
+                    except Exception:  # noqa: BLE001
+                        result.image_bytes = data
+                else:
+                    result.image_bytes = data
+            if not nodes and not imgs:
+                result.errors.append(f"failed to parse attachment: {file_name}")
         except Exception as exc:  # noqa: BLE001
             logger.warning("failed to parse attachment %s: %s", aid, exc)
-            result.errors.append(f"{meta.get('file_name')}: {exc}")
+            result.errors.append(f"{file_name}: {exc}")
 
     return result

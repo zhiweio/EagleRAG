@@ -214,9 +214,11 @@ def test_pixelrag_visual_retriever():
     # search_visual receives query_vector + top_k + document_id=None (other filters are None).
     mock_milvus.assert_called_once_with(
         query_vector,
-        top_k=2,
+        top_k=4,
         document_id=None,
         kb_name=None,
+        kb_names=None,
+        document_ids=None,
         year=None,
         source_type=None,
         parent_section=None,
@@ -246,9 +248,11 @@ def test_pixelrag_visual_retriever_with_filters():
     mock_embed.assert_called_once_with("query")
     mock_milvus.assert_called_once_with(
         query_vector,
-        top_k=3,
+        top_k=6,
         document_id=None,
         kb_name="finance",
+        kb_names=None,
+        document_ids=None,
         year=2025,
         source_type="financial",
         parent_section=None,
@@ -287,9 +291,11 @@ def test_pixelrag_visual_retriever_with_context_filters():
     # parent_section/chunk_type forwarded to search_visual.
     mock_milvus.assert_called_once_with(
         query_vector,
-        top_k=3,
+        top_k=6,
         document_id=None,
         kb_name=None,
+        kb_names=None,
+        document_ids=None,
         year=None,
         source_type=None,
         parent_section="3 Model Architecture",

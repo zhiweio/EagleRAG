@@ -8,7 +8,11 @@ import {
   PromptInputToolbar,
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
-import { uploadAttachment } from "@/lib/hooks/useAttachments";
+import {
+  MAX_IMAGE_ATTACHMENT_BYTES,
+  deleteAttachment,
+  uploadAttachment,
+} from "@/lib/hooks/useAttachments";
 import { type ScopeRef, useScopeStore } from "@/lib/stores/scopeStore";
 import type { Document } from "@/lib/types";
 import { Button, Popover, Spinner, useOverlayState } from "@heroui/react";
@@ -21,7 +25,6 @@ import {
   Layers,
   LibraryBig,
   MessagesSquare,
-  Paperclip,
   Route,
   Search,
   Tag,
@@ -29,7 +32,14 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { type FormEvent, type KeyboardEvent, useCallback, useRef, useState } from "react";
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { MentionAutocomplete } from "./MentionAutocomplete";
 import { ScopeFilterDrawer } from "./ScopeFilterDrawer";
 import { type AskMode, MODE_OPTIONS, type Mode } from "./types";
@@ -57,6 +67,29 @@ const MODE_META: Record<Mode, { icon: LucideIcon; tone: string; iconTone: string
   },
 };
 
+const IMAGE_ACCEPT =
+  "image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.tif";
+const ALLOWED_IMAGE_EXTS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".gif",
+  ".bmp",
+  ".tiff",
+  ".tif",
+]);
+
+function isAllowedImageFile(file: File): boolean {
+  const name = file.name.toLowerCase();
+  const dot = name.lastIndexOf(".");
+  const ext = dot >= 0 ? name.slice(dot) : "";
+  if (file.type.startsWith("image/")) {
+    return !ext || ALLOWED_IMAGE_EXTS.has(ext);
+  }
+  return ALLOWED_IMAGE_EXTS.has(ext);
+}
+
 interface ComposerProps {
   onSend: (query: string, attachmentIds?: string[]) => void;
   disabled: boolean;
@@ -66,7 +99,7 @@ interface ComposerProps {
   onAskModeChange: (mode: AskMode) => void;
   /** Current session id; associated with uploads so the backend can clean them up. */
   sessionId?: string | null;
-  onUploadError: () => void;
+  onUploadError: (reason?: "upload" | "invalidImageType" | "imageTooLarge") => void;
 }
 
 export function Composer({
@@ -91,6 +124,7 @@ export function Composer({
   const [uploading, setUploading] = useState(false);
   const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
   const [attachmentNames, setAttachmentNames] = useState<Record<string, string>>({});
+  const [attachmentPreviews, setAttachmentPreviews] = useState<Record<string, string>>({});
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const caretRef = useRef(0);
@@ -104,6 +138,16 @@ export function Composer({
   const modeState = useOverlayState();
   const scopeDrawer = useOverlayState();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const attachmentPreviewsRef = useRef(attachmentPreviews);
+  attachmentPreviewsRef.current = attachmentPreviews;
+
+  useEffect(() => {
+    return () => {
+      for (const url of Object.values(attachmentPreviewsRef.current)) {
+        URL.revokeObjectURL(url);
+      }
+    };
+  }, []);
 
   const handleMentionItems = useCallback((items: Document[]) => {
     setMentionItems(items);
@@ -146,10 +190,14 @@ export function Composer({
 
   function send() {
     const query = value.trim();
-    if (!query || disabled) return;
+    if ((!query && attachmentIds.length === 0) || disabled) return;
     onSend(query, attachmentIds.length > 0 ? attachmentIds : undefined);
+    for (const url of Object.values(attachmentPreviews)) {
+      URL.revokeObjectURL(url);
+    }
     setAttachmentIds([]);
     setAttachmentNames({});
+    setAttachmentPreviews({});
     setValue("");
     setMentionOpen(false);
     prevTokenRef.current = null;
@@ -212,19 +260,37 @@ export function Composer({
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
+    const file = files[0];
+    if (!isAllowedImageFile(file)) {
+      onUploadError("invalidImageType");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    if (file.size > MAX_IMAGE_ATTACHMENT_BYTES) {
+      onUploadError("imageTooLarge");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
     setUploading(true);
-    const added: string[] = [];
     try {
-      for (const file of Array.from(files)) {
-        const res = await uploadAttachment(file, sessionId ?? undefined);
-        if (res.attachment_id) {
-          added.push(res.attachment_id);
-          setAttachmentNames((prev) => ({ ...prev, [res.attachment_id]: file.name }));
+      if (attachmentIds.length > 0) {
+        const previous = attachmentIds[0];
+        try {
+          await deleteAttachment(previous);
+        } catch {
+          // Best-effort cleanup; local state is replaced regardless.
         }
+        const prevPreview = attachmentPreviews[previous];
+        if (prevPreview) URL.revokeObjectURL(prevPreview);
       }
-      if (added.length > 0) setAttachmentIds((prev) => [...prev, ...added]);
+      const res = await uploadAttachment(file, sessionId ?? undefined);
+      if (!res.attachment_id) return;
+      const previewUrl = URL.createObjectURL(file);
+      setAttachmentIds([res.attachment_id]);
+      setAttachmentNames({ [res.attachment_id]: file.name });
+      setAttachmentPreviews({ [res.attachment_id]: previewUrl });
     } catch {
-      onUploadError();
+      onUploadError("upload");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -232,15 +298,23 @@ export function Composer({
   }
 
   function removeAttachment(id: string) {
+    const preview = attachmentPreviews[id];
+    if (preview) URL.revokeObjectURL(preview);
+    void deleteAttachment(id).catch(() => undefined);
     setAttachmentIds((prev) => prev.filter((x) => x !== id));
     setAttachmentNames((prev) => {
       const next = { ...prev };
       delete next[id];
       return next;
     });
+    setAttachmentPreviews((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   }
 
-  const canSend = value.trim().length > 0 && !disabled;
+  const canSend = (value.trim().length > 0 || attachmentIds.length > 0) && !disabled;
   const hasChips = scopeTotal > 0 || attachmentIds.length > 0;
 
   return (
@@ -286,10 +360,19 @@ export function Composer({
               {attachmentIds.map((id) => (
                 <span
                   key={id}
-                  className="inline-flex items-center gap-1 rounded-lg bg-warning/15 px-2 py-0.5 font-medium text-[11px] text-warning"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-warning/15 px-2 py-0.5 font-medium text-[11px] text-warning"
                 >
-                  <Paperclip className="h-3 w-3" aria-hidden />
-                  <span className="max-w-48 truncate">{attachmentNames[id] ?? id.slice(0, 8)}</span>
+                  {attachmentPreviews[id] ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={attachmentPreviews[id]}
+                      alt={attachmentNames[id] ?? ""}
+                      className="h-6 w-6 rounded object-cover"
+                    />
+                  ) : (
+                    <ImageIcon className="h-3.5 w-3.5" aria-hidden />
+                  )}
+                  <span className="max-w-32 truncate">{attachmentNames[id] ?? id.slice(0, 8)}</span>
                   <button
                     type="button"
                     aria-label={t("composer.attachRemove")}
@@ -338,7 +421,7 @@ export function Composer({
               onClick={() => fileInputRef.current?.click()}
               className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-foreground-secondary transition-colors hover:bg-surface disabled:opacity-50"
             >
-              {uploading ? <Spinner size="sm" /> : <Paperclip className="h-4 w-4" />}
+              {uploading ? <Spinner size="sm" /> : <ImageIcon className="h-4 w-4" />}
             </button>
 
             <ModePicker
@@ -378,7 +461,7 @@ export function Composer({
       <input
         ref={fileInputRef}
         type="file"
-        multiple
+        accept={IMAGE_ACCEPT}
         className="hidden"
         onChange={(e) => handleFiles(e.target.files)}
       />

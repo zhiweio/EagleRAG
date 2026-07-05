@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from eagle_rag.attachments.validation import is_allowed_image_attachment
 from eagle_rag.config import get_settings
 from eagle_rag.db import async_fetchrow, sync_execute, sync_fetchone
 
@@ -16,6 +18,7 @@ __all__ = [
     "get_attachment_bytes_sync",
     "delete_attachment_sync",
     "purge_expired_sync",
+    "purge_non_image_attachments_sync",
 ]
 
 
@@ -116,9 +119,57 @@ def purge_expired_sync() -> int:
     count = 0
     for aid, spath in expired:
         Path(spath).unlink(missing_ok=True)
+        Path(f"{spath}.parsed.json").unlink(missing_ok=True)
         sync_execute("DELETE FROM attachments WHERE attachment_id = %s", (aid,))
         count += 1
     return count
+
+
+def _is_stored_image_attachment(mime: str, file_name: str) -> bool:
+    return is_allowed_image_attachment(mime, file_name)
+
+
+def purge_non_image_attachments_sync() -> int:
+    """Delete legacy non-image attachments and scrub message references."""
+    from eagle_rag.db import sync_fetchall
+
+    rows = sync_fetchall(
+        """
+        SELECT attachment_id, storage_path, mime, file_name
+        FROM attachments
+        """
+    )
+    removed_ids: list[str] = []
+    for attachment_id, storage_path, mime, file_name in rows:
+        if _is_stored_image_attachment(str(mime or ""), str(file_name or "")):
+            continue
+        path = Path(str(storage_path))
+        path.unlink(missing_ok=True)
+        Path(f"{path}.parsed.json").unlink(missing_ok=True)
+        sync_execute("DELETE FROM attachments WHERE attachment_id = %s", (attachment_id,))
+        removed_ids.append(str(attachment_id))
+
+    if not removed_ids:
+        return 0
+
+    msg_rows = sync_fetchall(
+        "SELECT message_id, attachments FROM messages WHERE attachments IS NOT NULL"
+    )
+    for message_id, attachments in msg_rows:
+        if not attachments:
+            continue
+        if isinstance(attachments, list):
+            filtered = [aid for aid in attachments if str(aid) not in removed_ids]
+            if filtered == attachments:
+                continue
+            new_value = filtered or None
+        else:
+            continue
+        sync_execute(
+            "UPDATE messages SET attachments = %s::jsonb WHERE message_id = %s",
+            (json.dumps(new_value) if new_value is not None else None, message_id),
+        )
+    return len(removed_ids)
 
 
 async def get_attachment(attachment_id: str) -> dict[str, Any] | None:

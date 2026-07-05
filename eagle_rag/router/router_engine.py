@@ -15,10 +15,11 @@ not require changes to this module.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
-from llama_index.core.schema import ImageNode, NodeWithScore, TextNode
+from llama_index.core.schema import ImageDocument, ImageNode, NodeWithScore, TextNode
 
 from eagle_rag.attachments.parser import parse_attachments
 from eagle_rag.config import get_settings
@@ -70,7 +71,6 @@ def route_query(ctx: RouteContext) -> RouteDecision:
     with trace_span("route"):
         chain = _build_chain(get_settings())
         decision = chain.select(ctx)
-        # kb_name fallback: default to ctx.kb_name when selectors left it unset.
         if decision.kb_name is None:
             decision = RouteDecision(
                 mode=decision.mode,
@@ -92,6 +92,17 @@ def route_query(ctx: RouteContext) -> RouteDecision:
         except Exception:  # noqa: BLE001
             logger.debug("telemetry emit failed", exc_info=True)
         return decision
+
+
+@dataclass
+class _AttachmentContext:
+    effective_query: str
+    user_query: str
+    attach_nodes: list[NodeWithScore]
+    image_docs: list[ImageDocument]
+    attach_step: dict[str, Any] | None
+    has_image_attachment: bool
+    image_bytes: bytes | None
 
 
 class EagleRouterQueryEngine:
@@ -120,16 +131,61 @@ class EagleRouterQueryEngine:
         self.top_k = top_k
 
     @staticmethod
+    def _effective_query(query: str) -> tuple[str, str]:
+        user_query = query or ""
+        stripped = user_query.strip()
+        if stripped:
+            return stripped, user_query
+        placeholder = get_settings().attachments.image_only_query
+        return placeholder, user_query
+
+    @staticmethod
+    def _resolve_attachment_context(
+        query: str,
+        *,
+        attachments: list[str] | None = None,
+        query_image_bytes: bytes | None = None,
+    ) -> _AttachmentContext:
+        effective_query, user_query = EagleRouterQueryEngine._effective_query(query)
+        attach_nodes: list[NodeWithScore] = []
+        image_docs: list[ImageDocument] = []
+        attach_step: dict[str, Any] | None = None
+        image_bytes = query_image_bytes
+
+        if attachments:
+            parsed = parse_attachments(attachments)
+            attach_nodes = [NodeWithScore(node=node, score=1.0) for node in parsed.text_nodes]
+            image_docs = list(parsed.image_docs)
+            if parsed.errors or parsed.parsed_count or parsed.cached_count or parsed.image_docs:
+                attach_step = parsed.step_payload()
+            if image_bytes is None:
+                image_bytes = parsed.image_bytes
+            if image_docs and image_bytes is None:
+                first = image_docs[0]
+                raw = getattr(first, "image", None)
+                if isinstance(raw, bytes):
+                    image_bytes = raw
+
+        has_image = bool(image_bytes or image_docs)
+        if query_image_bytes is not None:
+            has_image = True
+            if not image_docs:
+                image_docs = [ImageDocument(image=query_image_bytes)]
+
+        return _AttachmentContext(
+            effective_query=effective_query,
+            user_query=user_query,
+            attach_nodes=attach_nodes,
+            image_docs=image_docs,
+            attach_step=attach_step,
+            has_image_attachment=has_image,
+            image_bytes=image_bytes,
+        )
+
+    @staticmethod
     def _resolve_scope_filter(
         scope_filter: dict[str, Any] | None,
     ) -> tuple[list[str], list[str], bool]:
-        """Expand the advanced scope filter into ``(kb_names, document_ids, active)``.
-
-        Folds the selected tags into the document set by resolving them to the
-        documents that contain those keywords (union semantics; tags resolve
-        across all knowledge bases). ``active`` is False when nothing is selected,
-        in which case the legacy single ``kb_name`` / ``scope`` path is used.
-        """
         if not scope_filter:
             return [], [], False
         kb_names = list(scope_filter.get("kb_names") or [])
@@ -157,9 +213,8 @@ class EagleRouterQueryEngine:
         scope: list[str] | None = None,
         kb_name: str | None = None,
         filters: dict[str, Any] | None = None,
-        has_doc_attachments: bool = False,
+        has_image_attachment: bool = False,
     ) -> RouteDecision:
-        """Run routing only (fast); retrieval may follow in :meth:`_fetch_nodes`."""
         effective_mode = mode or self.mode
         if filters and filters.get("pipeline") in ("knowhere", "pixelrag"):
             effective_mode = "text" if filters["pipeline"] == "knowhere" else "visual"
@@ -168,7 +223,7 @@ class EagleRouterQueryEngine:
             mode=effective_mode,
             scope=scope,
             kb_name=kb_name,
-            has_doc_attachments=has_doc_attachments,
+            has_image_attachment=has_image_attachment,
         )
         return route_query(ctx)
 
@@ -181,11 +236,14 @@ class EagleRouterQueryEngine:
         kb_name: str | None = None,
         filters: dict[str, Any] | None = None,
         scope_filter: dict[str, Any] | None = None,
+        query_image_bytes: bytes | None = None,
+        user_query: str | None = None,
     ) -> list[NodeWithScore]:
-        """Retrieve nodes for a precomputed routing decision."""
         selected = decision.selected
         source_type = filters.get("source_type") if filters else None
         year = filters.get("year") if filters else None
+        route_query_text = (user_query if user_query is not None else query) or ""
+        visual_query_text = route_query_text if route_query_text.strip() else ""
 
         scope_kb_names, scope_doc_ids, use_scope_filter = self._resolve_scope_filter(scope_filter)
         has_facet_filters = bool(filters and any(v is not None for v in filters.values()))
@@ -232,7 +290,13 @@ class EagleRouterQueryEngine:
         if "visual" in selected:
             try:
                 with trace_span("retrieve.visual"):
-                    nodes.extend(visual_retriever.retrieve(query) or [])
+                    nodes.extend(
+                        visual_retriever.retrieve(
+                            visual_query_text,
+                            query_image_bytes=query_image_bytes,
+                        )
+                        or []
+                    )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("visual retriever call failed; skipping: %s", exc)
 
@@ -249,16 +313,18 @@ class EagleRouterQueryEngine:
         kb_name: str | None = None,
         filters: dict[str, Any] | None = None,
         scope_filter: dict[str, Any] | None = None,
-        has_doc_attachments: bool = False,
+        has_image_attachment: bool = False,
+        query_image_bytes: bytes | None = None,
+        user_query: str | None = None,
     ) -> tuple[list[NodeWithScore], RouteDecision]:
-        """Route then retrieve, returning ``(nodes, route_decision)``."""
+        route_input = user_query if user_query is not None else query
         decision = self._route_decision(
-            query,
+            route_input,
             mode=mode,
             scope=scope,
             kb_name=kb_name,
             filters=filters,
-            has_doc_attachments=has_doc_attachments,
+            has_image_attachment=has_image_attachment,
         )
         nodes = self._fetch_nodes(
             query,
@@ -267,42 +333,38 @@ class EagleRouterQueryEngine:
             kb_name=kb_name,
             filters=filters,
             scope_filter=scope_filter,
+            query_image_bytes=query_image_bytes,
+            user_query=route_input,
         )
         return nodes, decision
-
-    @staticmethod
-    def _prepare_attachments(
-        attachments: list[str] | None,
-    ) -> tuple[list[NodeWithScore], Any, dict[str, Any] | None, bool]:
-        if not attachments:
-            return [], None, None, False
-        parsed = parse_attachments(attachments)
-        attach_nodes = [NodeWithScore(node=node, score=1.0) for node in parsed.text_nodes]
-        return attach_nodes, parsed.image_docs, parsed.step_payload(), parsed.has_doc_attachments
 
     @staticmethod
     def _map_nodes_to_search_payload(
         nodes: list[NodeWithScore],
         decision: RouteDecision,
+        *,
+        attach_step: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Map retrieved nodes to the pure-search response shape."""
         text_nodes = [
             n for n in nodes if isinstance(n.node, TextNode) and not isinstance(n.node, ImageNode)
         ]
         image_nodes = [n for n in nodes if isinstance(n.node, ImageNode)]
         text_sources = [EagleMultimodalQueryEngine._text_source(n) for n in text_nodes]
         image_sources = [EagleMultimodalQueryEngine._image_source(n) for n in image_nodes]
+        steps: list[dict[str, Any]] = [
+            {"name": "route", **decision.to_dict()},
+            {
+                "name": "recall",
+                "text_count": len(text_sources),
+                "visual_count": len(image_sources),
+            },
+        ]
+        if attach_step:
+            steps.append(attach_step)
         return {
             "sources": {"text": text_sources, "image": image_sources},
             "route": decision.to_dict(),
-            "steps": [
-                {"name": "route", **decision.to_dict()},
-                {
-                    "name": "recall",
-                    "text_count": len(text_sources),
-                    "visual_count": len(image_sources),
-                },
-            ],
+            "steps": steps,
         }
 
     def search(
@@ -314,22 +376,31 @@ class EagleRouterQueryEngine:
         kb_name: str | None = None,
         filters: dict[str, Any] | None = None,
         scope_filter: dict[str, Any] | None = None,
+        attachments: list[str] | None = None,
+        query_image_bytes: bytes | None = None,
     ) -> dict:
-        """Pure retrieval: route → retrieve → map to sources. No LLM generation.
-
-        Accepts the same ``filters`` (facet) and ``scope_filter`` (kb/doc/tag
-        union) as :meth:`query`, so pure retrieval has full parity with the
-        generative path.
-        """
-        nodes, decision = self.retrieve(
+        ctx = self._resolve_attachment_context(
             query,
+            attachments=attachments,
+            query_image_bytes=query_image_bytes,
+        )
+        nodes, decision = self.retrieve(
+            ctx.effective_query,
             mode=mode,
             scope=scope,
             kb_name=kb_name,
             filters=filters,
             scope_filter=scope_filter,
+            has_image_attachment=ctx.has_image_attachment,
+            query_image_bytes=ctx.image_bytes,
+            user_query=ctx.user_query,
         )
-        return self._map_nodes_to_search_payload(nodes, decision)
+        nodes = ctx.attach_nodes + nodes
+        return self._map_nodes_to_search_payload(
+            nodes,
+            decision,
+            attach_step=ctx.attach_step,
+        )
 
     def search_stream(
         self,
@@ -340,24 +411,36 @@ class EagleRouterQueryEngine:
         kb_name: str | None = None,
         filters: dict[str, Any] | None = None,
         scope_filter: dict[str, Any] | None = None,
+        attachments: list[str] | None = None,
+        query_image_bytes: bytes | None = None,
     ) -> Iterator[dict[str, Any]]:
-        """Streaming pure retrieval: yields SSE event dicts (step | sources | done | error)."""
-        decision = self._route_decision(
+        ctx = self._resolve_attachment_context(
             query,
+            attachments=attachments,
+            query_image_bytes=query_image_bytes,
+        )
+        decision = self._route_decision(
+            ctx.user_query,
             mode=mode,
             scope=scope,
             kb_name=kb_name,
             filters=filters,
+            has_image_attachment=ctx.has_image_attachment,
         )
         yield {"event": "step", "data": {"name": "route", **decision.to_dict()}}
+        if ctx.attach_step:
+            yield {"event": "step", "data": ctx.attach_step}
         nodes = self._fetch_nodes(
-            query,
+            ctx.effective_query,
             decision,
             scope=scope,
             kb_name=kb_name,
             filters=filters,
             scope_filter=scope_filter,
+            query_image_bytes=ctx.image_bytes,
+            user_query=ctx.user_query,
         )
+        nodes = ctx.attach_nodes + nodes
         text_nodes = [
             n for n in nodes if isinstance(n.node, TextNode) and not isinstance(n.node, ImageNode)
         ]
@@ -384,25 +467,32 @@ class EagleRouterQueryEngine:
         filters: dict[str, Any] | None = None,
         scope_filter: dict[str, Any] | None = None,
         attachments: list[str] | None = None,
+        query_image_bytes: bytes | None = None,
     ) -> dict:
-        attach_nodes, image_docs, attach_step, has_doc = self._prepare_attachments(attachments)
-        nodes, decision = self.retrieve(
+        ctx = self._resolve_attachment_context(
             query,
+            attachments=attachments,
+            query_image_bytes=query_image_bytes,
+        )
+        nodes, decision = self.retrieve(
+            ctx.effective_query,
             mode=mode,
             scope=scope,
             kb_name=kb_name,
             filters=filters,
             scope_filter=scope_filter,
-            has_doc_attachments=has_doc,
+            has_image_attachment=ctx.has_image_attachment,
+            query_image_bytes=ctx.image_bytes,
+            user_query=ctx.user_query,
         )
-        nodes = attach_nodes + nodes
+        nodes = ctx.attach_nodes + nodes
         engine = EagleMultimodalQueryEngine()
         return engine.custom_query(
-            query,
+            ctx.effective_query,
             nodes=nodes,
             route_info=decision.to_dict(),
-            attachment_image_docs=image_docs,
-            attach_parse_step=attach_step,
+            attachment_image_docs=ctx.image_docs,
+            attach_parse_step=ctx.attach_step,
         )
 
     def query_stream(
@@ -415,10 +505,10 @@ class EagleRouterQueryEngine:
         filters: dict[str, Any] | None = None,
         scope_filter: dict[str, Any] | None = None,
         attachments: list[str] | None = None,
+        query_image_bytes: bytes | None = None,
         session_id: str | None = None,
         user_message_id: str | None = None,
     ) -> Iterator[dict[str, Any]]:
-        """Streaming Q&A: yields SSE event dicts (with event/data keys)."""
         if session_id:
             yield {
                 "event": "session",
@@ -428,23 +518,29 @@ class EagleRouterQueryEngine:
                 },
             }
 
-        attach_nodes, image_docs, attach_step, has_doc = self._prepare_attachments(attachments)
-        decision = self._route_decision(
+        ctx = self._resolve_attachment_context(
             query,
+            attachments=attachments,
+            query_image_bytes=query_image_bytes,
+        )
+        decision = self._route_decision(
+            ctx.user_query,
             mode=mode,
             scope=scope,
             kb_name=kb_name,
             filters=filters,
-            has_doc_attachments=has_doc,
+            has_image_attachment=ctx.has_image_attachment,
         )
         yield {"event": "step", "data": {"name": "route", **decision.to_dict()}}
         nodes = self._fetch_nodes(
-            query,
+            ctx.effective_query,
             decision,
             scope=scope,
             kb_name=kb_name,
             filters=filters,
             scope_filter=scope_filter,
+            query_image_bytes=ctx.image_bytes,
+            user_query=ctx.user_query,
         )
         text_nodes = [
             n for n in nodes if isinstance(n.node, TextNode) and not isinstance(n.node, ImageNode)
@@ -459,17 +555,17 @@ class EagleRouterQueryEngine:
             },
         }
 
-        nodes = attach_nodes + nodes
-        if attach_step:
-            yield {"event": "step", "data": attach_step}
+        nodes = ctx.attach_nodes + nodes
+        if ctx.attach_step:
+            yield {"event": "step", "data": ctx.attach_step}
 
         engine = EagleMultimodalQueryEngine()
         yield from engine.stream_custom_query(
-            query,
+            ctx.effective_query,
             nodes=nodes,
             route_info=decision.to_dict(),
-            attachment_image_docs=image_docs,
-            attach_parse_step=attach_step,
+            attachment_image_docs=ctx.image_docs,
+            attach_parse_step=ctx.attach_step,
         )
 
     @staticmethod
