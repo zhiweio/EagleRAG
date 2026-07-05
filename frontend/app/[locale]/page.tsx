@@ -18,25 +18,25 @@ export default async function HomePage({
     {
       href: "/qa" as const,
       title: t("nav.qa"),
-      desc: t("home.qaDesc"),
+      desc: t("qa.subtitle"),
       icon: MessagesSquare,
     },
     {
       href: "/ingest" as const,
       title: t("nav.ingest"),
-      desc: t("home.ingestDesc"),
+      desc: t("ingest.subtitle"),
       icon: Upload,
     },
     {
       href: "/health" as const,
       title: t("nav.health"),
-      desc: t("home.healthDesc"),
+      desc: t("health.subtitle"),
       icon: Activity,
     },
     {
       href: "/kb" as const,
       title: t("nav.kb"),
-      desc: t("home.kbDesc"),
+      desc: t("kb.management.subtitle"),
       icon: LibraryBig,
     },
   ];
@@ -46,10 +46,8 @@ export default async function HomePage({
       <AppBar />
       <main className="mx-auto flex max-w-5xl flex-col gap-10 px-6 py-12">
         <section className="flex flex-col gap-3">
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-            {t("home.title")}
-          </h1>
-          <p className="max-w-2xl text-base text-foreground-secondary">{t("home.subtitle")}</p>
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground">{t("app.name")}</h1>
+          <p className="max-w-2xl text-base text-foreground-secondary">{t("qa.subtitle")}</p>
         </section>
 
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
