@@ -4,10 +4,9 @@ import { defineRouting } from "next-intl/routing";
 export const routing = defineRouting({
   locales: ["zh", "en"],
   defaultLocale: "zh",
-  // never：所有 locale 均无 URL 前缀。中文访问 /ingest，英文也访问 /ingest，
-  // 语言由 cookie / Accept-Locale 协商决定。Next.js 16.2+ 已修复 Turbopack 下
-  // 根路径 [locale] 段不填充导致 404 的问题，never 模式可正常工作。
-  localePrefix: "never",
+  // always: localePrefix "never" internal rewrites under Next.js 16 proxy.ts + Turbopack
+  // do not populate app/[locale] (root and nested paths 404 or 307-loop); use explicit prefixes.
+  localePrefix: "always",
 });
 
 export const { Link, redirect, usePathname, useRouter, getPathname } = createNavigation(routing);
