@@ -10,8 +10,7 @@
     "format": "biome format --write .",
     "lint:fix": "biome check --write .",
     "api:gen": "openapi-ts",
-    "api:gen:watch": "OPENAPI_WATCH=1 openapi-ts",
-    "predev": "bun run api:gen"
+    "api:gen:watch": "OPENAPI_WATCH=1 openapi-ts"
   },
   "dependencies": {
     "@heroui/react": "^3.2.1",
