@@ -15,6 +15,7 @@ import {
 } from "@/lib/hooks/useAttachments";
 import { type ScopeRef, useScopeStore } from "@/lib/stores/scopeStore";
 import type { Document } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { Button, Popover, Spinner, useOverlayState } from "@heroui/react";
 import {
   Check,
@@ -79,6 +80,7 @@ const ALLOWED_IMAGE_EXTS = new Set([
   ".tiff",
   ".tif",
 ]);
+const MAX_IMAGE_MB = MAX_IMAGE_ATTACHMENT_BYTES / (1024 * 1024);
 
 function isAllowedImageFile(file: File): boolean {
   const name = file.name.toLowerCase();
@@ -414,15 +416,11 @@ export function Composer({
 
             <span className="mx-0.5 h-5 w-px bg-border" aria-hidden />
 
-            <button
-              type="button"
-              aria-label={t("composer.attach")}
-              disabled={disabled || uploading}
+            <ImageUploadButton
+              disabled={disabled}
+              uploading={uploading}
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-foreground-secondary transition-colors hover:bg-surface disabled:opacity-50"
-            >
-              {uploading ? <Spinner size="sm" /> : <ImageIcon className="h-4 w-4" />}
-            </button>
+            />
 
             <ModePicker
               mode={mode}
@@ -468,6 +466,58 @@ export function Composer({
 
       <ScopeFilterDrawer isOpen={scopeDrawer.isOpen} onOpenChange={scopeDrawer.setOpen} />
     </div>
+  );
+}
+
+/** Image upload trigger with hover/focus tooltip describing format and size limits. */
+function ImageUploadButton({
+  disabled,
+  uploading,
+  onClick,
+}: {
+  disabled: boolean;
+  uploading: boolean;
+  onClick: () => void;
+}) {
+  const t = useTranslations("qa");
+  const hintId = "composer-image-upload-hint";
+
+  return (
+    <button
+      type="button"
+      aria-label={t("composer.attach")}
+      aria-describedby={hintId}
+      disabled={disabled || uploading}
+      onClick={onClick}
+      className={cn(
+        "group relative inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+        "text-foreground-secondary transition-colors hover:bg-surface disabled:opacity-50",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2",
+      )}
+    >
+      {uploading ? <Spinner size="sm" /> : <ImageIcon className="h-4 w-4" aria-hidden />}
+      <span
+        id={hintId}
+        role="tooltip"
+        className={cn(
+          "pointer-events-none absolute bottom-[calc(100%+8px)] left-1/2 z-50 w-max max-w-[min(17rem,calc(100vw-2rem))] -translate-x-1/2",
+          "rounded-lg border border-border/60 bg-surface px-3 py-2 text-left",
+          "shadow-[0_8px_24px_rgba(15,23,42,0.1)]",
+          "opacity-0 transition-opacity duration-150",
+          "group-hover:opacity-100 group-focus-visible:opacity-100",
+        )}
+      >
+        <span className="block font-medium text-[11px] text-foreground leading-snug">
+          {t("composer.attachTooltipTitle")}
+        </span>
+        <span className="mt-1 block text-[10px] text-foreground-tertiary leading-relaxed">
+          {t("composer.attachTooltipFormats")}
+        </span>
+        <span className="mt-0.5 block text-[10px] text-foreground-tertiary">
+          {t("composer.attachTooltipLimits", { maxMb: MAX_IMAGE_MB })}
+        </span>
+      </span>
+    </button>
   );
 }
 
