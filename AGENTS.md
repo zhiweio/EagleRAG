@@ -4,6 +4,22 @@
 
 Eagle-RAG is an **industry-agnostic, multi-tenant (`kb_name`) multimodal RAG** data layer for Agents and LLMs. Do not reintroduce finance-specific hardcoding.
 
+## Language
+
+Follow conventional open-source practice: **English everywhere except Chinese documentation and user-facing Chinese UI copy**.
+
+| Use English | Chinese allowed |
+| --- | --- |
+| Source code: comments, docstrings, identifiers | `docs/zh/**` |
+| Commit messages, PR titles/bodies | `frontend/messages/zh.json` and `messages/fragments/*.zh.json` (i18n only) |
+| API/MCP schema descriptions, log messages, config comments | |
+| `README.md`, `AGENTS.md`, `docs/en/**`, inline code docs | |
+| Taskfile / script descriptions aimed at contributors | |
+
+- Do **not** add Chinese comments, docstrings, or contributor-facing prose in code or config.
+- Bilingual docs: keep `docs/en/` and `docs/zh/` in sync when architecture changes; English is the canonical reference for agents and upstream contributors.
+- UI strings belong in `next-intl` message files (`en` / `zh`), not hardcoded in components.
+
 ## Module boundaries
 
 | Module | Role | Integration |
@@ -67,13 +83,13 @@ Parent-document retrieval: recall `type="section_summary"` first, drill down by 
 
 ## Coding conventions
 
-- **Backend**: Python ≥ 3.12, `uv sync`. Pass `ruff check`, `ruff format`, `mypy eagle_rag`. Docstrings/comments in **English**, Google style. No TODO/FIXME/personal notes or comments that restate the code.
+- **Backend**: Python ≥ 3.12, `uv sync`. Pass `ruff check`, `ruff format`, `mypy eagle_rag`. Docstrings/comments in **English**, Google style (see [Language](#language)). No TODO/FIXME/personal notes or comments that restate the code.
 - **DB**: Alembic + SQLModel (`eagle_rag/db/models/`). Deploy with `task db:migrate`. No DDL in stores.
 - **API schemas**: `eagle_rag/api/schemas/`; routers use `response_model`.
-- **Frontend**: Next.js 16, React 19, TypeScript, Bun, Biome, HeroUI v3, Tailwind v4, **light-only**, `next-intl` (zh/en). Pass `bun run lint` / `format`.
+- **Frontend**: Next.js 16, React 19, TypeScript, Bun, Biome, HeroUI v3, Tailwind v4, **light-only**, `next-intl` (zh/en). Pass `bun run lint` / `format`. Code comments in **English**; user-visible Chinese only via i18n message files.
 - **Config**: `eagle_rag/settings.yaml` `${VAR:-default}` + `config.py` pydantic models.
 - **API**: No auth (intranet). New endpoints supporting multi-tenant must accept `kb_name` (fallback `settings.kb_name`).
-- **Attachments**: `POST /attachments`; lazy parse on query (`eagle_rag/attachments/parser.py`), no Milvus write.
+- **Attachments**: `POST /attachments` accepts a single PixelRAG image (default max 5MB, `attachments.max_image_bytes`); lazy parse on query/search (`eagle_rag/attachments/parser.py`), no Milvus write. MCP `query` / `retrieve_visual` accept inline `image_base64` (no `attachment_id`).
 - **Streaming**: `POST /query/stream` SSE (`session`/`step`/`sources`/`token`/`done`); `POST /search` / `/search/stream` for retrieval-only.
 - **Evidence**: `GET /documents/{id}/structure`, `/file`, `/chunks/{chunk_id}`.
 - **Celery**: `router_queue` (4) / `knowhere_queue` (8) / `pixelrag_queue` (1); `with_retry` + dead letter.
