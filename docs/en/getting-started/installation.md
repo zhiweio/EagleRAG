@@ -58,12 +58,12 @@ Dependencies in `pyproject.toml`:
 | --- | --- | --- |
 | `uv sync` | FastAPI, Celery, LlamaIndex, Milvus client, DashScope, `pixelrag_render` / `pixelrag_embed`, `knowhere-python-sdk` | Always |
 | `uv sync --group dev` | pytest, ruff, mypy | Tests and lint |
-| `uv sync --extra docs` | MkDocs Material | Local doc site |
+| `uv sync --group docs` | MkDocs Material | Local doc site |
 
 ```bash
 uv sync                  # core (required)
 uv sync --group dev      # optional: tests/lint
-uv sync --extra docs     # optional: docs
+uv sync --group docs     # optional: docs
 ```
 
 **Key packages and code paths:**

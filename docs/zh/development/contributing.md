@@ -144,7 +144,7 @@ celery down when workers were healthy. Lower inspect timeout to 1.0s.
 
 ## CI 说明
 
-仓库可能不在每个 PR 的 GitHub Actions 中运行全部门禁 —— **请求评审前本地执行清单为强制**。MCP 部署工作流在 `.github/workflows/mcp-deploy.yml` 供 MCP 专用发布。
+仓库可能不在每个 PR 的 GitHub Actions 中运行全部门禁 —— **请求评审前本地执行清单为强制**。文档站由 `.github/workflows/docs-pages.yml` 在 `main` 推送时发布到 GitHub Pages。
 
 ## 为评审者提供上下文
 

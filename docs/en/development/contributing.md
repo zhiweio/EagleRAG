@@ -144,7 +144,7 @@ Call out explicitly in PR:
 
 ## CI note
 
-The repository may not run all gates on every PR in GitHub Actions — **local execution of the checklist is mandatory** before requesting review. MCP deploy workflow exists under `.github/workflows/mcp-deploy.yml` for MCP-specific releases.
+The repository may not run all gates on every PR in GitHub Actions — **local execution of the checklist is mandatory** before requesting review. The docs site is published to GitHub Pages from `.github/workflows/docs-pages.yml` on pushes to `main`.
 
 ## Getting reviewer context
 
