@@ -26,6 +26,7 @@ import {
   Layers,
   LibraryBig,
   MessagesSquare,
+  Plus,
   Route,
   Search,
   Tag,
@@ -102,6 +103,8 @@ interface ComposerProps {
   /** Current session id; associated with uploads so the backend can clean them up. */
   sessionId?: string | null;
   onUploadError: (reason?: "upload" | "invalidImageType" | "imageTooLarge") => void;
+  onNewChat?: () => void;
+  hasMessages?: boolean;
 }
 
 export function Composer({
@@ -113,6 +116,8 @@ export function Composer({
   onAskModeChange,
   sessionId,
   onUploadError,
+  onNewChat,
+  hasMessages = false,
 }: ComposerProps) {
   const t = useTranslations("qa");
   const kbNames = useScopeStore((s) => s.kbNames);
@@ -320,8 +325,11 @@ export function Composer({
   const hasChips = scopeTotal > 0 || attachmentIds.length > 0;
 
   return (
-    <div className="border-border border-t bg-surface px-4 py-4 sm:px-6">
-      <PromptInput className="bg-(--surface-muted)" onSubmit={handleSubmit}>
+    <div className="px-4 py-4 sm:px-6">
+      <PromptInput
+        className="border border-border/60 bg-(--surface-muted) shadow-[0_1px_3px_0_rgba(0,0,0,0.03)]"
+        onSubmit={handleSubmit}
+      >
         <PromptInputBody>
           {hasChips ? (
             <div className="flex flex-wrap items-center gap-1.5">
@@ -446,6 +454,28 @@ export function Composer({
                   : t("scopeDrawer.all")}
               </span>
             </Button>
+
+            {hasMessages && onNewChat ? (
+              <>
+                <span className="mx-0.5 h-5 w-px bg-border" aria-hidden />
+                <button
+                  type="button"
+                  onClick={onNewChat}
+                  disabled={disabled}
+                  aria-label={t("newChat")}
+                  className={cn(
+                    "inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5",
+                    "font-medium text-foreground-secondary text-xs transition-colors",
+                    "hover:bg-surface hover:text-accent",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2",
+                    "disabled:cursor-not-allowed disabled:opacity-50",
+                  )}
+                >
+                  <Plus className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden />
+                  <span className="hidden md:inline">{t("newChat")}</span>
+                </button>
+              </>
+            ) : null}
           </PromptInputTools>
 
           <PromptInputSubmit

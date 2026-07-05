@@ -3,6 +3,7 @@
     "title": "Multimodal Q&A with sourcing",
     "assistantTitle": "Eagle-RAG Assistant",
     "subtitle": "Knowledge retrieval over text and images",
+    "newChat": "New chat",
     "clear": "Clear Chat",
     "composer": {
       "placeholder": "Ask a question, or type @ to target a knowledge base or scope…",

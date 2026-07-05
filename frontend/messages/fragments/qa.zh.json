@@ -3,7 +3,8 @@
     "title": "多模态问答与溯源",
     "assistantTitle": "Eagle-RAG 知识助手",
     "subtitle": "基于文本与图像的知识检索",
-    "clear": "Clear Chat",
+    "newChat": "新建对话",
+    "clear": "清空对话",
     "composer": {
       "placeholder": "输入你的问题，或输入 @ 指定知识库与检索范围…",
       "send": "发送",

@@ -408,7 +408,7 @@ export function QAClient() {
           onUploadError={handleUploadError}
           onCite={handleCite}
           onPreviewVisual={handlePreviewVisual}
-          onClear={handleNewSession}
+          onNewChat={handleNewSession}
           onOpenHistory={() => setHistoryOpen(true)}
         />
         <div className="h-140 w-full shrink-0 lg:h-full lg:w-110">
