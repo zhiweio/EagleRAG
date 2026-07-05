@@ -979,20 +979,18 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 
-[package.optional-dependencies]
-docs = [
-    { name = "mkdocs" },
-    { name = "mkdocs-material" },
-    { name = "mkdocs-static-i18n" },
-    { name = "pymdown-extensions" },
-]
-
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
+]
+docs = [
+    { name = "mkdocs" },
+    { name = "mkdocs-material" },
+    { name = "mkdocs-static-i18n" },
+    { name = "pymdown-extensions" },
 ]
 
 [package.metadata]
@@ -1016,9 +1014,6 @@ requires-dist = [
     { name = "loguru" },
     { name = "mcp", specifier = ">=1.28.1" },
     { name = "minio" },
-    { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6" },
-    { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.5" },
-    { name = "mkdocs-static-i18n", marker = "extra == 'docs'", specifier = ">=1.2" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp" },
     { name = "opentelemetry-sdk" },
@@ -1032,7 +1027,6 @@ requires-dist = [
     { name = "pybreaker" },
     { name = "pydantic", specifier = ">=2" },
     { name = "pydantic-settings", specifier = ">=2" },
-    { name = "pymdown-extensions", marker = "extra == 'docs'", specifier = ">=10.7" },
     { name = "pymilvus" },
     { name = "pypdf" },
     { name = "python-multipart" },
@@ -1048,7 +1042,6 @@ requires-dist = [
     { name = "transformers" },
     { name = "uvicorn", extras = ["standard"] },
 ]
-provides-extras = ["docs"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1056,6 +1049,12 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
+]
+docs = [
+    { name = "mkdocs", specifier = ">=1.6" },
+    { name = "mkdocs-material", specifier = ">=9.5" },
+    { name = "mkdocs-static-i18n", specifier = ">=1.2" },
+    { name = "pymdown-extensions", specifier = ">=10.7" },
 ]
 
 [[package]]

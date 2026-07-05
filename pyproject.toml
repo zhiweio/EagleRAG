@@ -1,86 +1,88 @@
 [project]
 name = "eagle-rag"
 version = "0.1.0"
-description = "Eagle-RAG: 通用多模态 RAG 知识库（Agent / LLM 数据层）后端"
+description = "Eagle-RAG: industry-agnostic multimodal RAG knowledge base (Agent / LLM data layer) backend"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 authors = [{ name = "Wang Zhiwei" }]
 
-# 核心运行时依赖：默认 `uv sync` 安装
+# Core runtime dependencies (installed by default via `uv sync`)
 dependencies = [
-    # Web 框架与 ASGI
+    # Web framework & ASGI
     "fastapi",
     "uvicorn[standard]",
     "sse-starlette",
     "python-multipart",
-    # 异步调度与缓存
+    # Async task queue & cache
     "celery[redis]",
     "redis[hiredis]",
-    # 对象存储
+    # Object storage
     "minio",
-    # HTTP 客户端
+    # HTTP client
     "httpx",
-    # 配置与数据建模
+    # Config & data modeling
     "pydantic>=2",
     "pydantic-settings>=2",
     "pyyaml",
-    # 数据库迁移（Alembic）与 PostgreSQL 驱动（async + sync）
+    # DB migrations (Alembic) & PostgreSQL drivers (async + sync)
     "sqlalchemy>=2",
     "sqlmodel>=0.0.22",
     "alembic>=1.14",
     "asyncpg",
     "psycopg2-binary",
-    # LlamaIndex 编排与路由
+    # LlamaIndex orchestration & routing
     "llama-index",
     "llama-index-vector-stores-milvus",
     "llama-index-tools-mcp",
-    # DeepSeek / DashScope（通义）集成：LLM / VLM / Embedding / Rerank
+    # DeepSeek / DashScope (Qwen): LLM / VLM / embedding / rerank
     "llama-index-llms-deepseek",
     "llama-index-llms-dashscope",
     "llama-index-multi-modal-llms-dashscope",
     "llama-index-embeddings-dashscope",
     "llama-index-postprocessor-dashscope-rerank",
-    # 向量库与视觉/解析
+    # Vector store & vision / parsing
     "pymilvus",
     "playwright",
     "pillow",
     "pypdf",
-    "pdfplumber",      # PDF 表单探测（与 pypdf 互补）
-    # Knowhere 文档语义解析：官方 Python SDK（import knowhere），经 /v1/jobs 调用自托管 :5005
+    "pdfplumber",      # PDF form probing (complements pypdf)
+    # Knowhere document semantic parser: official Python SDK (import knowhere), self-hosted :5005 via /v1/jobs
     "knowhere-python-sdk",
-    # PixelRAG：视觉编码器 + 切片器（pixelrag_render / pixelrag_embed），必需库，默认安装
+    # PixelRAG: visual encoder + slicer (pixelrag_render / pixelrag_embed); required, installed by default
     "pixelrag @ git+https://github.com/StarTrail-org/PixelRAG.git",
-    # 本地 Qwen3-VL-Embedding-2B 视觉编码器（_Qwen3VLVisualEncoder 单例）必需：
-    # transformers 提供 AutoProcessor / Qwen3VLForConditionalGeneration；torch 为推理后端。
-    # 如需纯 CPU 小体积 torch，可用 `uv sync --index-strategy unsafe-best-match` 配
-    # `--torch-backend cpu` 或在 [tool.uv.sources] 指向 cpu 索引。
+    # Local Qwen3-VL-Embedding-2B visual encoder (_Qwen3VLVisualEncoder singleton):
+    # transformers provides AutoProcessor / Qwen3VLForConditionalGeneration; torch is the inference backend.
+    # For a smaller CPU-only torch, use `uv sync --index-strategy unsafe-best-match` with
+    # `--torch-backend cpu` or point [tool.uv.sources] at a CPU index.
     "transformers",
     "torch",
     "torchvision",  # Qwen3-VL AutoProcessor video processor dependency
     "mcp>=1.28.1",
-    "psutil",          # /admin/probes 资源限制探测（CPU/内存）
-    "humanize",        # /health uptime 人类可读持续时长（naturaldelta）
-    # 遥测与可观测性
+    "psutil",          # /admin/probes resource limit probing (CPU / memory)
+    "humanize",        # /health uptime human-readable duration (naturaldelta)
+    # Telemetry & observability
     "structlog",
     "loguru",
     "opentelemetry-api",
     "opentelemetry-sdk",
     "opentelemetry-exporter-otlp",
-    # MCP 云端 HTTP 部署（PrefectHQ/fastmcp streamable HTTP + 弹性 + 指标）
+    # MCP cloud HTTP deployment (PrefectHQ/fastmcp streamable HTTP + resilience + metrics)
     "fastmcp>=2.3",
-    "tenacity",        # MCP 工具重试（指数退避）
-    "pybreaker",       # MCP 工具熔断
-    "prometheus-client",  # MCP 指标 /metrics
+    "tenacity",        # MCP tool retries (exponential backoff)
+    "pybreaker",       # MCP tool circuit breaker
+    "prometheus-client",  # MCP /metrics
 ]
 
-# 可选依赖：仅文档站构建（`uv sync --extra docs`）。PixelRAG（pixelrag_render /
-# pixelrag_embed）与 knowhere-python-sdk 已移入核心 dependencies 作为必需库，默认安装。
-# 不再安装 pixelrag[serve]（已废弃）。
-# 若 pixelrag git 仓库为 flat-layout 且未声明 package-discovery 导致构建失败，
-# 可替换为本地路径依赖：`pixelrag @ file:///path/to/pixelrag`
-[project.optional-dependencies]
-# Docs site build deps: `uv sync --extra docs`.
+# Dev / docs dependency groups: `uv sync --group dev` / `uv sync --group docs`
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    "mypy",
+]
+# Docs site build deps: `uv sync --group docs`.
 # mkdocs-static-i18n provides bilingual folder layout (en/zh).
 docs = [
     "mkdocs>=1.6",
@@ -89,32 +91,23 @@ docs = [
     "pymdown-extensions>=10.7",
 ]
 
-# 开发依赖组：`uv sync --group dev` 安装
-[dependency-groups]
-dev = [
-    "pytest",
-    "pytest-asyncio",
-    "ruff",
-    "mypy",
-]
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-# 允许 dependencies 中使用直接引用（git+/file:///path）。
-# pixelrag 是 git 依赖，不开启此选项 hatchling 会拒绝构建。
+# Allow direct references in dependencies (git+ / file:///path).
+# pixelrag is a git dependency; hatchling rejects the build without this option.
 [tool.hatch.metadata]
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["eagle_rag"]
 
-# cef-capi-py 是 pixelrag 声明的硬依赖，但 pixelrag_render / pixelrag_embed 代码中
-# 从未 import 它（CDP 后端改用 Chrome DevTools Protocol over WebSocket，非 CEF）。
-# 该包仅有 manylinux2014_x86_64 / macOS / Windows wheel，无 linux/aarch64 wheel，
-# 导致 Apple Silicon Docker（linux/arm64）构建失败。此处将其覆盖为平台条件依赖：
-# 仅在非 linux/aarch64 平台安装，linux/aarch64 跳过（不影响功能）。
+# cef-capi-py is a hard dependency declared by pixelrag, but pixelrag_render /
+# pixelrag_embed never import it (CDP backend uses Chrome DevTools Protocol over WebSocket, not CEF).
+# Wheels exist only for manylinux2014_x86_64 / macOS / Windows — not linux/aarch64 —
+# which breaks Apple Silicon Docker (linux/arm64) builds. Override as a platform-conditional dep:
+# install on non-linux/aarch64 platforms; skip on linux/aarch64 (no functional impact).
 [tool.uv]
 override-dependencies = [
     "cef-capi-py ; sys_platform != 'linux' or platform_machine != 'aarch64'",
