@@ -36,6 +36,26 @@ def test_parsing_params_to_parse_options_empty() -> None:
     assert options.summary_txt is True
 
 
+def test_sanitize_knowhere_parser_env_maps_dev_to_empty(monkeypatch) -> None:
+    from eagle_rag.ingest.knowhere_adapter import _sanitize_knowhere_parser_env
+
+    monkeypatch.setenv("APP_ENV", "dev")
+    _sanitize_knowhere_parser_env()
+    import os
+
+    assert os.environ["APP_ENV"] == ""
+
+
+def test_sanitize_knowhere_parser_env_maps_prod(monkeypatch) -> None:
+    from eagle_rag.ingest.knowhere_adapter import _sanitize_knowhere_parser_env
+
+    monkeypatch.setenv("APP_ENV", "prod")
+    _sanitize_knowhere_parser_env()
+    import os
+
+    assert os.environ["APP_ENV"] == "production"
+
+
 @patch("eagle_rag.ingest.knowhere_adapter.get_settings")
 @patch("eagle_rag.ingest.knowhere_adapter._parse_via_api_sdk")
 def test_parse_dispatches_api_mode(mock_api: MagicMock, mock_settings: MagicMock) -> None:

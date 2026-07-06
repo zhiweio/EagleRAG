@@ -150,6 +150,27 @@ def _parsing_params_to_parse_options(params: dict[str, Any]):
     return ParseOptions(**kwargs)
 
 
+def _sanitize_knowhere_parser_env() -> None:
+    """Map Eagle-RAG ``APP_ENV`` to values accepted by knowhere-shared ``AppConfig``.
+
+    knowhere-shared allows only ``""``, ``staging``, or ``production``. Eagle-RAG uses
+    ``dev`` / ``test`` / ``prod`` for its own ``settings.app.env``; sanitize before
+    bootstrapping ``knowhere-parse-sdk`` so parser mode does not fail validation.
+    """
+    import os
+
+    raw = (os.environ.get("APP_ENV") or "").strip().lower()
+    if raw in ("", "staging", "production"):
+        return
+    if raw in ("prod", "production"):
+        os.environ["APP_ENV"] = "production"
+        return
+    if raw == "staging":
+        os.environ["APP_ENV"] = "staging"
+        return
+    os.environ["APP_ENV"] = ""
+
+
 def _build_parser_config():
     """Build ``knowhere_parse.ParserConfig`` from Eagle-RAG settings."""
     from knowhere_parse import ParserConfig
@@ -237,6 +258,7 @@ def _parse_via_parser_sdk(
 
     settings = get_settings()
     kh = settings.knowhere
+    _sanitize_knowhere_parser_env()
     parser = KnowhereParser(_build_parser_config())
     options = _parsing_params_to_parse_options(kh.parsing_params)
 

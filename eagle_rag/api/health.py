@@ -186,11 +186,15 @@ def _probe_knowhere_parser_sync() -> dict[str, Any]:
 
     from knowhere_parse import KnowhereParser
 
-    from eagle_rag.ingest.knowhere_adapter import _build_parser_config
+    from eagle_rag.ingest.knowhere_adapter import (
+        _build_parser_config,
+        _sanitize_knowhere_parser_env,
+    )
 
     settings = get_settings()
     parser_cfg = settings.knowhere.parser
     try:
+        _sanitize_knowhere_parser_env()
         config = _build_parser_config()
         tmp_path = Path(config.tmp_path)
         tmp_path.mkdir(parents=True, exist_ok=True)
