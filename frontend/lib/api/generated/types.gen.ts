@@ -116,6 +116,10 @@ export type AdminConfigOut = {
  */
 export type AdminKnowhereResponse = {
     /**
+     * Mode
+     */
+    mode?: string;
+    /**
      * Base Url
      */
     base_url: string;
@@ -1558,9 +1562,63 @@ export type KbPartitionOut = {
 };
 
 /**
+ * KnowhereParserSettings
+ */
+export type KnowhereParserSettings = {
+    /**
+     * Mineru Api Keys
+     */
+    mineru_api_keys?: string;
+    /**
+     * Mineru Url
+     */
+    mineru_url?: string;
+    /**
+     * Tmp Path
+     */
+    tmp_path?: string;
+    /**
+     * Use Llm Nav Summary
+     */
+    use_llm_nav_summary?: boolean;
+    /**
+     * Llm Mock Enabled
+     */
+    llm_mock_enabled?: boolean;
+    /**
+     * Llm Api Key
+     */
+    llm_api_key?: string;
+    /**
+     * Llm Url
+     */
+    llm_url?: string;
+    /**
+     * Llm Model
+     */
+    llm_model?: string;
+    /**
+     * Hierarchy Llm Model
+     */
+    hierarchy_llm_model?: string;
+    /**
+     * Image Model
+     */
+    image_model?: string;
+    /**
+     * Image Model Max
+     */
+    image_model_max?: string;
+};
+
+/**
  * KnowhereSettings
  */
 export type KnowhereSettings = {
+    /**
+     * Mode
+     */
+    mode?: 'api' | 'parser';
     /**
      * Base Url
      */
@@ -1595,6 +1653,7 @@ export type KnowhereSettings = {
     parsing_params?: {
         [key: string]: unknown;
     };
+    parser?: KnowhereParserSettings;
 };
 
 /**
