@@ -1,9 +1,44 @@
 # syntax=docker/dockerfile:1.7
-# Eagle-RAG Celery Worker 镜像（多阶段构建，非 root 运行）。
-# 与 API 共享同一套系统依赖与虚拟环境；额外安装 Chromium 浏览器二进制供 pixelrag 队列渲染。
-# 启动命令参数化：QUEUES / CONCURRENCY 由 docker-compose 注入，决定消费队列与并发。
-# 构建：docker build -f docker/Dockerfile.worker -t eagle-rag-worker .
+# Eagle-RAG Celery Worker image (multi-stage, non-root runtime).
+# Shares system deps and venv with API; adds Chromium for pixelrag queue rendering.
+# QUEUES / CONCURRENCY are injected by docker-compose per service.
+# Build: docker build -f docker/Dockerfile.worker -t eagle-rag-worker .
 ARG PYTHON_VERSION=3.12
+ARG MODEL_REPO_ID=Qwen/Qwen3-VL-Embedding-2B
+ARG MODEL_DOWNLOAD_SOURCE=modelscope
+ARG MODEL_LOCAL_PATH=/opt/huggingface/model
+ARG HF_ENDPOINT=https://hf-mirror.com
+ARG HF_HUB_DOWNLOAD_MAX_WORKERS=8
+
+# ---------------- model prefetch (isolated from app code / Playwright layers) ----------------
+FROM python:${PYTHON_VERSION}-slim AS model-prefetch
+
+ARG MODEL_REPO_ID
+ARG MODEL_DOWNLOAD_SOURCE
+ARG MODEL_LOCAL_PATH
+ARG HF_ENDPOINT
+ARG HF_HUB_DOWNLOAD_MAX_WORKERS
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HF_HOME=/opt/huggingface/hub \
+    HF_ENDPOINT=${HF_ENDPOINT} \
+    HF_HUB_DOWNLOAD_TIMEOUT=600 \
+    HF_HUB_DOWNLOAD_MAX_WORKERS=${HF_HUB_DOWNLOAD_MAX_WORKERS} \
+    MODEL_REPO_ID=${MODEL_REPO_ID} \
+    MODEL_DOWNLOAD_SOURCE=${MODEL_DOWNLOAD_SOURCE} \
+    MODEL_LOCAL_PATH=${MODEL_LOCAL_PATH} \
+    MODEL_CACHE_DIR=/var/cache/eagle-rag/visual-model
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+RUN uv venv /opt/venv \
+    && uv pip install --python /opt/venv/bin/python 'huggingface_hub>=0.26' 'modelscope>=1.9'
+
+COPY docker/scripts/prefetch_hf_model.py /tmp/prefetch_hf_model.py
+RUN --mount=type=cache,target=/var/cache/eagle-rag/visual-model,id=eagle-rag-visual-model-cache \
+    mkdir -p /opt/huggingface \
+    && /opt/venv/bin/python /tmp/prefetch_hf_model.py \
+    && rm /tmp/prefetch_hf_model.py
 
 # ---------------- builder ----------------
 FROM python:${PYTHON_VERSION}-slim AS builder
@@ -13,16 +48,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/opt/venv \
     PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers \
-    # 强制 uv 使用 base 镜像的系统 Python（/usr/local/bin/python3.12），
-    # 否则 uv 默认下载 cpython-3.14 到 /root/.local/share/uv/ 并把 venv 的
-    # python 软链指向那里；runtime 阶段只 COPY /opt/venv，软链目标不存在
-    # → 容器内 exec 任何 venv 脚本报 "no such file or directory"。
+    # Force uv to use the base image system Python (/usr/local/bin/python3.12);
+    # otherwise uv may fetch cpython elsewhere and runtime COPY of /opt/venv breaks symlinks.
     UV_PYTHON_PREFERENCE=only-system
 
 WORKDIR /app
 
-# 系统依赖：Playwright 浏览器运行库、字体、curl、git、JRE（tabula-py / knowhere-parse-sdk）。
-# git：pixelrag 与 knowhere-parse-sdk worker 缓存克隆需要 git。
+# System deps: Playwright libs, fonts, curl, git, JRE (tabula-py / knowhere-parse-sdk).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libdrm2 libxkbcommon0 \
         libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
@@ -34,8 +66,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 COPY pyproject.toml uv.lock ./
-# pixelrag_render / pixelrag_embed 已在核心 dependencies 中，默认安装，
-# 使 worker-pixelrag 能真实渲染/编码（否则 render_to_tiles / embed_tiles 回退 mock 纯色 Tile + random 向量）。
 RUN uv sync --frozen --no-dev --no-install-project
 
 # Pre-fetch knowhere-parse-sdk worker cache (avoids runtime git clone on first parse).
@@ -46,28 +76,6 @@ RUN mkdir -p /root/.cache/knowhere-parse-sdk \
 # pixelrag queue needs Chromium (system libs installed above).
 RUN /opt/venv/bin/playwright install chromium \
     && ln -sf /opt/pw-browsers/chromium-*/chrome-linux/chrome /usr/local/bin/chrome
-
-# Pre-download Qwen3-VL-Embedding-2B (pixelrag_queue visual encoder).
-# Default MODEL_DOWNLOAD_SOURCE=modelscope (stable in China); HF mirror via HF_ENDPOINT optional.
-# Runtime loads from MODEL_LOCAL_PATH — no Hub access after build.
-ARG MODEL_REPO_ID=Qwen/Qwen3-VL-Embedding-2B
-ARG MODEL_DOWNLOAD_SOURCE=modelscope
-ARG MODEL_LOCAL_PATH=/opt/huggingface/model
-ARG HF_ENDPOINT=https://hf-mirror.com
-ARG HF_HUB_DOWNLOAD_MAX_WORKERS=8
-ENV HF_HOME=/opt/huggingface \
-    HF_ENDPOINT=${HF_ENDPOINT} \
-    HF_HUB_DOWNLOAD_TIMEOUT=600 \
-    HF_HUB_DOWNLOAD_MAX_WORKERS=${HF_HUB_DOWNLOAD_MAX_WORKERS} \
-    MODEL_REPO_ID=${MODEL_REPO_ID} \
-    MODEL_DOWNLOAD_SOURCE=${MODEL_DOWNLOAD_SOURCE} \
-    MODEL_LOCAL_PATH=${MODEL_LOCAL_PATH}
-COPY docker/scripts/prefetch_hf_model.py /tmp/prefetch_hf_model.py
-RUN mkdir -p /opt/huggingface \
-    && uv pip install --python /opt/venv/bin/python 'modelscope>=1.9' \
-    && /opt/venv/bin/python /tmp/prefetch_hf_model.py \
-    && uv pip uninstall --python /opt/venv/bin/python modelscope \
-    && rm /tmp/prefetch_hf_model.py
 
 # ---------------- runtime ----------------
 FROM python:${PYTHON_VERSION}-slim AS runtime
@@ -91,18 +99,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl git default-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
-# venv + Playwright browsers + knowhere-parse-sdk worker cache + HuggingFace model cache.
+# venv + Playwright browsers + knowhere-parse-sdk worker cache + HuggingFace model weights.
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /opt/pw-browsers /opt/pw-browsers
 COPY --from=builder /root/.cache/knowhere-parse-sdk /home/eagle/.cache/knowhere-parse-sdk
-COPY --from=builder /opt/huggingface /opt/huggingface
+COPY --from=model-prefetch /opt/huggingface /opt/huggingface
 
 # Stable symlink for pixelrag_render CHROME_PATH (survives Playwright version bumps).
 RUN ln -sf /opt/pw-browsers/chromium-*/chrome-linux/chrome /usr/local/bin/chrome
 
-# 非 root 用户：先创建并 chown /app 及运行期可写目录（logs / data），再切换 USER。
-# settings.yaml 默认 op_log_file/ai_log_file 在 logs/、data_dir=./data，相对 /app；
-# 若 /app 归 root，eagle 无权创建 logs/ → 启动期 PermissionError（uv-docker 最佳实践）。
 RUN useradd --create-home --uid 1000 eagle \
     && mkdir -p /app/logs /app/data /home/eagle/.cache/knowhere-parse-sdk \
     && chown -R eagle:eagle /app /home/eagle/.cache /opt/huggingface
@@ -112,5 +117,4 @@ COPY --chown=eagle:eagle eagle_rag ./eagle_rag
 
 USER eagle
 
-# 队列与并发由环境变量传入（docker-compose 按服务覆盖）。
 CMD ["sh", "-c", "celery -A eagle_rag.tasks.celery_app worker -Q ${QUEUES} -c ${CONCURRENCY} --loglevel=info"]

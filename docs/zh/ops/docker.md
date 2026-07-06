@@ -88,7 +88,7 @@ Workers 共享 `x-worker-build` context `.` 与 `docker/Dockerfile.worker`。环
 | `worker-knowhere` | `knowhere_queue` | `8` | `cpus: 2.0` |
 | `worker-pixelrag` | `pixelrag_queue` | `1` | `memory: 4g`，`cpus: 2.0` |
 
-`worker-pixelrag` 挂载 `./data:/app/data` 存放上传与本地产物。Qwen3-VL-Embedding-2B 在 **`docker build`** 阶段写入镜像 `/opt/huggingface/model`。默认 `MODEL_DOWNLOAD_SOURCE=modelscope`（国内更稳）；可设 `huggingface` 或 `auto` 走 `HF_ENDPOINT`（如 hf-mirror.com），失败时 `auto` 回退 ModelScope。运行时 `VISUAL_EMBEDDING_MODEL=/opt/huggingface/model`，容器启动不再拉 Hub。
+`worker-pixelrag` 挂载 `./data:/app/data` 存放上传与本地产物。Qwen3-VL-Embedding-2B 在 **`docker build`** 的独立 `model-prefetch` 阶段写入镜像 `/opt/huggingface/model`（与 `eagle_rag` 源码变更解耦）。BuildKit 缓存挂载 `eagle-rag-visual-model-cache` 在阶段重跑时复用本地约 4 GB 权重，避免重复下载。默认 `MODEL_DOWNLOAD_SOURCE=modelscope`（国内更稳）；可设 `huggingface` 或 `auto` 走 `HF_ENDPOINT`（如 hf-mirror.com），失败时 `auto` 回退 ModelScope。运行时 `VISUAL_EMBEDDING_MODEL=/opt/huggingface/model`，容器启动不再拉 Hub。
 
 ## Healthcheck 依赖链 {#healthcheck-dependency-chain}
 

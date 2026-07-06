@@ -88,7 +88,7 @@ Workers share `x-worker-build` context `.` and `docker/Dockerfile.worker`. Envir
 | `worker-knowhere` | `knowhere_queue` | `8` | `cpus: 2.0` |
 | `worker-pixelrag` | `pixelrag_queue` | `1` | `memory: 4g`, `cpus: 2.0` |
 
-`worker-pixelrag` mounts `./data:/app/data` for uploads and local artefacts. The Qwen3-VL-Embedding-2B weights are **baked into the worker image** at `/opt/huggingface/model` during `docker build`. Default `MODEL_DOWNLOAD_SOURCE=modelscope` (stable in China); set `huggingface` or `auto` to use `HF_ENDPOINT` (e.g. hf-mirror.com) with ModelScope fallback. Runtime `VISUAL_EMBEDDING_MODEL=/opt/huggingface/model` — no Hub download on container start.
+`worker-pixelrag` mounts `./data:/app/data` for uploads and local artefacts. The Qwen3-VL-Embedding-2B weights are **baked into the worker image** at `/opt/huggingface/model` during `docker build` in an isolated `model-prefetch` stage (unaffected by `eagle_rag` code changes). BuildKit cache mount `eagle-rag-visual-model-cache` keeps the ~4 GB download on disk across rebuilds when that stage reruns. Default `MODEL_DOWNLOAD_SOURCE=modelscope` (stable in China); set `huggingface` or `auto` to use `HF_ENDPOINT` (e.g. hf-mirror.com) with ModelScope fallback. Runtime `VISUAL_EMBEDDING_MODEL=/opt/huggingface/model` — no Hub download on container start.
 
 ## Healthcheck dependency chain {#healthcheck-dependency-chain}
 
