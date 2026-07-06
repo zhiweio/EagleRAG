@@ -230,16 +230,37 @@ def add_open_telemetry_span(
     return event_dict
 
 
+class _AILoggerProxy:
+    """Lazy AI logger so import-time ``ai_logger = get_ai_logger(__name__)`` works.
+
+    Application modules bind ``ai_logger`` before ``configure_telemetry`` runs (API
+    lifespan / Celery ``worker_process_init``). Resolving the backing logger on each
+    call ensures post-config structlog JSONL output instead of a stale stdlib logger.
+    """
+
+    __slots__ = ("_name",)
+
+    def __init__(self, name: str) -> None:
+        self._name = name
+
+    def _resolve(self) -> Any:
+        if not _enabled:
+            return logging.getLogger(self._name)
+        return structlog.get_logger(self._name).bind(component=self._name)
+
+    def __getattr__(self, item: str) -> Any:
+        return getattr(self._resolve(), item)
+
+
 def get_ai_logger(name: str) -> Any:
     """Return the AI events logger (structlog BoundLogger bound to component=name).
 
-    Falls back to stdlib ``logging.getLogger(name)`` when telemetry is disabled
-    (provides compatible .info/.warning etc. API; telemetry calls should sit inside
-    try/except so a failed kwargs call is swallowed without affecting the main path).
+    Returns a lazy proxy so module-level binding before ``configure_telemetry`` still
+    writes to ``ai_log_file`` once telemetry is enabled. Falls back to stdlib
+    ``logging.getLogger(name)`` when telemetry is disabled (compatible .info/.warning
+    API; telemetry calls should sit inside try/except so kwargs failures are swallowed).
     """
-    if not _enabled:
-        return logging.getLogger(name)
-    return structlog.get_logger(name).bind(component=name)
+    return _AILoggerProxy(name)
 
 
 def get_logger(name: str) -> Any:

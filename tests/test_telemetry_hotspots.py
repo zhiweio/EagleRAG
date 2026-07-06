@@ -21,7 +21,7 @@ from llama_index.core.schema import ImageNode, NodeWithScore, TextNode
 from eagle_rag.config import TelemetrySettings
 from eagle_rag.generation.multimodal_engine import EagleMultimodalQueryEngine
 from eagle_rag.router.router_engine import EagleRouterQueryEngine
-from eagle_rag.telemetry import configure_telemetry, get_ai_logger, trace_span
+from eagle_rag.telemetry import configure_telemetry, trace_span
 
 # ---------------------------------------------------------------------------
 # Helpers (aligned with test_router_generation)
@@ -132,20 +132,15 @@ def _read_ai_events(ai_log: Path) -> list[dict[str, Any]]:
 def test_hotspots_share_trace_id(tmp_path: Path, tmp_png: str):
     """route->retrieve->rerank->generate chain AI events share the outer trace_id.
 
-    The module-level ``ai_logger`` in ``router_engine``/``multimodal_engine`` is bound to a
-    stdlib logger at import time (telemetry not configured yet). Here we patch it with the
-    structlog logger obtained after ``configure_telemetry`` so events actually land in the
-    JSONL. Note: there is no standalone ``retrieve`` event in the real code (retrieve is a
-    span, not a log event), so we only assert route/rerank/generate appear and share trace_id.
+    Module-level ``ai_logger`` is bound at import time; lazy resolution must still land
+    events in JSONL after ``configure_telemetry``. There is no standalone ``retrieve``
+    event in the real code (retrieve is a span, not a log event), so we only assert
+    route/rerank/generate appear and share trace_id.
     """
 
     settings = _make_settings(tmp_path)
     configure_telemetry(settings)
     ai_log = tmp_path / "ai_telemetry.jsonl"
-
-    # Replace module-level stdloggers with the configured structlog logger.
-    router_ai = get_ai_logger("eagle_rag.router.router_engine")
-    gen_ai = get_ai_logger("eagle_rag.generation.multimodal_engine")
 
     n1 = _make_text_node("c1", "起征点 5000 元/月", score=0.9)
     img = _make_image_node("img1", image_path=tmp_png, page=2, score=0.85)
@@ -156,17 +151,13 @@ def test_hotspots_share_trace_id(tmp_path: Path, tmp_png: str):
     mock_vlm = _make_mock_vlm("起征点为5000元")
 
     outer_trace_id: str | None = None
-    with (
-        patch("eagle_rag.router.router_engine.ai_logger", router_ai),
-        patch("eagle_rag.generation.multimodal_engine.ai_logger", gen_ai),
-    ):
-        with trace_span("query") as outer_span:
-            if outer_span is not None and outer_span.is_recording():
-                outer_trace_id = format(outer_span.get_span_context().trace_id, "032x")
-            engine = EagleRouterQueryEngine(text_retriever=mock_text, visual_retriever=mock_visual)
-            nodes, info = engine.retrieve("个税起征点", mode="hybrid")
-            gen_engine = EagleMultimodalQueryEngine(multi_modal_llm=mock_vlm, top_n=3)
-            gen_engine.custom_query("个税起征点", nodes=nodes, route_info=info.to_dict())
+    with trace_span("query") as outer_span:
+        if outer_span is not None and outer_span.is_recording():
+            outer_trace_id = format(outer_span.get_span_context().trace_id, "032x")
+        engine = EagleRouterQueryEngine(text_retriever=mock_text, visual_retriever=mock_visual)
+        nodes, info = engine.retrieve("个税起征点", mode="hybrid")
+        gen_engine = EagleMultimodalQueryEngine(multi_modal_llm=mock_vlm, top_n=3)
+        gen_engine.custom_query("个税起征点", nodes=nodes, route_info=info.to_dict())
 
     assert outer_trace_id is not None, "外层 span 未 recording，trace_id 缺失"
 

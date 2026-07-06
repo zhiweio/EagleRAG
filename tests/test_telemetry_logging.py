@@ -138,9 +138,25 @@ def test_telemetry_disabled_fallback(tmp_path: Path):
     op_logger = get_logger("x")
     ai_logger = get_ai_logger("x")
     assert isinstance(op_logger, logging.Logger)
-    assert isinstance(ai_logger, logging.Logger)
+    assert isinstance(ai_logger._resolve(), logging.Logger)
+    ai_logger.info("ignored")
     # Without structlog/loguru configured, no JSONL file should be created.
     assert not (tmp_path / "ai_telemetry.jsonl").exists()
+
+
+def test_module_level_ai_logger_writes_after_configure(tmp_path: Path):
+    """Import-time ``get_ai_logger`` binding still writes JSONL after ``configure_telemetry``."""
+
+    early_logger = get_ai_logger("eagle_rag.router.router_engine")
+    settings = _make_settings(tmp_path)
+    configure_telemetry(settings)
+    early_logger.info("route", query="q")
+
+    ai_log = tmp_path / "ai_telemetry.jsonl"
+    assert ai_log.exists()
+    data = json.loads(ai_log.read_text(encoding="utf-8").strip().splitlines()[-1])
+    assert data["event"] == "route"
+    assert data["query"] == "q"
 
 
 def test_intercept_handler_captures_stdlib(tmp_path: Path):
