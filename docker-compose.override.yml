@@ -50,10 +50,8 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
-    # next dev 默认绑定 localhost；显式 -H 0.0.0.0 以便宿主经端口映射访问。
-    # 每次启动先 bun install：node_modules 在匿名卷里持久化，仅检测 next 存在会
-    # 跳过安装，导致 package.json / bun.lock 新增依赖（如 AI Elements）缺包。
-    command: ["sh", "-c", "bun install && exec bun run dev -H 0.0.0.0"]
+    # 每次启动检测 bun.lock / 关键依赖；匿名 node_modules 卷过期时自动 bun install。
+    command: ["sh", "./scripts/docker-dev.sh"]
 
   # 暴露基础设施端口供宿主调试。
   postgres:

@@ -18,23 +18,27 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# 系统依赖：Playwright 浏览器运行库、CJK/Emoji 字体、curl、git、JRE（tabula-py / knowhere-parse-sdk）。
-# git：pixelrag 与 knowhere-parse-sdk worker 缓存克隆需要 git。
+# System deps: Playwright libs, CJK/Emoji fonts, curl, git, JRE (tabula-py / knowhere-parse-sdk).
+# git: pixelrag and knowhere-parse-sdk are git dependencies; ca-certificates for TLS.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
         libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libdrm2 libxkbcommon0 \
         libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
         fonts-noto-cjk fonts-noto-color-emoji \
         curl git default-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
-# uv（固定来源镜像，不单独安装）。
+# uv (pinned upstream image).
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# 先装依赖（利用层缓存）：仅按锁文件同步，不安装项目自身（源码稍后复制）。
-# pixelrag_render / pixelrag_embed 已在核心 dependencies 中，默认安装，
-# 使 /health 探测能真实报告 pixelrag 为 up（而非 unknown mock 回退）。
+ARG GITHUB_PROXY=
+ENV UV_HTTP_TIMEOUT=600
+
+COPY docker/scripts/uv_sync_with_retry.sh /tmp/uv_sync_with_retry.sh
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+RUN chmod +x /tmp/uv_sync_with_retry.sh \
+    && GITHUB_PROXY="${GITHUB_PROXY}" /tmp/uv_sync_with_retry.sh \
+    && rm /tmp/uv_sync_with_retry.sh
 
 # Pre-fetch knowhere-parse-sdk worker cache (avoids runtime git clone on first parse).
 ENV HOME=/root

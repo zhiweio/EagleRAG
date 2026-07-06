@@ -36,6 +36,7 @@ x-worker-build: &worker-build
   context: .
   dockerfile: docker/Dockerfile.worker
   args:
+    GITHUB_PROXY: ${GITHUB_PROXY:-}
     HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
     MODEL_REPO_ID: ${MODEL_REPO_ID:-Qwen/Qwen3-VL-Embedding-2B}
     MODEL_DOWNLOAD_SOURCE: ${MODEL_DOWNLOAD_SOURCE:-modelscope}
@@ -156,6 +157,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.api
+      args:
+        GITHUB_PROXY: ${GITHUB_PROXY:-}
     image: eagle-rag-api:latest
     env_file: .env
     environment:
