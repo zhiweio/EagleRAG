@@ -45,8 +45,8 @@ export function CardHeader({ title, subtitle, actions, icon, className }: CardHe
       <div className="flex items-start gap-3">
         {icon}
         <div className="flex flex-col gap-0.5">
-          <span className="text-sm font-semibold text-foreground">{title}</span>
-          {subtitle ? <span className="text-xs text-foreground-secondary">{subtitle}</span> : null}
+          <span className="font-semibold text-foreground text-sm">{title}</span>
+          {subtitle ? <span className="text-foreground-secondary text-xs">{subtitle}</span> : null}
         </div>
       </div>
       {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}

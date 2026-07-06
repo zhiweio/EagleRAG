@@ -1,0 +1,15 @@
+{
+  "documentPreview": {
+    "title": "Document preview",
+    "empty": "Select a source to preview its file.",
+    "zoom": "Zoom",
+    "table": "Table",
+    "download": "Download",
+    "openNewTab": "Open in new tab",
+    "close": "Close",
+    "meta": "Metadata",
+    "error": "Preview unavailable",
+    "loading": "Loading preview…",
+    "unsupported": "No inline preview for this format"
+  }
+}

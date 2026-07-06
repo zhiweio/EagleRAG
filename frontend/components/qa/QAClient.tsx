@@ -22,7 +22,6 @@ import { useTranslations } from "next-intl";
 import { useCallback, useRef, useState } from "react";
 import { ChatPanel } from "./ChatPanel";
 import { HistoryDrawer } from "./HistoryDrawer";
-import { ImageLightbox } from "./ImageLightbox";
 import { QAToast, type QAToastItem } from "./QAToast";
 import { SourcesPanel } from "./SourcesPanel";
 import { findImageSourceIndex } from "./sources-utils";
@@ -98,7 +97,6 @@ export function QAClient() {
   const documentFilter = useFilterStore((s) => s.documentFilter);
   const historyOpen = useUIStore((s) => s.qaHistoryOpen);
   const setHistoryOpen = useUIStore((s) => s.setQaHistoryOpen);
-  const setLightboxImageId = useUIStore((s) => s.setQaLightboxImageId);
   const queryClient = useQueryClient();
 
   const pushToast = useCallback(
@@ -417,27 +415,28 @@ export function QAClient() {
     focusedMessage && focusedMessage.id === focusedMessageId ? focusedSourceIndex : null;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-background">
-      <main className="mx-auto flex w-full min-h-0 max-w-360 flex-1 flex-col gap-6 px-4 py-6 sm:px-8 lg:flex-row">
-        <ChatPanel
-          messages={messages}
-          sending={sending}
-          onSend={handleSend}
-          mode={mode}
-          onModeChange={setMode}
-          askMode={askMode}
-          onAskModeChange={setAskMode}
-          sessionId={sessionId}
-          onUploadError={handleUploadError}
-          onCite={handleCite}
-          onPreviewVisual={handlePreviewVisual}
-          onNewChat={handleNewSession}
-          onOpenHistory={() => setHistoryOpen(true)}
-        />
-        <div className="h-140 w-full shrink-0 lg:h-full lg:w-110">
+    <div className="flex h-[calc(100dvh-4rem)] min-h-0 flex-col overflow-hidden bg-background">
+      <main className="mx-auto flex min-h-0 w-full max-w-360 flex-1 flex-col gap-4 overflow-hidden px-4 py-4 sm:px-8 lg:flex-row lg:gap-6 lg:py-5">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <ChatPanel
+            messages={messages}
+            sending={sending}
+            onSend={handleSend}
+            mode={mode}
+            onModeChange={setMode}
+            askMode={askMode}
+            onAskModeChange={setAskMode}
+            sessionId={sessionId}
+            onUploadError={handleUploadError}
+            onCite={handleCite}
+            onPreviewVisual={handlePreviewVisual}
+            onNewChat={handleNewSession}
+            onOpenHistory={() => setHistoryOpen(true)}
+          />
+        </div>
+        <div className="flex h-44 min-h-0 shrink-0 flex-col overflow-hidden sm:h-52 lg:h-full lg:w-110">
           <SourcesPanel
             sources={focusedMessage?.sources}
-            onImageClick={setLightboxImageId}
             highlightIndex={highlightIndex}
             previewIntent={previewIntent}
             previewIntentKey={previewIntentKey}
@@ -453,8 +452,6 @@ export function QAClient() {
         onNewSession={handleNewSession}
         onDeleteError={handleDeleteSessionError}
       />
-
-      <ImageLightbox />
 
       <QAToast toasts={toasts} onDismiss={dismissToast} />
     </div>

@@ -6,6 +6,7 @@ import { Message, MessageAvatar, MessageContent } from "@/components/ai-elements
 import { Source, Sources, SourcesContent, SourcesTrigger } from "@/components/ai-elements/sources";
 import { ThinkingLabel } from "@/components/ai-elements/thinking-indicator";
 import { attachmentContentUrl } from "@/lib/hooks/useAttachments";
+import { usePreviewStore } from "@/lib/stores/previewStore";
 import { cn } from "@/lib/utils";
 import { CheckIcon, CopyIcon, FileText, ImageIcon, Search, User } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -127,16 +128,29 @@ function UserMessageBubble({ message }: { message: ChatMessage }) {
 
 /** Constrained image frame inside a user bubble (not full original dimensions). */
 function UserMessageImage({ attachment }: { attachment: UserMessageAttachment }) {
+  const openPreview = usePreviewStore((s) => s.openPreview);
   const src = attachment.previewUrl ?? attachmentContentUrl(attachment.id);
+
+  const handleOpen = () => {
+    openPreview({
+      kind: "attachment",
+      attachmentId: attachment.id,
+      title: attachment.name,
+      previewUrl: attachment.previewUrl,
+    });
+  };
+
   return (
     <figure className="overflow-hidden rounded-xl bg-primary-foreground/10 ring-1 ring-primary-foreground/15">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={src}
-        alt={attachment.name ?? ""}
-        className="block max-h-48 w-full max-w-[15rem] object-contain"
-        loading="lazy"
-      />
+      <button type="button" onClick={handleOpen} className="block w-full cursor-zoom-in">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={src}
+          alt={attachment.name ?? ""}
+          className="block max-h-48 w-full max-w-[15rem] object-contain"
+          loading="lazy"
+        />
+      </button>
     </figure>
   );
 }

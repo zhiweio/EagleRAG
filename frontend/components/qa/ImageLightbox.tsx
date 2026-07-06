@@ -2,7 +2,7 @@
 
 import { imageUrl } from "@/lib/api/client";
 import { getImageMetaApiImagesImageIdMetaGet } from "@/lib/api/generated/sdk.gen";
-import { useUIStore } from "@/lib/stores/uiStore";
+import { useImageLightboxStore } from "@/lib/stores/imageLightboxStore";
 import type { ImageMeta } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Modal, Spinner } from "@heroui/react";
@@ -11,18 +11,19 @@ import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 
 /**
- * Image preview lightbox. The currently shown imageId and the close action come
- * from useUIStore, letting any location (SourcesCard / MessageBubble, etc.) open
- * it via setQaLightboxImageId. Metadata is fetched best-effort (the image still
- * renders when the DB is unavailable).
+ * Fullscreen image lightbox for visual evidence tiles and attachment zoom.
+ * Metadata is fetched best-effort for Milvus image ids; URL-only targets skip it.
  */
 export function ImageLightbox() {
   const t = useTranslations("qa.lightbox");
-  const imageId = useUIStore((s) => s.qaLightboxImageId);
-  const setQaLightboxImageId = useUIStore((s) => s.setQaLightboxImageId);
+  const target = useImageLightboxStore((s) => s.target);
+  const closeImageLightbox = useImageLightboxStore((s) => s.closeImageLightbox);
   const [meta, setMeta] = useState<ImageMeta | null>(null);
   const [loading, setLoading] = useState(false);
-  const isOpen = imageId !== null;
+  const isOpen = target !== null;
+  const imageId = target?.kind === "image" ? target.imageId : null;
+  const src = target?.kind === "image" ? imageUrl(target.imageId) : (target?.src ?? "");
+  const alt = target?.kind === "url" ? (target.alt ?? t("title")) : t("title");
 
   useEffect(() => {
     if (!imageId) {
@@ -38,7 +39,6 @@ export function ImageLightbox() {
         if (!cancelled) setMeta(result.data ?? null);
       })
       .catch(() => {
-        // metadata is best-effort; the image can still render without it
         if (!cancelled) setMeta(null);
       })
       .finally(() => {
@@ -50,8 +50,8 @@ export function ImageLightbox() {
   }, [imageId]);
 
   return (
-    <Modal isOpen={isOpen} onOpenChange={(open) => !open && setQaLightboxImageId(null)}>
-      <Modal.Backdrop className="bg-black/80 backdrop-blur-md">
+    <Modal isOpen={isOpen} onOpenChange={(open) => !open && closeImageLightbox()}>
+      <Modal.Backdrop className="bg-black/80 backdrop-blur-md data-[entering]:duration-300 data-[entering]:ease-[cubic-bezier(0.32,0.72,0,1)] data-[exiting]:duration-200 data-[exiting]:ease-[cubic-bezier(0.7,0,0.84,0)]">
         <Modal.Container size="full" scroll="inside">
           <Modal.Dialog className="relative border-0 bg-transparent p-0 text-white shadow-none">
             <Modal.CloseTrigger
@@ -67,32 +67,34 @@ export function ImageLightbox() {
               <X size={20} strokeWidth={1.75} aria-hidden />
             </Modal.CloseTrigger>
             <Modal.Body className="flex min-h-full flex-col items-center justify-center gap-3 p-4 pt-14">
-              {imageId && (
-                <div className="flex flex-col items-center gap-3">
+              {target && src ? (
+                <div className="flex w-full max-w-5xl flex-col items-center gap-3">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={imageUrl(imageId)}
-                    alt={t("title")}
+                    src={src}
+                    alt={alt}
                     className="max-h-[70vh] w-auto max-w-full rounded-2xl border border-white/10 object-contain shadow-2xl"
                   />
-                  <div className="w-full max-w-2xl text-xs">
-                    <p className="mb-1 font-semibold text-white/60">{t("meta")}</p>
-                    {loading ? (
-                      <Spinner size="sm" />
-                    ) : meta ? (
-                      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
-                        <MetaRow k="document_id" v={meta.document_id} />
-                        <MetaRow k="page" v={meta.page} />
-                        <MetaRow k="position" v={meta.position} />
-                        <MetaRow k="width" v={meta.width} />
-                        <MetaRow k="height" v={meta.height} />
-                      </dl>
-                    ) : (
-                      <code className="break-all text-white/60">{imageId}</code>
-                    )}
-                  </div>
+                  {imageId ? (
+                    <div className="w-full max-w-2xl text-xs">
+                      <p className="mb-1 font-semibold text-white/60">{t("meta")}</p>
+                      {loading ? (
+                        <Spinner size="sm" />
+                      ) : meta ? (
+                        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+                          <MetaRow k="document_id" v={meta.document_id} />
+                          <MetaRow k="page" v={meta.page} />
+                          <MetaRow k="position" v={meta.position} />
+                          <MetaRow k="width" v={meta.width} />
+                          <MetaRow k="height" v={meta.height} />
+                        </dl>
+                      ) : (
+                        <code className="break-all text-white/60">{imageId}</code>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
-              )}
+              ) : null}
             </Modal.Body>
           </Modal.Dialog>
         </Modal.Container>

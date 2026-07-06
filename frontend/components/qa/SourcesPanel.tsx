@@ -1,5 +1,7 @@
 "use client";
 
+import { DocumentPreview } from "@/components/document-preview";
+import { usePreviewStore } from "@/lib/stores/previewStore";
 import type { QuerySources } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Modal } from "@heroui/react";
@@ -7,7 +9,6 @@ import { Eye, Layers, ListTree, Maximize2, Minimize2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DocumentStructureTree } from "./DocumentStructureTree";
-import { FilePreview } from "./FilePreview";
 import { type SourceFileTab, SourceFileTabs } from "./SourceFileTabs";
 import { TextSourceCard } from "./TextSourceCard";
 import { VisualSourceCard } from "./VisualSourceCard";
@@ -16,7 +17,6 @@ import type { FlatSource, PanelLayout, PreviewTarget } from "./types";
 
 interface SourcesPanelProps {
   sources: QuerySources | null | undefined;
-  onImageClick: (imageId: string) => void;
   /** 1-based flat index highlighted by a citation click, or null. */
   highlightIndex: number | null;
   /** External request to open the preview tab (e.g. rerank visual_top thumb). */
@@ -45,13 +45,13 @@ function fileKeyOf(item: FlatSource): { key: string; name: string } {
  */
 export function SourcesPanel({
   sources,
-  onImageClick,
   highlightIndex,
   previewIntent = null,
   previewIntentKey = 0,
 }: SourcesPanelProps) {
   const t = useTranslations("qa.sources");
   const tRail = useTranslations("qa.rail");
+  const openPreview = usePreviewStore((s) => s.openPreview);
   const flat = useMemo(() => flattenSources(sources), [sources]);
   const refs = useRef<Map<number, HTMLDivElement>>(new Map());
   const consumedPreviewKey = useRef(0);
@@ -148,6 +148,17 @@ export function SourcesPanel({
     setView("preview");
   }, []);
 
+  const handleOpenImagePreview = useCallback(
+    (imageId: string) => {
+      openPreview({ kind: "image", imageId });
+    },
+    [openPreview],
+  );
+
+  const handleZoomPreview = useCallback(() => {
+    if (previewTarget) openPreview(previewTarget);
+  }, [openPreview, previewTarget]);
+
   const highlightPaths = useMemo(() => {
     const set = new Set<string>();
     if (!structureDoc) return set;
@@ -185,10 +196,11 @@ export function SourcesPanel({
     highlightPaths,
     previewTarget,
     registerRef,
-    onImageClick,
+    onImageClick: handleOpenImagePreview,
     onSelectTab: handleSelectTab,
     onViewStructure: handleViewStructure,
     onPreview: handlePreview,
+    onZoomPreview: handleZoomPreview,
   };
 
   return (
@@ -208,7 +220,7 @@ export function SourcesPanel({
           <Modal.Container>
             <Modal.Dialog
               aria-label={t("title")}
-              className="flex h-[min(88vh,920px)] w-[min(1200px,94vw)] max-w-[94vw] flex-col overflow-hidden rounded-3xl border border-border/80 bg-surface/95 shadow-[0_32px_96px_-16px_rgba(15,23,42,0.28)] ring-1 ring-white/60 backdrop-blur-xl data-[entering]:duration-350 data-[entering]:ease-[cubic-bezier(0.32,0.72,0,1)] data-[exiting]:duration-250 data-[exiting]:ease-[cubic-bezier(0.7,0,0.84,0)]"
+              className="flex h-[min(94vh,960px)] w-[min(1240px,96vw)] max-w-[96vw] flex-col overflow-hidden rounded-3xl border border-border/80 bg-surface/95 shadow-[0_32px_96px_-16px_rgba(15,23,42,0.28)] ring-1 ring-white/60 backdrop-blur-xl data-[entering]:duration-350 data-[entering]:ease-[cubic-bezier(0.32,0.72,0,1)] data-[exiting]:duration-250 data-[exiting]:ease-[cubic-bezier(0.7,0,0.84,0)]"
             >
               <SourcesPanelShell layout="expanded" {...shellProps}>
                 <SourcesPanelBody {...bodyProps} layout="expanded" />
@@ -327,7 +339,14 @@ function SourcesPanelShell({
         </nav>
       </header>
 
-      {children}
+      <div
+        className={cn(
+          "min-h-0 flex-1",
+          view === "preview" ? "flex flex-col overflow-hidden" : "scroll-pane",
+        )}
+      >
+        {children}
+      </div>
     </div>
   );
 }
@@ -348,6 +367,7 @@ interface SourcesPanelBodyProps {
   onSelectTab: (file: SourceFileTab) => void;
   onViewStructure: (documentId: string, path?: string) => void;
   onPreview: (target: PreviewTarget) => void;
+  onZoomPreview: () => void;
 }
 
 function SourcesPanelBody({
@@ -366,19 +386,14 @@ function SourcesPanelBody({
   onSelectTab,
   onViewStructure,
   onPreview,
+  onZoomPreview,
 }: SourcesPanelBodyProps) {
   const pad = layout === "expanded" ? "px-6 py-5" : "px-4 py-4";
 
   if (view === "sources") {
     if (flat.length === 0) return <EmptyState layout={layout} />;
     return (
-      <div
-        className={cn(
-          "min-h-0 flex-1 overflow-y-auto",
-          pad,
-          layout === "expanded" ? "space-y-5" : "space-y-4",
-        )}
-      >
+      <div className={cn(pad, layout === "expanded" ? "space-y-5" : "space-y-4")}>
         <SourceFileTabs files={files} activeKey={activeKey} onSelect={onSelectTab} />
         {flat.map((item) =>
           item.type === "image" ? (
@@ -410,7 +425,7 @@ function SourcesPanelBody({
 
   if (view === "structure") {
     return (
-      <div className={cn("min-h-0 flex-1 overflow-y-auto", pad)}>
+      <div className={pad}>
         <DocumentStructureTree
           documentId={structureDoc}
           highlightPaths={highlightPaths}
@@ -423,9 +438,20 @@ function SourcesPanelBody({
   }
 
   if (view === "preview") {
+    const previewLayout = layout === "expanded" ? "panel" : "rail";
     return (
-      <div className={cn("min-h-0 flex-1 overflow-y-auto", pad)}>
-        <FilePreview target={previewTarget} layout={layout} onImageClick={onImageClick} />
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 flex-col overflow-hidden",
+          layout === "expanded" ? "px-4 py-2" : pad,
+        )}
+      >
+        <DocumentPreview
+          target={previewTarget}
+          layout={previewLayout}
+          onZoom={onZoomPreview}
+          className="min-h-0 flex-1"
+        />
       </div>
     );
   }

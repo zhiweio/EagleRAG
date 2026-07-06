@@ -445,9 +445,9 @@ export function VolumeBars({ points }: { points: VolumePoint[] }) {
                   dataKey="value"
                   content={(props) => (
                     <VolumeBarLabel
-                      x={props.x}
-                      y={props.y}
-                      width={props.width}
+                      x={typeof props.x === "number" ? props.x : Number(props.x)}
+                      y={typeof props.y === "number" ? props.y : Number(props.y)}
+                      width={typeof props.width === "number" ? props.width : Number(props.width)}
                       value={typeof props.value === "number" ? props.value : Number(props.value)}
                       peak={peak}
                     />

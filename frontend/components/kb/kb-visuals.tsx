@@ -1,6 +1,8 @@
 "use client";
 
 import type { KBIconKey, KBStatus, KBTheme, PipelineKind } from "@/lib/kb/types";
+
+export type { PipelineKind };
 import {
   BookOpen,
   ClipboardCheck,

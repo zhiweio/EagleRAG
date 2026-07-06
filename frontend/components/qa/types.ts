@@ -61,14 +61,7 @@ export interface FlatSource {
   source: Record<string, unknown>;
 }
 
-/**
- * A file-preview request emitted by a source card or the structure tree and
- * consumed by the evidence rail's File Preview surface.
- */
-export type PreviewTarget =
-  | { kind: "image"; imageId: string; title?: string }
-  | { kind: "table"; documentId: string; chunkId?: string; html?: string; title?: string }
-  | { kind: "file"; documentId: string; title?: string; sourceType?: string | null };
+export type { PreviewTarget } from "@/components/document-preview/types";
 
 /** Layout density for the evidence rail and its expanded modal. */
 export type PanelLayout = "rail" | "expanded";

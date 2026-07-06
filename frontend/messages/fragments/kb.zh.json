@@ -190,6 +190,7 @@
         "chunks": "切片",
         "upload": "上传文档",
         "delete": "删除",
+        "preview": "预览文档",
         "deleteDocConfirm": "确定删除文档「{name}」？将移除其向量与图谱数据。"
       },
       "docDeleteModal": {

@@ -1,7 +1,7 @@
 "use client";
 
-import { fileUrl } from "@/lib/api/client";
 import { useDocuments } from "@/lib/hooks/useDocuments";
+import { usePreviewStore } from "@/lib/stores/previewStore";
 import { useUIStore } from "@/lib/stores/uiStore";
 import type { Document } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -32,13 +32,17 @@ function Hint({ keys, label }: { keys: string[]; label: string }) {
 }
 
 function openDocumentPreview(doc: Document) {
-  window.open(fileUrl(doc.document_id), "_blank", "noopener,noreferrer");
+  usePreviewStore.getState().openPreview({
+    kind: "file",
+    documentId: doc.document_id,
+    title: doc.name,
+    sourceType: doc.source_type ?? null,
+  });
 }
 
 /**
  * GlobalSearchModal — centered command-palette search over the document registry.
- * Opened from the AppBar trigger or Cmd/Ctrl+K. Results open the ingested file
- * preview in a new browser tab.
+ * Opened from the AppBar trigger or Cmd/Ctrl+K. Results open in the in-app preview modal.
  */
 export function GlobalSearchModal() {
   const t = useTranslations("globalSearch");

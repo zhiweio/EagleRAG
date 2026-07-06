@@ -76,7 +76,7 @@ export function ChatPanel({
         </div>
       </div>
 
-      <Conversation className="ai-scope min-h-0 flex-1">
+      <Conversation className="ai-scope scroll-pane min-h-0 flex-1">
         <ConversationContent className="mx-auto flex w-full max-w-3xl flex-col gap-1 px-5 py-5 sm:px-6">
           {isEmpty ? (
             <WelcomeState onPick={(text) => onSend(text)} />

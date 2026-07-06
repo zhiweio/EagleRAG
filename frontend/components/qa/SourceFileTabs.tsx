@@ -23,11 +23,7 @@ interface SourceFileTabsProps {
 export function SourceFileTabs({ files, activeKey, onSelect }: SourceFileTabsProps) {
   if (files.length <= 1) return null;
   return (
-    <div
-      className="flex gap-1 overflow-x-auto pb-0.5 [scrollbar-width:thin]"
-      role="tablist"
-      aria-orientation="horizontal"
-    >
+    <div className="scroll-pane-x flex gap-1 pb-0.5" role="tablist" aria-orientation="horizontal">
       {files.map((file) => {
         const active = file.key === activeKey;
         const Icon = file.type === "image" ? ImageIcon : FileText;

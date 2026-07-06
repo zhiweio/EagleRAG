@@ -190,6 +190,7 @@
         "chunks": "chunks",
         "upload": "Upload documents",
         "delete": "Delete",
+        "preview": "Preview document",
         "deleteDocConfirm": "Delete document \"{name}\"? This will remove its vectors and graph data."
       },
       "docDeleteModal": {

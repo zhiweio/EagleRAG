@@ -357,3 +357,75 @@ a {
     animation: none;
   }
 }
+
+/* ===== Subtle scroll panes (QA chat / sources, drawers) ===== */
+.scroll-pane {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: auto;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.scroll-pane:hover,
+.scroll-pane:focus-within {
+  scrollbar-color: color-mix(in oklab, var(--foreground) 22%, transparent) transparent;
+}
+
+.scroll-pane::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scroll-pane::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scroll-pane::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border: 2px solid transparent;
+  border-radius: 9999px;
+  background-clip: padding-box;
+}
+
+.scroll-pane:hover::-webkit-scrollbar-thumb,
+.scroll-pane:focus-within::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklab, var(--foreground) 20%, transparent);
+}
+
+.scroll-pane::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklab, var(--foreground) 32%, transparent);
+}
+
+.scroll-pane-x {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.scroll-pane-x:hover,
+.scroll-pane-x:focus-within {
+  scrollbar-color: color-mix(in oklab, var(--foreground) 22%, transparent) transparent;
+}
+
+.scroll-pane-x::-webkit-scrollbar {
+  height: 5px;
+}
+
+.scroll-pane-x::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scroll-pane-x::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 9999px;
+}
+
+.scroll-pane-x:hover::-webkit-scrollbar-thumb,
+.scroll-pane-x:focus-within::-webkit-scrollbar-thumb {
+  background-color: color-mix(in oklab, var(--foreground) 20%, transparent);
+}
