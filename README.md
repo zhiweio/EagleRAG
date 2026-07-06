@@ -126,7 +126,10 @@ Infrastructure: Milvus (etcd + MinIO) + PostgreSQL (sessions / dedup / audit) + 
 
 ### External services
 
-- **Knowhere `:5005`**: document semantic parsing engine ([Ontos-AI/knowhere](https://github.com/Ontos-AI/knowhere)), must be deployed independently and expose `:5005`. Eagle-RAG invokes `client.parse()` via the official `knowhere-python-sdk` (`KNOWHERE_BASE_URL` defaults to `http://localhost:5005`), synchronously returning an in-memory `ParseResult` over `/v1/jobs` with no disk writes to `~/.knowhere/`. On SDK unavailability it fails closed: raises `KnowhereError` and marks the task `FAILED`, with no mock fallback.
+- **Knowhere parsing** (`KNOWHERE_MODE`, default `api`):
+  - **`api`** — document semantic parsing via [Ontos-AI/knowhere](https://github.com/Ontos-AI/knowhere) HTTP `:5005` and `knowhere-python-sdk` (`KNOWHERE_BASE_URL` defaults to `http://localhost:5005`). Synchronously returns an in-memory `ParseResult` over `/v1/jobs` with no disk writes to `~/.knowhere/`.
+  - **`parser`** — in-process parsing via [`knowhere-parse-sdk`](https://github.com/zhiweio/knowhere-parse-sdk) (`KnowhereParser.parse`); no `:5005` service required. Requires MinerU (`MINERU_API_KEYS`) and LLM credentials (mapped from global `llm` / `vlm` settings or `knowhere.parser` overrides).
+  - Both modes fail closed: `KnowhereError` → task `FAILED`, no mock fallback.
   > Note the distinction: modern Milvus ships a built-in HNSW / DiskANN vector search engine that carries visual-vector storage and nearest-neighbour search (replacing PixelRAG's native FAISS; DiskANN breaks the memory ceiling). The `Ontos-AI/knowhere` repository in this stack is the document parsing service, which is unrelated.
 - **PixelRAG library (core dependency)**: `pixelrag_render` / `pixelrag_embed`, declared under `[project.dependencies]` in `pyproject.toml` and installed by default via `uv sync`; when `provider=="pixelrag"` is not configured it fails fast (no mock fallback, no random-vector fallback). **`pixelrag-serve` is no longer deployed and FAISS is no longer used.**
 
@@ -146,12 +149,14 @@ DeepSeek + Qwen only:
 
 ### Key environment variables
 
-> Governed by `eagle_rag/settings.yaml` (supports `${VAR:-default}` placeholders). `KB_NAME` and `KNOWHERE_BASE_URL` drive multi-tenant isolation and Knowhere service addressing respectively; **`LIBREOFFICE_PATH` and `PIXELRAG_SERVE_URL` are no longer used**.
+> Governed by `eagle_rag/settings.yaml` (supports `${VAR:-default}` placeholders). `KB_NAME` and `KNOWHERE_MODE` / `KNOWHERE_BASE_URL` drive multi-tenant isolation and Knowhere backend selection respectively; **`LIBREOFFICE_PATH` and `PIXELRAG_SERVE_URL` are no longer used**.
 
 | Variable | Default | Description |
 | --- | --- | --- |
 | `KB_NAME` | `default` | Knowledge-base identifier (multi-tenant isolation), e.g. `finance` / `patent` / `pharma` |
-| `KNOWHERE_BASE_URL` | `http://localhost:5005` | Knowhere HTTP parsing service URL |
+| `KNOWHERE_MODE` | `api` | Knowhere backend: `api` (HTTP `:5005` via `knowhere-python-sdk`) or `parser` (in-process `knowhere-parse-sdk`) |
+| `KNOWHERE_BASE_URL` | `http://localhost:5005` | Knowhere HTTP parsing service URL (`api` mode only) |
+| `MINERU_API_KEYS` | — | MinerU API key for PDF parsing (`parser` mode) |
 | `LLM_API_KEY` / `LLM_BASE_URL` | — | DeepSeek |
 | `VLM_API_KEY` / `VLM_BASE_URL` | — | Qwen-VL-Max (DashScope) |
 | `DASHSCOPE_API_KEY` | — | Shared by Qwen text embedding / rerank |

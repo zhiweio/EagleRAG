@@ -156,9 +156,12 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-dev}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      # Knowhere 解析服务（独立 compose，经 knowhere-net 网络 DNS 名 knowhere 访问 :5005）。
+      # Knowhere: mode=api uses self-hosted :5005 (knowhere-net); mode=parser uses in-process SDK.
+      KNOWHERE_MODE: ${KNOWHERE_MODE:-api}
       KNOWHERE_BASE_URL: ${KNOWHERE_BASE_URL:-http://knowhere:5005}
       KNOWHERE_API_KEY: ${KNOWHERE_API_KEY:-}
+      MINERU_API_KEYS: ${MINERU_API_KEYS:-}
+      MINERU_URL: ${MINERU_URL:-https://mineru.net/api/v4}
       KB_NAME: ${KB_NAME:-default}
       # HuggingFace mirror + cache (shared with worker-pixelrag via ./data volume)
       HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
@@ -200,8 +203,11 @@ services:
       CONCURRENCY: "4"
       APP_ENV: ${APP_ENV:-dev}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      KNOWHERE_MODE: ${KNOWHERE_MODE:-api}
       KNOWHERE_BASE_URL: ${KNOWHERE_BASE_URL:-http://knowhere:5005}
       KNOWHERE_API_KEY: ${KNOWHERE_API_KEY:-}
+      MINERU_API_KEYS: ${MINERU_API_KEYS:-}
+      MINERU_URL: ${MINERU_URL:-https://mineru.net/api/v4}
       KB_NAME: ${KB_NAME:-default}
     volumes:
       - ./data:/app/data
@@ -231,8 +237,11 @@ services:
       CONCURRENCY: "8"
       APP_ENV: ${APP_ENV:-dev}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      KNOWHERE_MODE: ${KNOWHERE_MODE:-api}
       KNOWHERE_BASE_URL: ${KNOWHERE_BASE_URL:-http://knowhere:5005}
       KNOWHERE_API_KEY: ${KNOWHERE_API_KEY:-}
+      MINERU_API_KEYS: ${MINERU_API_KEYS:-}
+      MINERU_URL: ${MINERU_URL:-https://mineru.net/api/v4}
       KB_NAME: ${KB_NAME:-default}
     volumes:
       - ./data:/app/data
@@ -241,8 +250,7 @@ services:
         condition: service_healthy
       milvus:
         condition: service_healthy
-      # Knowhere 不在本 compose 中（已拆分至 docker/knowhere-self-hosted/），
-      # 无法跨 compose depends_on；fail-closed 模式下 Knowhere 未就绪时解析任务转 FAILED。
+      # Knowhere 不在本 compose 中（mode=api 时需 knowhere-net 访问 :5005；mode=parser 可不依赖外部 Knowhere 服务）。
     deploy:
       resources:
         limits:

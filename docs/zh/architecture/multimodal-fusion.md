@@ -96,7 +96,7 @@ flowchart TB
 
 | 组件 | 角色 |
 | --- | --- |
-| [Knowhere](https://github.com/Ontos-AI/knowhere) | HTTP 解析器 → `ParseResult`（块 + `doc_nav.sections`） |
+| [Knowhere](https://github.com/Ontos-AI/knowhere) | 文档解析器 → `ParseResult`（块 + `doc_nav.sections`）。Eagle-RAG `knowhere.mode`：**`api`**（HTTP `:5005` + `knowhere-python-sdk`）或 **`parser`**（[`knowhere-parse-sdk`](https://github.com/zhiweio/knowhere-parse-sdk)，进程内） |
 | [PixelRAG](https://github.com/StarTrail-org/PixelRAG) | 渲染 + 嵌入库（Eagle-RAG 无 FAISS） |
 | [Milvus](https://milvus.io/docs) | 双 collection；视觉 ANN 用 HNSW 或 DiskANN |
 

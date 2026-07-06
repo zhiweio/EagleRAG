@@ -1,20 +1,16 @@
-"""Knowhere document parsing adapter (official SDK client + Celery task).
+"""Knowhere document parsing adapter (dual-mode SDK client + Celery task).
 
-Knowhere (Ontos-AI/knowhere) is deployed as a standalone service
-(apps/api :5005 + apps/worker) and parsed in-process via the official
-``knowhere-python-sdk``, avoiding hand-written HTTP polling:
+Knowhere supports two parse backends, selected by ``settings.knowhere.mode``:
 
-1. ``parse_with_knowhere_sdk`` builds a ``knowhere.Knowhere`` client and calls
-   ``client.parse(file=..., parsing_params=..., poll_interval=..., poll_timeout=...)``,
-   synchronously returning an in-memory ``ParseResult`` (manifest + typed chunks +
-   full_markdown + raw_zip). Nothing is written to ``~/.knowhere/``.
-2. ``chunks_to_text_nodes`` converts ``ParseResult.chunks`` (duck-typed
-   text/image/table objects) into LlamaIndex ``TextNode``s written to the Milvus
-   text collection.
+- **api** — ``knowhere-python-sdk`` calls a self-hosted HTTP service (:5005) via
+  ``Knowhere(api_key, base_url).parse(file=...)``, polling until completion.
+- **parser** — ``knowhere-parse-sdk`` runs the worker pipeline in-process via
+  ``KnowhereParser(config).parse(file_path)``; no :5005 service required.
 
-The Celery task ``knowhere_parse`` (on ``knowhere_queue``) wires the pipeline
-together and updates the document registry. SDK failures raise ``KnowhereError``
-(fail-closed): the task transitions to FAILED without silent fallback.
+Both return a type-compatible in-memory ``ParseResult`` (manifest + typed chunks +
+full_markdown + raw_zip). Downstream ``chunks_to_text_nodes`` and the Celery task
+``knowhere_parse`` (on ``knowhere_queue``) are backend-agnostic. SDK failures raise
+``KnowhereError`` (fail-closed): the task transitions to FAILED without silent fallback.
 """
 
 from __future__ import annotations
@@ -22,9 +18,7 @@ from __future__ import annotations
 import hashlib
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-import knowhere
+from typing import TYPE_CHECKING, Any
 
 from eagle_rag.config import get_settings
 from eagle_rag.index.milvus_text_store import upsert_text_nodes
@@ -130,29 +124,80 @@ def _normalize_parsing_params(params: dict) -> dict:
     return out
 
 
+def _parsing_params_to_parse_options(params: dict[str, Any]):
+    """Map ``settings.knowhere.parsing_params`` to ``knowhere_parse.ParseOptions``."""
+    from knowhere_parse import ParseOptions
+
+    normalized = _normalize_parsing_params(params)
+    if not normalized:
+        return ParseOptions()
+
+    option_fields = {
+        "smart_title_parse",
+        "summary_image",
+        "summary_table",
+        "summary_txt",
+        "doc_type",
+        "add_frag_desc",
+        "llm_histories",
+        "stopwords",
+    }
+    kwargs = {k: normalized[k] for k in option_fields if k in normalized}
+    if "ocr_enabled" in normalized:
+        logger.debug(
+            "parsing_params.ocr_enabled is ignored in parser mode (MinerU handles PDF OCR)"
+        )
+    return ParseOptions(**kwargs)
+
+
+def _build_parser_config():
+    """Build ``knowhere_parse.ParserConfig`` from Eagle-RAG settings."""
+    from knowhere_parse import ParserConfig
+
+    settings = get_settings()
+    kh = settings.knowhere
+    parser_cfg = kh.parser
+    llm = settings.llm
+    vlm = settings.vlm
+
+    tmp_path = parser_cfg.tmp_path.strip()
+    if not tmp_path:
+        tmp_path = str(Path(settings.storage.data_dir) / "knowhere-parse")
+
+    llm_api_key = parser_cfg.llm_api_key or llm.api_key
+    llm_url = parser_cfg.llm_url or llm.base_url
+    llm_model = parser_cfg.llm_model or llm.model
+    image_model = parser_cfg.image_model or vlm.model
+    image_model_max = parser_cfg.image_model_max or vlm.model
+
+    return ParserConfig(
+        mineru_api_keys=parser_cfg.mineru_api_keys,
+        mineru_url=parser_cfg.mineru_url,
+        llm_api_key=llm_api_key,
+        llm_url=llm_url,
+        llm_model=llm_model,
+        hierarchy_llm_model=parser_cfg.hierarchy_llm_model or "",
+        image_model=image_model,
+        image_model_max=image_model_max,
+        tmp_path=tmp_path,
+        llm_mock_enabled=parser_cfg.llm_mock_enabled,
+    )
+
+
 # ---------------------------------------------------------------------------
-# SDK client
+# SDK clients
 # ---------------------------------------------------------------------------
 
 
-def parse_with_knowhere_sdk(
+def _parse_via_api_sdk(
     file_path: str,
     *,
     file_name: str,
     kb_name: str | None = None,
-):  # noqa: ANN201
-    """Parse a document via the official ``knowhere-python-sdk``; returns in-memory ``ParseResult``.
+):  # noqa: ANN001, ARG001
+    """Parse via ``knowhere-python-sdk`` (HTTP :5005)."""
+    import knowhere
 
-    Builds a ``knowhere.Knowhere`` client and calls ``client.parse(...)``, polling
-    synchronously until completion. Returns a ``ParseResult`` exposing
-    ``.chunks`` / ``.text_chunks`` / ``.image_chunks`` / ``.table_chunks`` /
-    ``.manifest`` / ``.full_markdown``.
-
-    On SDK failure (``knowhere.KnowhereError`` or transport errors such as httpx)
-    the function is fail-closed: it logs the error and re-raises wrapped as
-    ``KnowhereError``; the outer ``knowhere_parse`` handler then marks the task
-    FAILED without silent fallback.
-    """
     settings = get_settings()
     kh = settings.knowhere
     client = knowhere.Knowhere(
@@ -164,21 +209,84 @@ def parse_with_knowhere_sdk(
     )
 
     try:
-        result = client.parse(
+        return client.parse(
             file=Path(file_path),
             file_name=file_name,
             parsing_params=_normalize_parsing_params(kh.parsing_params) or None,
             poll_interval=kh.poll_interval,
             poll_timeout=kh.poll_timeout,
         )
-    except Exception as exc:  # catches knowhere.KnowhereError and httpx transport errors
+    except Exception as exc:
         logger.error(
-            "Knowhere SDK call failed (file=%s): %s",
+            "Knowhere API SDK call failed (file=%s): %s",
             file_name,
             exc,
         )
-        raise KnowhereError(f"Knowhere SDK call failed (file={file_name}): {exc}") from exc
-    return result
+        raise KnowhereError(f"Knowhere API SDK call failed (file={file_name}): {exc}") from exc
+
+
+def _parse_via_parser_sdk(
+    file_path: str,
+    *,
+    file_name: str,
+    kb_name: str | None = None,
+):  # noqa: ANN001, ARG001
+    """Parse via ``knowhere-parse-sdk`` (in-process worker pipeline)."""
+    from knowhere_parse import KnowhereParser
+    from knowhere_parse.exceptions import ConfigError, OutputError, ParseError
+
+    settings = get_settings()
+    kh = settings.knowhere
+    parser = KnowhereParser(_build_parser_config())
+    options = _parsing_params_to_parse_options(kh.parsing_params)
+
+    try:
+        return parser.parse(
+            file_path,
+            options=options,
+            use_llm_nav_summary=kh.parser.use_llm_nav_summary,
+        )
+    except (ConfigError, ParseError, OutputError) as exc:
+        logger.error(
+            "Knowhere parser SDK call failed (file=%s): %s",
+            file_name,
+            exc,
+        )
+        raise KnowhereError(f"Knowhere parser SDK call failed (file={file_name}): {exc}") from exc
+    except Exception as exc:
+        logger.error(
+            "Knowhere parser SDK call failed (file=%s): %s",
+            file_name,
+            exc,
+        )
+        raise KnowhereError(f"Knowhere parser SDK call failed (file={file_name}): {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Public parse entry (mode dispatch)
+# ---------------------------------------------------------------------------
+
+
+def parse_with_knowhere_sdk(
+    file_path: str,
+    *,
+    file_name: str,
+    kb_name: str | None = None,
+):  # noqa: ANN201
+    """Parse a document via the configured Knowhere backend; returns in-memory ``ParseResult``.
+
+    Dispatches to ``knowhere-python-sdk`` (``mode=api``) or ``knowhere-parse-sdk``
+    (``mode=parser``) based on ``settings.knowhere.mode``. Both backends return a
+    type-compatible ``ParseResult`` with ``.chunks`` / ``.text_chunks`` /
+    ``.image_chunks`` / ``.table_chunks`` / ``.manifest`` / ``.full_markdown``.
+
+    On SDK failure the function is fail-closed: logs the error and re-raises wrapped
+    as ``KnowhereError``; the outer ``knowhere_parse`` handler marks the task FAILED.
+    """
+    mode = get_settings().knowhere.mode
+    if mode == "parser":
+        return _parse_via_parser_sdk(file_path, file_name=file_name, kb_name=kb_name)
+    return _parse_via_api_sdk(file_path, file_name=file_name, kb_name=kb_name)
 
 
 # ---------------------------------------------------------------------------

@@ -47,8 +47,9 @@ dependencies = [
     "pillow",
     "pypdf",
     "pdfplumber",      # PDF form probing (complements pypdf)
-    # Knowhere document semantic parser: official Python SDK (import knowhere), self-hosted :5005 via /v1/jobs
+    # Knowhere document semantic parser: API mode (knowhere-python-sdk → :5005) or parser mode (knowhere-parse-sdk, in-process)
     "knowhere-python-sdk",
+    "knowhere-parse-sdk @ git+https://github.com/zhiweio/knowhere-parse-sdk.git",
     # PixelRAG: visual encoder + slicer (pixelrag_render / pixelrag_embed); required, installed by default
     "pixelrag @ git+https://github.com/StarTrail-org/PixelRAG.git",
     # Local Qwen3-VL-Embedding-2B visual encoder (_Qwen3VLVisualEncoder singleton):
@@ -111,6 +112,10 @@ packages = ["eagle_rag"]
 [tool.uv]
 override-dependencies = [
     "cef-capi-py ; sys_platform != 'linux' or platform_machine != 'aarch64'",
+    # knowhere-parse-sdk pins pymupdf==1.27.2; pixelrag requires >=1.27.2.3 — unify on the newer pin.
+    "pymupdf>=1.27.2.3",
+    # knowhere-shared (knowhere-parse-sdk dep) pins alembic==1.13.1; eagle-rag requires >=1.14.
+    "alembic>=1.14",
 ]
 
 [tool.ruff]

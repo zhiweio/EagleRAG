@@ -24,6 +24,7 @@ __all__ = [
     "AppSettings",
     "MilvusSettings",
     "KnowhereSettings",
+    "KnowhereParserSettings",
     "PixelRAGSettings",
     "PdfProbeSettings",
     "VLMSettings",
@@ -80,7 +81,22 @@ class MilvusSettings(BaseModel):
     visual_index_type: str  # hnsw | diskann
 
 
+class KnowhereParserSettings(BaseModel):
+    mineru_api_keys: str = ""
+    mineru_url: str = "https://mineru.net/api/v4"
+    tmp_path: str = ""
+    use_llm_nav_summary: bool = True
+    llm_mock_enabled: bool = False
+    llm_api_key: str = ""
+    llm_url: str = ""
+    llm_model: str = ""
+    hierarchy_llm_model: str = ""
+    image_model: str = ""
+    image_model_max: str = ""
+
+
 class KnowhereSettings(BaseModel):
+    mode: Literal["api", "parser"] = "api"
     base_url: str
     api_key: str = ""
     timeout: float = 60.0
@@ -91,6 +107,7 @@ class KnowhereSettings(BaseModel):
     # Passthrough SDK ParsingParams (optional): model / ocr_enabled /
     # doc_type / smart_title_parse, etc.
     parsing_params: dict[str, Any] = {}
+    parser: KnowhereParserSettings = Field(default_factory=KnowhereParserSettings)
 
 
 class PixelRAGSettings(BaseModel):

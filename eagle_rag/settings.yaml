@@ -16,11 +16,11 @@ milvus:
   dim_visual: 2048  # Qwen3-VL-Embedding-2B outputs 2048-dim
   visual_index_type: ${MILVUS_VISUAL_INDEX_TYPE:-hnsw}   # hnsw | diskann
 
-# Knowhere parsing service: official knowhere-python-sdk (import knowhere) calling a self-hosted :5005.
-# Knowhere is split into a standalone compose (docker/knowhere-self-hosted/); deployment vars live in that directory's .env.
-# Client args and parsing_params are forwarded to Knowhere(api_key, base_url).parse(file=...).
-# Inside the container, reach it via the shared knowhere-net network as the DNS name `knowhere`; from the host use localhost.
+# Knowhere parsing: mode=api (knowhere-python-sdk → self-hosted :5005) or mode=parser (knowhere-parse-sdk, in-process).
+# API mode: Knowhere is split into a standalone compose (docker/knowhere-self-hosted/); reach via knowhere-net DNS `knowhere`.
+# Parser mode: no :5005 service; requires MinerU + LLM (mapped from global llm/vlm or knowhere.parser overrides).
 knowhere:
+  mode: ${KNOWHERE_MODE:-api}   # api | parser
   base_url: ${KNOWHERE_BASE_URL:-http://localhost:5005}
   api_key: ${KNOWHERE_API_KEY:-}
   timeout: ${KNOWHERE_TIMEOUT:-60}
@@ -31,6 +31,12 @@ knowhere:
   parsing_params:
     model: ${KNOWHERE_PARSING_MODEL:-advanced}
     ocr_enabled: true        # YAML bool (not an env placeholder, to avoid string injection); set to false to disable.
+  parser:
+    mineru_api_keys: ${MINERU_API_KEYS:-}
+    mineru_url: ${MINERU_URL:-https://mineru.net/api/v4}
+    tmp_path: ${KNOWHERE_PARSER_TMP_PATH:-}
+    use_llm_nav_summary: true
+    llm_mock_enabled: ${LLM_MOCK_ENABLED:-false}
 
 # PixelRAG used as a library (pixelrag_render / pixelrag_embed); serve mode is not launched.
 pixelrag:

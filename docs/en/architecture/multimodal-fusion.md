@@ -96,7 +96,7 @@ flowchart TB
 
 | Component | Role |
 | --- | --- |
-| [Knowhere](https://github.com/Ontos-AI/knowhere) | HTTP parser → `ParseResult` (chunks + `doc_nav.sections`) |
+| [Knowhere](https://github.com/Ontos-AI/knowhere) | Document parser → `ParseResult` (chunks + `doc_nav.sections`). Eagle-RAG `knowhere.mode`: **`api`** (HTTP `:5005` + `knowhere-python-sdk`) or **`parser`** ([`knowhere-parse-sdk`](https://github.com/zhiweio/knowhere-parse-sdk), in-process) |
 | [PixelRAG](https://github.com/StarTrail-org/PixelRAG) | Render + embed library (no FAISS in Eagle-RAG) |
 | [Milvus](https://milvus.io/docs) | Dual collection; HNSW or DiskANN for visual ANN |
 

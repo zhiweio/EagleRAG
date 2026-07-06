@@ -24,6 +24,7 @@ No auth. All probes are read-only and do not modify any external state.
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from datetime import timedelta
 from typing import Any
@@ -179,21 +180,54 @@ async def _probe_pixelrag() -> dict[str, Any]:
     return await asyncio.to_thread(_check)
 
 
+def _probe_knowhere_parser_sync() -> dict[str, Any]:
+    """Lightweight in-process probe for ``knowhere.mode=parser``."""
+    from pathlib import Path
+
+    from knowhere_parse import KnowhereParser
+
+    from eagle_rag.ingest.knowhere_adapter import _build_parser_config
+
+    settings = get_settings()
+    parser_cfg = settings.knowhere.parser
+    try:
+        config = _build_parser_config()
+        tmp_path = Path(config.tmp_path)
+        tmp_path.mkdir(parents=True, exist_ok=True)
+        if not os.access(tmp_path, os.W_OK):
+            return {
+                "status": "down",
+                "detail": f"mode=parser, tmp_path not writable: {tmp_path}",
+            }
+        KnowhereParser(config)
+        mock = "llm_mock_enabled=true" if parser_cfg.llm_mock_enabled else "llm_mock_enabled=false"
+        mineru = "configured" if parser_cfg.mineru_api_keys.strip() else "not configured"
+        return {
+            "status": "up",
+            "detail": f"mode=parser, tmp_path={tmp_path}, mineru={mineru}, {mock}",
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"status": "down", "detail": f"mode=parser, {type(exc).__name__}: {exc}"}
+
+
 async def _probe_knowhere() -> dict[str, Any]:
-    """Probe the Knowhere parser service (HTTP :5005) availability."""
+    """Probe Knowhere availability (HTTP :5005 for api mode, in-process for parser mode)."""
+    settings = get_settings()
+    if settings.knowhere.mode == "parser":
+        return await asyncio.to_thread(_probe_knowhere_parser_sync)
+
     import httpx
 
-    base_url = get_settings().knowhere.base_url
+    base_url = settings.knowhere.base_url
     try:
         async with httpx.AsyncClient(timeout=_PROBE_TIMEOUT) as client:
-            # Try the root path or health endpoint.
             resp = await client.get(base_url)
             return {
                 "status": "up",
-                "detail": f"base_url={base_url}, status_code={resp.status_code}",
+                "detail": f"mode=api, base_url={base_url}, status_code={resp.status_code}",
             }
     except Exception as exc:  # noqa: BLE001
-        return {"status": "down", "detail": f"{type(exc).__name__}: {exc}"}
+        return {"status": "down", "detail": f"mode=api, {type(exc).__name__}: {exc}"}
 
 
 async def _probe_vlm() -> dict[str, Any]:
@@ -1040,6 +1074,7 @@ async def admin_knowhere() -> AdminKnowhereResponse:
         for kb_name, doc_count in kb_doc_counts
     ]
     return AdminKnowhereResponse(
+        mode=cfg.mode,
         base_url=cfg.base_url,
         status=_dependency_status(probe["status"]),
         detail=probe.get("detail", ""),

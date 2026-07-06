@@ -18,15 +18,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# 系统依赖：Playwright 浏览器运行库、CJK/Emoji 字体、curl、git。
-# git：vision extra 的 pixelrag 是 git+https 依赖，uv clone 需要 git。
-# 说明：LibreOffice 已移除（Excel 改走 Knowhere 直连）；保留浏览器运行库以兼容渲染预处理路径，
-#       浏览器二进制不在本镜像安装。
+# 系统依赖：Playwright 浏览器运行库、CJK/Emoji 字体、curl、git、JRE（tabula-py / knowhere-parse-sdk）。
+# git：pixelrag 与 knowhere-parse-sdk worker 缓存克隆需要 git。
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libdrm2 libxkbcommon0 \
         libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
         fonts-noto-cjk fonts-noto-color-emoji \
-        curl git \
+        curl git default-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
 # uv（固定来源镜像，不单独安装）。
@@ -37,6 +35,11 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # 使 /health 探测能真实报告 pixelrag 为 up（而非 unknown mock 回退）。
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
+
+# Pre-fetch knowhere-parse-sdk worker cache (avoids runtime git clone on first parse).
+ENV HOME=/root
+RUN mkdir -p /root/.cache/knowhere-parse-sdk \
+    && (/opt/venv/bin/python -c "from knowhere_parse import KnowhereParser; KnowhereParser()" || true)
 
 # ---------------- runtime ----------------
 FROM python:${PYTHON_VERSION}-slim AS runtime
@@ -52,19 +55,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libdrm2 libxkbcommon0 \
         libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
         fonts-noto-cjk fonts-noto-color-emoji \
-        curl \
+        curl git default-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
-# 从 builder 拷贝虚拟环境。
+# 从 builder 拷贝虚拟环境与 knowhere-parse-sdk worker 缓存。
 COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /root/.cache/knowhere-parse-sdk /home/eagle/.cache/knowhere-parse-sdk
 
 # 非 root 用户：先创建并 chown /app 及运行期可写目录（logs / data），
 # 再切换 USER。settings.yaml 默认 op_log_file=logs/eagle_rag.log、
 # ai_log_file=logs/ai_telemetry.jsonl、storage.data_dir=./data，均为相对 /app 的路径；
 # 若 /app 归 root，eagle 无权创建 logs/ → 启动期 PermissionError（uv-docker 最佳实践）。
 RUN useradd --create-home --uid 1000 eagle \
-    && mkdir -p /app/logs /app/data \
-    && chown -R eagle:eagle /app
+    && mkdir -p /app/logs /app/data /home/eagle/.cache/knowhere-parse-sdk \
+    && chown -R eagle:eagle /app /home/eagle/.cache
 
 # 源码与锁文件（eagle_rag/settings.yaml 随包内）。
 COPY --chown=eagle:eagle pyproject.toml uv.lock ./

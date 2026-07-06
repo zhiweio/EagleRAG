@@ -24,7 +24,7 @@ Follow conventional open-source practice: **English everywhere except Chinese do
 
 | Module | Role | Integration |
 | --- | --- | --- |
-| **Knowhere** ([Ontos-AI/knowhere](https://github.com/Ontos-AI/knowhere)) | Document semantic parser, external HTTP `:5005` | Official `knowhere-python-sdk` (`import knowhere`): `Knowhere(api_key, base_url).parse(file=...)` → in-memory `ParseResult` via `/v1/jobs` (create→upload→poll→download). See `eagle_rag/ingest/knowhere_adapter.py` |
+| **Knowhere** ([Ontos-AI/knowhere](https://github.com/Ontos-AI/knowhere)) | Document semantic parser | `knowhere.mode`: **`api`** — `knowhere-python-sdk` → HTTP `:5005` (`Knowhere.parse` via `/v1/jobs`); **`parser`** — [`knowhere-parse-sdk`](https://github.com/zhiweio/knowhere-parse-sdk) in-process (`KnowhereParser.parse`). Both return type-compatible `ParseResult`. See `eagle_rag/ingest/knowhere_adapter.py` |
 | **PixelRAG** | Visual encoder + slicer **library** (`pixelrag_render` + `pixelrag_embed`) | Lazy in-process import; fail-fast if missing (no mock). **No `pixelrag-serve`, no FAISS, no `pixelrag.build()`**. See `eagle_rag/ingest/pixelrag_adapter.py` |
 
 **Removed** (do not reintroduce without owner approval): LibreOffice, pixelrag-serve, FAISS, OpenAI, Cohere.

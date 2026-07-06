@@ -147,6 +147,7 @@ class AdminPixelragResponse(BaseModel):
 
 
 class AdminKnowhereResponse(BaseModel):
+    mode: str = "api"
     base_url: str
     status: DependencyStatus | str
     detail: str = ""

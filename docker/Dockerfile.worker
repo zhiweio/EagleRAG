@@ -21,14 +21,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# 系统依赖：Playwright 浏览器运行库、字体、curl、git（LibreOffice 已移除，Excel 改走 Knowhere 直连）。
-# git：vision extra 的 pixelrag 是 git+https 依赖，uv clone 需要 git。
+# 系统依赖：Playwright 浏览器运行库、字体、curl、git、JRE（tabula-py / knowhere-parse-sdk）。
+# git：pixelrag 与 knowhere-parse-sdk worker 缓存克隆需要 git。
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libdrm2 libxkbcommon0 \
         libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
         libcups2 libxshmfence1 libpangocairo-1.0-0 libpango-1.0-0 libcairo2 \
         fonts-noto-cjk fonts-noto-color-emoji \
-        curl git \
+        curl git default-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
@@ -37,6 +37,11 @@ COPY pyproject.toml uv.lock ./
 # pixelrag_render / pixelrag_embed 已在核心 dependencies 中，默认安装，
 # 使 worker-pixelrag 能真实渲染/编码（否则 render_to_tiles / embed_tiles 回退 mock 纯色 Tile + random 向量）。
 RUN uv sync --frozen --no-dev --no-install-project
+
+# Pre-fetch knowhere-parse-sdk worker cache (avoids runtime git clone on first parse).
+ENV HOME=/root
+RUN mkdir -p /root/.cache/knowhere-parse-sdk \
+    && (/opt/venv/bin/python -c "from knowhere_parse import KnowhereParser; KnowhereParser()" || true)
 
 # pixelrag 队列需要渲染：安装 Chromium 浏览器二进制（系统库已具备）。
 RUN /opt/venv/bin/playwright install chromium \
@@ -59,12 +64,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
         libcups2 libxshmfence1 libpangocairo-1.0-0 libpango-1.0-0 libcairo2 \
         fonts-noto-cjk fonts-noto-color-emoji \
-        curl \
+        curl git default-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
-# 虚拟环境 + 浏览器二进制。
+# 虚拟环境 + 浏览器二进制 + knowhere-parse-sdk worker 缓存。
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /opt/pw-browsers /opt/pw-browsers
+COPY --from=builder /root/.cache/knowhere-parse-sdk /home/eagle/.cache/knowhere-parse-sdk
 
 # Stable symlink for pixelrag_render CHROME_PATH (survives Playwright version bumps).
 RUN ln -sf /opt/pw-browsers/chromium-*/chrome-linux/chrome /usr/local/bin/chrome
@@ -73,8 +79,8 @@ RUN ln -sf /opt/pw-browsers/chromium-*/chrome-linux/chrome /usr/local/bin/chrome
 # settings.yaml 默认 op_log_file/ai_log_file 在 logs/、data_dir=./data，相对 /app；
 # 若 /app 归 root，eagle 无权创建 logs/ → 启动期 PermissionError（uv-docker 最佳实践）。
 RUN useradd --create-home --uid 1000 eagle \
-    && mkdir -p /app/logs /app/data \
-    && chown -R eagle:eagle /app
+    && mkdir -p /app/logs /app/data /home/eagle/.cache/knowhere-parse-sdk \
+    && chown -R eagle:eagle /app /home/eagle/.cache
 
 COPY --chown=eagle:eagle pyproject.toml uv.lock ./
 COPY --chown=eagle:eagle eagle_rag ./eagle_rag
