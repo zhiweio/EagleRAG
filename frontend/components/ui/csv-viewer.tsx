@@ -63,7 +63,7 @@ type CsvViewerProps = {
 
 function csvZoomScaleFromPercent(percent: number): (typeof ZOOM_OPTIONS)[number] {
   const target = percent / 100;
-  let closest = ZOOM_OPTIONS[0];
+  let closest: (typeof ZOOM_OPTIONS)[number] = ZOOM_OPTIONS[0];
   let smallestDelta = Math.abs(closest - target);
 
   for (const option of ZOOM_OPTIONS) {

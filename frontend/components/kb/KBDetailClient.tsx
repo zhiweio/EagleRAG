@@ -12,11 +12,13 @@ import {
   useKnowledgeBase,
   useRebuildKB,
 } from "@/lib/hooks/useKB";
+import { prefetchPreviewResource } from "@/lib/hooks/usePreviewResource";
 import { formatRelative } from "@/lib/kb/types";
 import { useKBStore } from "@/lib/stores/kbStore";
 import { usePreviewStore } from "@/lib/stores/previewStore";
 import type { Document, Task } from "@/lib/types";
 import { Table } from "@heroui/react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Database,
   Eye,
@@ -79,6 +81,7 @@ function KBDetailInner({ kbName }: { kbName: string }) {
   const { pushToast } = useKBToast();
   const { setKbName } = useKBStore();
   const openPreview = usePreviewStore((s) => s.openPreview);
+  const queryClient = useQueryClient();
   const [tab, setTab] = useState<TabKey>("documents");
   const [editOpen, setEditOpen] = useState(false);
   const [rebuildOpen, setRebuildOpen] = useState(false);
@@ -508,14 +511,16 @@ function KBDetailInner({ kbName }: { kbName: string }) {
                       <button
                         type="button"
                         aria-label={t("table.preview")}
-                        onClick={() =>
-                          openPreview({
-                            kind: "file",
+                        onClick={() => {
+                          const target = {
+                            kind: "file" as const,
                             documentId: doc.document_id,
                             title: doc.name,
                             sourceType: doc.source_type ?? null,
-                          })
-                        }
+                          };
+                          prefetchPreviewResource(queryClient, target);
+                          openPreview(target, queryClient);
+                        }}
                         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-foreground-tertiary opacity-0 transition-all hover:bg-accent/10 hover:text-accent group-hover:opacity-100"
                       >
                         <Eye className="h-4 w-4" aria-hidden />

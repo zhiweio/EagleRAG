@@ -66,15 +66,17 @@ export function CollectionAccordion({
 
             {open ? (
               <div className="flex flex-col gap-3 border-t border-border px-4 py-3">
-                <div className="grid grid-cols-3 gap-2">
-                  {row.fields.map((f) => (
-                    <FieldBox
-                      key={f.labelKey}
-                      label={t(`milvusDrawer.fieldLabels.${f.labelKey}`)}
-                      value={f.value}
-                    />
-                  ))}
-                </div>
+                {row.fields.length > 0 ? (
+                  <div className="grid grid-cols-3 gap-2">
+                    {row.fields.map((f) => (
+                      <FieldBox
+                        key={f.labelKey}
+                        label={t(`milvusDrawer.fieldLabels.${f.labelKey}`)}
+                        value={f.value}
+                      />
+                    ))}
+                  </div>
+                ) : null}
                 <p className="font-mono text-[11px] leading-relaxed text-foreground-secondary">
                   {row.meta}
                 </p>

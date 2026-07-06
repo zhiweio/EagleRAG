@@ -26,15 +26,16 @@ interface XlsxPreviewProps {
   src: string;
   fileName?: string;
   layout: PreviewLayout;
+  resourceKey?: string | null;
 }
 
-export function XlsxPreview({ src, fileName, layout }: XlsxPreviewProps) {
+export function XlsxPreview({ src, fileName, layout, resourceKey }: XlsxPreviewProps) {
   const toolbar = viewerToolbarProps(layout);
   const [isDark, setIsDark] = useState(false);
 
   return (
     <XlsxViewerPreview
-      key={layout}
+      key={resourceKey ?? fileName ?? src}
       className={viewerChromeClass(layout)}
       src={src}
       fileName={fileName}

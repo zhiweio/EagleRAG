@@ -1,6 +1,11 @@
 "use client";
 
 import { cn } from "@/components/ui";
+import {
+  kbPartitionTagKey,
+  parserTmpPathFromDetail,
+  resolveKnowhereMode,
+} from "@/lib/health/knowhere-display";
 import type { CollectionRow } from "@/lib/health/types";
 import { useAdminKnowhere, useKnowhereClean, useKnowhereFlush } from "@/lib/hooks/useHealth";
 import { Eraser, RefreshCw } from "lucide-react";
@@ -21,6 +26,7 @@ export function KnowhereDashboard() {
   const { data } = useAdminKnowhere();
   const flushMut = useKnowhereFlush();
   const cleanMut = useKnowhereClean();
+  const mode = resolveKnowhereMode(data?.mode);
 
   const [status, setStatus] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -40,22 +46,51 @@ export function KnowhereDashboard() {
 
   const runAction = (mut: typeof flushMut, label: string) => {
     mut.mutate(undefined, {
-      onSuccess: (r) => showStatus("success", r.message || `${label}完成`),
+      onSuccess: (r) =>
+        showStatus("success", r.message || tk("actions.success", { action: label })),
       onError: (e) =>
-        showStatus("error", `${label}失败: ${e instanceof Error ? e.message : String(e)}`),
+        showStatus(
+          "error",
+          tk("actions.error", {
+            action: label,
+            message: e instanceof Error ? e.message : String(e),
+          }),
+        ),
     });
   };
 
   const rows: CollectionRow[] = (data?.partitions ?? []).map((p) => ({
     name: p.kb_name,
-    tagKey: "finance",
-    count: (p.document_count ?? 0).toLocaleString(),
+    tagKey: kbPartitionTagKey(p.kb_name),
+    count: String(p.document_count ?? 0),
     fields: [],
-    meta: `文档: ${p.document_count ?? "—"} · 切片: ${p.chunk_count ?? "—"}`,
+    meta: tk("partitionMeta", {
+      documents: p.document_count ?? "—",
+      chunks: p.chunk_count ?? "—",
+    }),
   }));
 
   const parsed = data?.parsed != null ? data.parsed.toLocaleString() : "—";
   const chunks = data?.chunks != null ? data.chunks.toLocaleString() : "—";
+  const tmpPath = parserTmpPathFromDetail(data?.detail);
+
+  const runtimeStat =
+    mode === "api"
+      ? {
+          label: tk("stats.runtimeApi.label"),
+          value:
+            data?.status === "up"
+              ? tk("stats.runtimeApi.valueUp")
+              : tk("stats.runtimeApi.valueDown"),
+          sub: tk("stats.runtimeApi.sub", { url: data?.base_url ?? "—" }),
+        }
+      : {
+          label: tk("stats.runtimeParser.label"),
+          value: tk("stats.runtimeParser.value"),
+          sub: tmpPath
+            ? tk("stats.runtimeParser.sub", { path: tmpPath })
+            : tk("stats.runtimeParser.subFallback"),
+        };
 
   const busy = flushMut.isPending || cleanMut.isPending;
 
@@ -73,18 +108,18 @@ export function KnowhereDashboard() {
           sub={tk("stats.chunks.sub")}
         />
         <DrawerStatCard
-          label={tk("stats.memory.label")}
-          value="—"
+          label={runtimeStat.label}
+          value={runtimeStat.value}
           tone="accent"
-          sub={tk("stats.memory.sub")}
+          sub={runtimeStat.sub}
         />
       </div>
 
-      <DrawerPanel title={tk("partitionsTitle")} note={tk("count", { n: rows.length })}>
+      <DrawerPanel title={tk("partitionsTitle")} note={tk("partitionCount", { n: rows.length })}>
         <CollectionAccordion
           rows={rows}
           ns="knowhereDrawer"
-          countLabel={(c) => tk("nodes", { n: c })}
+          countLabel={(c) => tk("documents", { n: c })}
         />
       </DrawerPanel>
 

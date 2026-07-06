@@ -22,6 +22,9 @@ export function ServiceCard({
   const Icon = data.icon;
   const tone = ICON_TONE[data.tone];
   const interactive = Boolean(onOpen);
+  const cardNs = data.i18nVariant
+    ? (`serviceCards.${data.i18nKey}.${data.i18nVariant}` as const)
+    : (`serviceCards.${data.i18nKey}` as const);
 
   return (
     <article
@@ -57,7 +60,7 @@ export function ServiceCard({
             <Icon size={20} strokeWidth={2} />
           </span>
           <h3 className="truncate text-[15px] font-semibold text-foreground">
-            {t(`serviceCards.${data.i18nKey}.name`)}
+            {t(`${cardNs}.name`)}
           </h3>
         </div>
         <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-(--surface-muted) px-2.5 py-1 text-xs font-medium text-foreground-secondary">
@@ -68,7 +71,7 @@ export function ServiceCard({
 
       {/* Description */}
       <p className="line-clamp-2 min-h-[2.5rem] text-[13px] leading-relaxed text-foreground-secondary">
-        {t(`serviceCards.${data.i18nKey}.desc`)}
+        {t(`${cardNs}.desc`)}
       </p>
 
       {/* Metric chips */}

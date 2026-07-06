@@ -2,12 +2,14 @@ import { previewContentUrl } from "@/components/document-preview/preview-urls";
 import { resolveRenderer } from "@/components/document-preview/resolve-renderer";
 import type { PreviewTarget } from "@/components/document-preview/types";
 import { attachmentContentUrl } from "@/lib/hooks/useAttachments";
+import { prefetchPreviewResource } from "@/lib/hooks/usePreviewResource";
 import { useImageLightboxStore } from "@/lib/stores/imageLightboxStore";
+import type { QueryClient } from "@tanstack/react-query";
 import { create } from "zustand";
 
 interface PreviewState {
   modalTarget: PreviewTarget | null;
-  openPreview: (target: PreviewTarget) => void;
+  openPreview: (target: PreviewTarget, queryClient?: QueryClient) => void;
   closePreview: () => void;
 }
 
@@ -41,8 +43,9 @@ function openImageTarget(target: PreviewTarget): boolean {
 
 export const usePreviewStore = create<PreviewState>((set) => ({
   modalTarget: null,
-  openPreview: (target) => {
+  openPreview: (target, queryClient) => {
     if (openImageTarget(target)) return;
+    if (queryClient) prefetchPreviewResource(queryClient, target);
     set({ modalTarget: target });
   },
   closePreview: () => set({ modalTarget: null }),

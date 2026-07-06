@@ -6,13 +6,11 @@ export function previewHeightClass(layout: PreviewLayout): string {
     case "inline":
       return "h-48 min-h-[12rem]";
     case "rail":
-      return "h-[60vh]";
     case "panel":
-      return "h-full min-h-0";
     case "modal":
       return "h-full min-h-0";
     default:
-      return "h-[60vh]";
+      return "h-full min-h-0";
   }
 }
 
@@ -21,13 +19,12 @@ export function previewImageMaxClass(layout: PreviewLayout): string {
     case "inline":
       return "max-h-44";
     case "rail":
-      return "max-h-[60vh]";
     case "panel":
-      return "max-h-[min(72vh,720px)]";
+      return "h-full max-h-full min-h-0";
     case "modal":
       return "max-h-[min(78vh,820px)]";
     default:
-      return "max-h-[60vh]";
+      return "h-full max-h-full min-h-0";
   }
 }
 

@@ -21,8 +21,14 @@
         "desc": "Object storage & message broker · raw files / Celery Broker"
       },
       "knowhere": {
-        "name": "Knowhere API (:5005)",
-        "desc": "Ontos-AI text parsing engine · HTTP :5005"
+        "api": {
+          "name": "Knowhere API (:5005)",
+          "desc": "Remote text parser · HTTP service at :5005"
+        },
+        "parser": {
+          "name": "Knowhere Parser",
+          "desc": "In-process text parser · knowhere-parse-sdk"
+        }
       },
       "celery": {
         "name": "Celery Workers",
@@ -78,7 +84,10 @@
         "milvus": "Milvus / PixelRAG",
         "vlm": "VLM API / LLM Engine",
         "mcp": "MCP Server",
-        "knowhere": "Knowhere API",
+        "knowhere": {
+          "api": "Knowhere API",
+          "parser": "Knowhere Parser"
+        },
         "storage": "MinIO & Redis"
       },
       "subtitles": {
@@ -86,7 +95,10 @@
         "milvus": "Unified vector store · eagle_text & eagle_visual · dim / index",
         "vlm": "Multimodal LLM engine · DeepSeek-V4-Pro / Qwen-VL-Max HA routing",
         "mcp": "Agent tool endpoint · Streamable HTTP · JSON-RPC 2.0",
-        "knowhere": "Ontos-AI text parsing engine · HTTP :5005 · 200 OK · Workers Active",
+        "knowhere": {
+          "api": "Remote text parser · HTTP :5005 · worker pool",
+          "parser": "In-process parser · knowhere-parse-sdk · local tmp workspace"
+        },
         "storage": "Object storage & message broker · raw files / Celery Broker"
       },
       "statusPill": {
@@ -177,18 +189,42 @@
       },
       "paramPrefix": "params: "
     },
+    "knowhereChips": {
+      "modeApi": "API mode",
+      "modeParser": "In-process",
+      "statusCode": "HTTP {code}",
+      "mineruConfigured": "MinerU ready",
+      "mineruNotConfigured": "MinerU not set"
+    },
     "knowhereDrawer": {
       "stats": {
-        "parsed": { "label": "Parsed Docs", "sub": "text · tables · HTML blocks" },
-        "chunks": { "label": "Text Chunks", "sub": "paragraphs · tables · lists" },
-        "memory": { "label": "Memory Usage", "sub": "30% · Knowhere API resident :5005 · 200 OK" }
+        "parsed": { "label": "Parsed documents", "sub": "Text · tables · HTML blocks" },
+        "chunks": { "label": "Text chunks", "sub": "Paragraphs · tables · lists" },
+        "runtimeApi": {
+          "label": "Remote service",
+          "valueUp": "Reachable",
+          "valueDown": "Unreachable",
+          "sub": "HTTP endpoint · {url}"
+        },
+        "runtimeParser": {
+          "label": "Parser runtime",
+          "value": "In-process",
+          "sub": "Workspace · {path}",
+          "subFallback": "Local knowhere-parse-sdk"
+        }
       },
       "partitionsTitle": "eagle_text writes · KB partitions",
-      "count": "{n} partitions",
-      "nodes": "{n} nodes",
+      "partitionCount": "{n} partitions",
+      "documents": "{n} documents",
+      "partitionMeta": "Documents: {documents} · Chunks: {chunks}",
       "tag": {
         "patent": "Patent KB",
-        "finance": "Finance KB"
+        "finance": "Finance KB",
+        "kb": "Knowledge base"
+      },
+      "actions": {
+        "success": "{action} completed",
+        "error": "{action} failed: {message}"
       }
     },
     "storageDrawer": {

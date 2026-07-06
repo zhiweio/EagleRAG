@@ -21,8 +21,14 @@
         "desc": "对象存储 & 消息代理 · 原始文件 / Celery Broker"
       },
       "knowhere": {
-        "name": "Knowhere API (:5005)",
-        "desc": "Ontos-AI 文本解析引擎 · HTTP :5005"
+        "api": {
+          "name": "Knowhere API (:5005)",
+          "desc": "远程文本解析 · HTTP 服务 :5005"
+        },
+        "parser": {
+          "name": "Knowhere Parser",
+          "desc": "进程内文本解析 · knowhere-parse-sdk"
+        }
       },
       "celery": {
         "name": "Celery Workers",
@@ -78,7 +84,10 @@
         "milvus": "Milvus / PixelRAG",
         "vlm": "VLM API / LLM Engine",
         "mcp": "MCP Server",
-        "knowhere": "Knowhere API",
+        "knowhere": {
+          "api": "Knowhere API",
+          "parser": "Knowhere Parser"
+        },
         "storage": "MinIO & Redis"
       },
       "subtitles": {
@@ -86,7 +95,10 @@
         "milvus": "统一向量存储 · eagle_text & eagle_visual · 维度 / 索引",
         "vlm": "多模态大模型引擎 · DeepSeek-V4-Pro / Qwen-VL-Max 高可用路由",
         "mcp": "Agent 工具端点 · Streamable HTTP · JSON-RPC 2.0",
-        "knowhere": "Ontos-AI 文本解析引擎 · HTTP :5005 · 200 OK · Workers Active",
+        "knowhere": {
+          "api": "远程文本解析 · HTTP :5005 · Worker 池",
+          "parser": "进程内解析 · knowhere-parse-sdk · 本地临时目录"
+        },
         "storage": "对象存储 & 消息代理 · 原始文件 / Celery Broker"
       },
       "statusPill": {
@@ -177,21 +189,42 @@
       },
       "paramPrefix": "参数: "
     },
+    "knowhereChips": {
+      "modeApi": "API 模式",
+      "modeParser": "进程内",
+      "statusCode": "HTTP {code}",
+      "mineruConfigured": "MinerU 已配置",
+      "mineruNotConfigured": "MinerU 未配置"
+    },
     "knowhereDrawer": {
       "stats": {
-        "parsed": { "label": "Parsed Docs (已解析)", "sub": "文本 · 表格 · HTML 块" },
-        "chunks": { "label": "Text Chunks (文本块)", "sub": "段落 · 表格 · 列表" },
-        "memory": {
-          "label": "Memory Usage (内存占用)",
-          "sub": "30% · Knowhere API 常驻 :5005 · 200 OK"
+        "parsed": { "label": "已解析文档", "sub": "文本 · 表格 · HTML 块" },
+        "chunks": { "label": "文本切片", "sub": "段落 · 表格 · 列表" },
+        "runtimeApi": {
+          "label": "远程服务",
+          "valueUp": "可达",
+          "valueDown": "不可达",
+          "sub": "HTTP 端点 · {url}"
+        },
+        "runtimeParser": {
+          "label": "解析器运行时",
+          "value": "进程内",
+          "sub": "工作目录 · {path}",
+          "subFallback": "本地 knowhere-parse-sdk"
         }
       },
       "partitionsTitle": "eagle_text 写入 · 知识库分区",
-      "count": "{n} partitions",
-      "nodes": "{n} nodes",
+      "partitionCount": "共 {n} 个分区",
+      "documents": "{n} 个文档",
+      "partitionMeta": "文档：{documents} · 切片：{chunks}",
       "tag": {
         "patent": "专利知识库",
-        "finance": "财务知识库"
+        "finance": "财务知识库",
+        "kb": "知识库"
+      },
+      "actions": {
+        "success": "{action} 已完成",
+        "error": "{action} 失败：{message}"
       }
     },
     "storageDrawer": {

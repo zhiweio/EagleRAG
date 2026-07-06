@@ -22,9 +22,10 @@ const CsvViewer = dynamic(() => import("@/components/ui/csv-viewer").then((m) =>
 interface CsvPreviewProps {
   src: string;
   layout: PreviewLayout;
+  resourceKey?: string | null;
 }
 
-export function CsvPreview({ src, layout }: CsvPreviewProps) {
+export function CsvPreview({ src, layout, resourceKey }: CsvPreviewProps) {
   const t = useTranslations("documentPreview");
   const [data, setData] = useState<string | null>(null);
   const [error, setError] = useState(false);
@@ -65,7 +66,7 @@ export function CsvPreview({ src, layout }: CsvPreviewProps) {
 
   return (
     <CsvViewer
-      key={layout}
+      key={resourceKey ?? layout}
       className={viewerChromeClass(layout)}
       data={data}
       search={layout === "modal"}

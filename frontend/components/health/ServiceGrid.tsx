@@ -1,9 +1,11 @@
 "use client";
 
 import type { DependencyStatus } from "@/lib/api/generated/types.gen";
+import { knowhereChipsFromDetail, resolveKnowhereMode } from "@/lib/health/knowhere-display";
 import type { DrawerKind, ServiceCardData, ServiceStatus } from "@/lib/health/types";
-import { useHealth } from "@/lib/hooks/useHealth";
+import { useAdminKnowhere, useHealth } from "@/lib/hooks/useHealth";
 import { Cpu, Database, Layers, type LucideIcon, ScanLine, Sparkles, Workflow } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { ServiceCard } from "./ServiceCard";
 import { ServiceDrawer } from "./ServiceDrawer";
@@ -102,8 +104,11 @@ function chipsFromDetail(detail: string | undefined): ServiceCardData["chips"] {
  */
 export function ServiceGrid() {
   const [drawerKind, setDrawerKind] = useState<DrawerKind | null>(null);
+  const t = useTranslations("health");
   const { data } = useHealth();
+  const { data: knowhereAdmin } = useAdminKnowhere();
   const deps = data?.dependencies;
+  const knowhereMode = resolveKnowhereMode(knowhereAdmin?.mode);
 
   const cards: ServiceCardData[] = CARD_CONFIG.map((cfg) => {
     const { kind, i18nKey, icon, tone, drawer, depKey } = cfg;
@@ -142,6 +147,19 @@ export function ServiceGrid() {
       return { kind, i18nKey, icon, tone, drawer, status, chips, uptime };
     }
     const dep = deps[depKey];
+    if (kind === "knowhere") {
+      return {
+        kind,
+        i18nKey,
+        i18nVariant: knowhereMode,
+        icon,
+        tone,
+        drawer,
+        status: mapStatus(dep?.status),
+        chips: knowhereChipsFromDetail(dep?.detail, knowhereMode, t),
+        uptime: dep?.uptime || "—",
+      };
+    }
     return {
       kind,
       i18nKey,

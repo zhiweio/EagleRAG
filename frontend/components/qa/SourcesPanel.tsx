@@ -1,10 +1,12 @@
 "use client";
 
 import { DocumentPreview } from "@/components/document-preview";
+import { prefetchPreviewResource } from "@/lib/hooks/usePreviewResource";
 import { usePreviewStore } from "@/lib/stores/previewStore";
 import type { QuerySources } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Modal } from "@heroui/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Eye, Layers, ListTree, Maximize2, Minimize2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -52,6 +54,7 @@ export function SourcesPanel({
   const t = useTranslations("qa.sources");
   const tRail = useTranslations("qa.rail");
   const openPreview = usePreviewStore((s) => s.openPreview);
+  const queryClient = useQueryClient();
   const flat = useMemo(() => flattenSources(sources), [sources]);
   const refs = useRef<Map<number, HTMLDivElement>>(new Map());
   const consumedPreviewKey = useRef(0);
@@ -143,21 +146,25 @@ export function SourcesPanel({
     setView("structure");
   }, []);
 
-  const handlePreview = useCallback((target: PreviewTarget) => {
-    setPreviewTarget(target);
-    setView("preview");
-  }, []);
+  const handlePreview = useCallback(
+    (target: PreviewTarget) => {
+      prefetchPreviewResource(queryClient, target);
+      setPreviewTarget(target);
+      setView("preview");
+    },
+    [queryClient],
+  );
 
   const handleOpenImagePreview = useCallback(
     (imageId: string) => {
-      openPreview({ kind: "image", imageId });
+      openPreview({ kind: "image", imageId }, queryClient);
     },
-    [openPreview],
+    [openPreview, queryClient],
   );
 
   const handleZoomPreview = useCallback(() => {
-    if (previewTarget) openPreview(previewTarget);
-  }, [openPreview, previewTarget]);
+    if (previewTarget) openPreview(previewTarget, queryClient);
+  }, [openPreview, previewTarget, queryClient]);
 
   const highlightPaths = useMemo(() => {
     const set = new Set<string>();
@@ -180,7 +187,10 @@ export function SourcesPanel({
     structureDoc,
     previewTarget,
     expanded,
-    onExpand: () => setExpanded(true),
+    onExpand: () => {
+      if (previewTarget) prefetchPreviewResource(queryClient, previewTarget);
+      setExpanded(true);
+    },
     onCollapse: () => setExpanded(false),
   };
 
@@ -443,7 +453,7 @@ function SourcesPanelBody({
       <div
         className={cn(
           "flex min-h-0 flex-1 flex-col overflow-hidden",
-          layout === "expanded" ? "px-4 py-2" : pad,
+          layout === "expanded" ? "px-4 py-2" : "px-3 pt-3 pb-2",
         )}
       >
         <DocumentPreview

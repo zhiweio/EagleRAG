@@ -1,11 +1,14 @@
 "use client";
 
 import { useDocuments } from "@/lib/hooks/useDocuments";
+import { prefetchPreviewResource } from "@/lib/hooks/usePreviewResource";
 import { usePreviewStore } from "@/lib/stores/previewStore";
 import { useUIStore } from "@/lib/stores/uiStore";
 import type { Document } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Modal } from "@heroui/react";
+import type { QueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { FileText, Search } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -31,13 +34,15 @@ function Hint({ keys, label }: { keys: string[]; label: string }) {
   );
 }
 
-function openDocumentPreview(doc: Document) {
-  usePreviewStore.getState().openPreview({
-    kind: "file",
+function openDocumentPreview(doc: Document, queryClient: QueryClient) {
+  const target = {
+    kind: "file" as const,
     documentId: doc.document_id,
     title: doc.name,
     sourceType: doc.source_type ?? null,
-  });
+  };
+  prefetchPreviewResource(queryClient, target);
+  usePreviewStore.getState().openPreview(target, queryClient);
 }
 
 /**
@@ -46,6 +51,7 @@ function openDocumentPreview(doc: Document) {
  */
 export function GlobalSearchModal() {
   const t = useTranslations("globalSearch");
+  const queryClient = useQueryClient();
   const open = useUIStore((s) => s.globalSearchOpen);
   const setGlobalSearchOpen = useUIStore((s) => s.setGlobalSearchOpen);
 
@@ -75,10 +81,10 @@ export function GlobalSearchModal() {
 
   const selectItem = useCallback(
     (doc: Document) => {
-      openDocumentPreview(doc);
+      openDocumentPreview(doc, queryClient);
       close();
     },
-    [close],
+    [close, queryClient],
   );
 
   useEffect(() => {

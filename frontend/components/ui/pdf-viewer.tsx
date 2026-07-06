@@ -1,7 +1,7 @@
 "use client";
 
 import { createPluginRegistration, refreshPages } from "@embedpdf/core";
-import { EmbedPDF, useRegistry } from "@embedpdf/core/react";
+import { EmbedPDF, useDocumentState, useRegistry } from "@embedpdf/core/react";
 import type { PdfDocumentObject, PdfEngine, Rect, Rotation } from "@embedpdf/models";
 import {
   DocumentManagerPluginPackage,
@@ -1199,6 +1199,28 @@ function PDFViewerThumbnailScrollArea({
 }
 
 function PDFViewerScrollAreaViewport({
+  children,
+  className,
+  documentId,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  documentId: string;
+}) {
+  const documentState = useDocumentState(documentId);
+
+  if (!documentState) {
+    return <div className={className} />;
+  }
+
+  return (
+    <PDFViewerScrollAreaViewportInner className={className} documentId={documentId}>
+      {children}
+    </PDFViewerScrollAreaViewportInner>
+  );
+}
+
+function PDFViewerScrollAreaViewportInner({
   children,
   className,
   documentId,

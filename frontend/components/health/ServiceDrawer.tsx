@@ -2,8 +2,9 @@
 
 import { ICON_TONE } from "@/components/health/health-visuals";
 import { cn } from "@/components/ui";
+import { resolveKnowhereMode } from "@/lib/health/knowhere-display";
 import type { DrawerKind, DrawerMeta, ServiceStatus } from "@/lib/health/types";
-import { useHealth } from "@/lib/hooks/useHealth";
+import { useAdminKnowhere, useHealth } from "@/lib/hooks/useHealth";
 import { Drawer } from "@heroui/react";
 import { Boxes, Cpu, Database, type LucideIcon, Server, Sparkles, Workflow, X } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -74,6 +75,8 @@ export function ServiceDrawer({ kind, onClose }: { kind: DrawerKind | null; onCl
   }, [kind]);
 
   const { data } = useHealth();
+  const { data: knowhereAdmin } = useAdminKnowhere(kind === "knowhere");
+  const knowhereMode = resolveKnowhereMode(knowhereAdmin?.mode);
   const deps = data?.dependencies;
   const cfg = kind ? DRAWER_META_STATIC[kind] : null;
   const depKey = kind ? DRAWER_DEP_KEY[kind] : null;
@@ -106,6 +109,14 @@ export function ServiceDrawer({ kind, onClose }: { kind: DrawerKind | null; onCl
   const meta: DrawerMeta | null = cfg ? { icon: cfg.icon, tone: cfg.tone } : null;
   const tone = meta ? ICON_TONE[meta.tone] : null;
   const Icon = meta?.icon;
+  const drawerTitleKey =
+    kind === "knowhere"
+      ? (`titles.knowhere.${knowhereMode}` as const)
+      : (`titles.${kind}` as const);
+  const drawerSubtitleKey =
+    kind === "knowhere"
+      ? (`subtitles.knowhere.${knowhereMode}` as const)
+      : (`subtitles.${kind}` as const);
 
   return (
     <Drawer
@@ -137,10 +148,10 @@ export function ServiceDrawer({ kind, onClose }: { kind: DrawerKind | null; onCl
                       </span>
                       <div className="flex flex-col">
                         <Drawer.Heading className="text-base font-semibold text-foreground">
-                          {t(`titles.${kind}`)}
+                          {t(drawerTitleKey)}
                         </Drawer.Heading>
                         <span className="text-xs text-foreground-tertiary">
-                          {t(`subtitles.${kind}`)}
+                          {t(drawerSubtitleKey)}
                         </span>
                       </div>
                     </div>

@@ -26,15 +26,16 @@ interface DocxPreviewProps {
   src: string;
   fileName?: string;
   layout: PreviewLayout;
+  resourceKey?: string | null;
 }
 
-export function DocxPreview({ src, fileName, layout }: DocxPreviewProps) {
+export function DocxPreview({ src, fileName, layout, resourceKey }: DocxPreviewProps) {
   const toolbar = viewerToolbarProps(layout);
   const [isDark, setIsDark] = useState(false);
 
   return (
     <DocxViewerPreview
-      key={layout}
+      key={resourceKey ?? fileName ?? src}
       className={viewerChromeClass(layout)}
       src={src}
       fileName={fileName}

@@ -22,14 +22,15 @@ interface PdfPreviewProps {
   src: string;
   fileName?: string;
   layout: PreviewLayout;
+  resourceKey?: string | null;
 }
 
-export function PdfPreview({ src, fileName, layout }: PdfPreviewProps) {
+export function PdfPreview({ src, fileName, layout, resourceKey }: PdfPreviewProps) {
   const toolbar = viewerToolbarProps(layout);
 
   return (
     <PDFViewer
-      key={layout}
+      key={resourceKey ?? fileName ?? src}
       className={viewerChromeClass(layout)}
       src={src}
       fileName={fileName}

@@ -37,6 +37,8 @@ export interface ServiceCardData {
   kind: ServiceKind;
   /** i18n key suffix under `health.serviceCards.*` for name + description. */
   i18nKey: string;
+  /** Optional nested variant (e.g. knowhere `api` / `parser`). */
+  i18nVariant?: string;
   icon: LucideIcon;
   tone: IconTone;
   status: ServiceStatus;
@@ -79,7 +81,7 @@ export interface CollectionField {
 export interface CollectionRow {
   name: string;
   /** i18n key under `health.*Drawer.tag.*` */
-  tagKey: "visual" | "text" | "patent" | "finance" | "storage";
+  tagKey: "visual" | "text" | "patent" | "finance" | "kb" | "storage";
   count: string;
   fields: CollectionField[];
   meta: string;

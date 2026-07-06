@@ -11,6 +11,7 @@ interface ImagePreviewProps {
   src: string;
   alt: string;
   layout: PreviewLayout;
+  resourceKey?: string | null;
   onZoom?: () => void;
 }
 
@@ -26,6 +27,7 @@ export function ImagePreview({ src, alt, layout, onZoom }: ImagePreviewProps) {
       className={cn(
         "group relative overflow-hidden rounded-lg border border-separator/70 bg-(--surface-muted)/50",
         canZoom && isInline && "cursor-zoom-in",
+        (layout === "rail" || layout === "panel") && "flex h-full min-h-0 flex-col",
       )}
       onClick={canZoom && isInline ? openZoom : undefined}
       onKeyDown={
