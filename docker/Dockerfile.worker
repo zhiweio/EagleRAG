@@ -43,9 +43,31 @@ ENV HOME=/root
 RUN mkdir -p /root/.cache/knowhere-parse-sdk \
     && (/opt/venv/bin/python -c "from knowhere_parse import KnowhereParser; KnowhereParser()" || true)
 
-# pixelrag 队列需要渲染：安装 Chromium 浏览器二进制（系统库已具备）。
+# pixelrag queue needs Chromium (system libs installed above).
 RUN /opt/venv/bin/playwright install chromium \
     && ln -sf /opt/pw-browsers/chromium-*/chrome-linux/chrome /usr/local/bin/chrome
+
+# Pre-download Qwen3-VL-Embedding-2B (pixelrag_queue visual encoder).
+# Default MODEL_DOWNLOAD_SOURCE=modelscope (stable in China); HF mirror via HF_ENDPOINT optional.
+# Runtime loads from MODEL_LOCAL_PATH — no Hub access after build.
+ARG MODEL_REPO_ID=Qwen/Qwen3-VL-Embedding-2B
+ARG MODEL_DOWNLOAD_SOURCE=modelscope
+ARG MODEL_LOCAL_PATH=/opt/huggingface/model
+ARG HF_ENDPOINT=https://hf-mirror.com
+ARG HF_HUB_DOWNLOAD_MAX_WORKERS=8
+ENV HF_HOME=/opt/huggingface \
+    HF_ENDPOINT=${HF_ENDPOINT} \
+    HF_HUB_DOWNLOAD_TIMEOUT=600 \
+    HF_HUB_DOWNLOAD_MAX_WORKERS=${HF_HUB_DOWNLOAD_MAX_WORKERS} \
+    MODEL_REPO_ID=${MODEL_REPO_ID} \
+    MODEL_DOWNLOAD_SOURCE=${MODEL_DOWNLOAD_SOURCE} \
+    MODEL_LOCAL_PATH=${MODEL_LOCAL_PATH}
+COPY docker/scripts/prefetch_hf_model.py /tmp/prefetch_hf_model.py
+RUN mkdir -p /opt/huggingface \
+    && uv pip install --python /opt/venv/bin/python 'modelscope>=1.9' \
+    && /opt/venv/bin/python /tmp/prefetch_hf_model.py \
+    && uv pip uninstall --python /opt/venv/bin/python modelscope \
+    && rm /tmp/prefetch_hf_model.py
 
 # ---------------- runtime ----------------
 FROM python:${PYTHON_VERSION}-slim AS runtime
@@ -54,6 +76,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:${PATH}" \
     PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers \
+    HF_HOME=/opt/huggingface \
+    VISUAL_EMBEDDING_MODEL=/opt/huggingface/model \
     QUEUES=router_queue \
     CONCURRENCY=4
 
@@ -67,10 +91,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl git default-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
-# 虚拟环境 + 浏览器二进制 + knowhere-parse-sdk worker 缓存。
+# venv + Playwright browsers + knowhere-parse-sdk worker cache + HuggingFace model cache.
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /opt/pw-browsers /opt/pw-browsers
 COPY --from=builder /root/.cache/knowhere-parse-sdk /home/eagle/.cache/knowhere-parse-sdk
+COPY --from=builder /opt/huggingface /opt/huggingface
 
 # Stable symlink for pixelrag_render CHROME_PATH (survives Playwright version bumps).
 RUN ln -sf /opt/pw-browsers/chromium-*/chrome-linux/chrome /usr/local/bin/chrome
@@ -80,7 +105,7 @@ RUN ln -sf /opt/pw-browsers/chromium-*/chrome-linux/chrome /usr/local/bin/chrome
 # 若 /app 归 root，eagle 无权创建 logs/ → 启动期 PermissionError（uv-docker 最佳实践）。
 RUN useradd --create-home --uid 1000 eagle \
     && mkdir -p /app/logs /app/data /home/eagle/.cache/knowhere-parse-sdk \
-    && chown -R eagle:eagle /app /home/eagle/.cache
+    && chown -R eagle:eagle /app /home/eagle/.cache /opt/huggingface
 
 COPY --chown=eagle:eagle pyproject.toml uv.lock ./
 COPY --chown=eagle:eagle eagle_rag ./eagle_rag

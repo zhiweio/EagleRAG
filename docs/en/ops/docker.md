@@ -88,7 +88,7 @@ Workers share `x-worker-build` context `.` and `docker/Dockerfile.worker`. Envir
 | `worker-knowhere` | `knowhere_queue` | `8` | `cpus: 2.0` |
 | `worker-pixelrag` | `pixelrag_queue` | `1` | `memory: 4g`, `cpus: 2.0` |
 
-`api` and `worker-pixelrag` mount `./data:/app/data` and set HuggingFace mirror env vars for Qwen3-VL model download inside the container.
+`worker-pixelrag` mounts `./data:/app/data` for uploads and local artefacts. The Qwen3-VL-Embedding-2B weights are **baked into the worker image** at `/opt/huggingface/model` during `docker build`. Default `MODEL_DOWNLOAD_SOURCE=modelscope` (stable in China); set `huggingface` or `auto` to use `HF_ENDPOINT` (e.g. hf-mirror.com) with ModelScope fallback. Runtime `VISUAL_EMBEDDING_MODEL=/opt/huggingface/model` — no Hub download on container start.
 
 ## Healthcheck dependency chain {#healthcheck-dependency-chain}
 
@@ -180,7 +180,7 @@ To increase visual throughput, scale **horizontally** (multiple `worker-pixelrag
 | File | Base | Output |
 | --- | --- | --- |
 | `docker/Dockerfile.api` | Python 3.12 slim + `uv` | FastAPI app on port 8000 |
-| `docker/Dockerfile.worker` | Python 3.12 slim + Chrome for PixelRAG render | Celery worker entrypoint reading `QUEUES` / `CONCURRENCY` |
+| `docker/Dockerfile.worker` | Python 3.12 slim + Chrome for PixelRAG render + pre-downloaded Qwen3-VL-Embedding-2B at `/opt/huggingface` | Celery worker entrypoint reading `QUEUES` / `CONCURRENCY` |
 | `docker/Dockerfile.frontend` | Bun multi-stage → Node runtime | Next.js production server |
 | `docker/Dockerfile.docs` | MkDocs build → nginx alpine | Static docs on 8001 |
 
@@ -210,7 +210,7 @@ Compose `env_file: .env` plus explicit `environment:` blocks override `settings.
 
 ```yaml
 KNOWHERE_BASE_URL: ${KNOWHERE_BASE_URL:-http://knowhere:5005}
-HF_HOME: /app/data/huggingface
+HF_HOME: /opt/huggingface          # worker-pixelrag (baked in image)
 CHROME_PATH: /usr/local/bin/chrome   # worker-pixelrag only
 ```
 

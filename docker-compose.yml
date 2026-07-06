@@ -35,6 +35,11 @@ x-logging: &default-logging
 x-worker-build: &worker-build
   context: .
   dockerfile: docker/Dockerfile.worker
+  args:
+    HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+    MODEL_REPO_ID: ${MODEL_REPO_ID:-Qwen/Qwen3-VL-Embedding-2B}
+    MODEL_DOWNLOAD_SOURCE: ${MODEL_DOWNLOAD_SOURCE:-modelscope}
+    HF_HUB_DOWNLOAD_MAX_WORKERS: ${HF_HUB_DOWNLOAD_MAX_WORKERS:-8}
 
 networks:
   eagle-net:
@@ -278,11 +283,8 @@ services:
       KNOWHERE_BASE_URL: ${KNOWHERE_BASE_URL:-http://knowhere:5005}
       KNOWHERE_API_KEY: ${KNOWHERE_API_KEY:-}
       KB_NAME: ${KB_NAME:-default}
-      # HuggingFace mirror for China (Qwen3-VL-Embedding-2B model download)
-      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
-      HF_HOME: /app/data/huggingface
-      HF_HUB_DOWNLOAD_TIMEOUT: ${HF_HUB_DOWNLOAD_TIMEOUT:-120}
-      # Chrome binary for pixelrag_render HTML-to-image rendering
+      # Baked visual encoder weights at /opt/huggingface/model (no Hub download at runtime).
+      VISUAL_EMBEDDING_MODEL: /opt/huggingface/model
       CHROME_PATH: /usr/local/bin/chrome
     volumes:
       - ./data:/app/data
