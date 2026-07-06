@@ -116,6 +116,8 @@ override-dependencies = [
     "pymupdf>=1.27.2.3",
     # knowhere-shared (knowhere-parse-sdk dep) pins alembic==1.13.1; eagle-rag requires >=1.14.
     "alembic>=1.14",
+    # knowhere-shared pins psutil==5.9.8 (no linux/aarch64 wheel); use a version with prebuilt wheels.
+    "psutil>=7.0",
 ]
 
 [tool.ruff]
