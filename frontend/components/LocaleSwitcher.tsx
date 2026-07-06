@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter } from "@/i18n/routing";
-import { Popover } from "@heroui/react";
+import { Button, Popover } from "@heroui/react";
 import { Check, ChevronDown, Globe } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useState, useTransition } from "react";
@@ -41,26 +41,24 @@ export function LocaleSwitcher() {
 
   return (
     <Popover isOpen={open} onOpenChange={setOpen}>
-      <Popover.Trigger>
-        <button
-          type="button"
-          aria-label={t("switch")}
-          aria-expanded={open}
-          disabled={isPending}
-          className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 text-foreground transition-colors hover:bg-background-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          <Globe size={16} strokeWidth={2} className="text-foreground-secondary" aria-hidden />
-          <span className="text-[13px] font-medium">
-            {current.short} / {alternate.short}
-          </span>
-          <ChevronDown
-            size={14}
-            strokeWidth={2}
-            className={`text-foreground-tertiary transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-            aria-hidden
-          />
-        </button>
-      </Popover.Trigger>
+      <Button
+        aria-label={t("switch")}
+        aria-expanded={open}
+        isDisabled={isPending}
+        variant="tertiary"
+        className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 text-foreground hover:bg-background-secondary"
+      >
+        <Globe size={16} strokeWidth={2} className="text-foreground-secondary" aria-hidden />
+        <span className="text-[13px] font-medium">
+          {current.short} / {alternate.short}
+        </span>
+        <ChevronDown
+          size={14}
+          strokeWidth={2}
+          className={`text-foreground-tertiary transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+          aria-hidden
+        />
+      </Button>
       <Popover.Content className="min-w-44 p-0" placement="bottom end">
         <Popover.Dialog aria-label={t("switch")}>
           <div className="flex flex-col gap-0.5 p-1.5">

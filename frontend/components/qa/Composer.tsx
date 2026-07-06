@@ -571,25 +571,23 @@ function ModePicker({
 
   return (
     <Popover isOpen={isOpen} onOpenChange={onOpenChange}>
-      <Popover.Trigger>
-        <button
-          type="button"
-          aria-label={t("composer.mode")}
-          aria-expanded={isOpen}
-          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-foreground-secondary transition-colors hover:bg-surface hover:text-foreground"
+      <Button
+        aria-label={t("composer.mode")}
+        aria-expanded={isOpen}
+        variant="tertiary"
+        className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-foreground-secondary hover:bg-surface hover:text-foreground"
+      >
+        <span
+          className={`inline-flex h-5 w-5 items-center justify-center rounded-md ${MODE_META[mode].iconTone}`}
         >
-          <span
-            className={`inline-flex h-5 w-5 items-center justify-center rounded-md ${MODE_META[mode].iconTone}`}
-          >
-            <CurrentIcon className="h-3.5 w-3.5" strokeWidth={2.1} aria-hidden />
-          </span>
-          <span className="font-medium text-xs">{t(`mode.${mode}`)}</span>
-          <ChevronDown
-            className={`h-3.5 w-3.5 text-foreground-tertiary transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
-            aria-hidden
-          />
-        </button>
-      </Popover.Trigger>
+          <CurrentIcon className="h-3.5 w-3.5" strokeWidth={2.1} aria-hidden />
+        </span>
+        <span className="font-medium text-xs">{t(`mode.${mode}`)}</span>
+        <ChevronDown
+          className={`h-3.5 w-3.5 text-foreground-tertiary transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
+          aria-hidden
+        />
+      </Button>
       <Popover.Content className="w-72 p-0" placement="top start">
         <Popover.Dialog aria-label={t("composer.mode")}>
           <div className="flex flex-col">

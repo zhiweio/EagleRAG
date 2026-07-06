@@ -68,24 +68,22 @@ function FilterButton({
   const totalCount = options.reduce((sum, o) => sum + o.count, 0);
   return (
     <Popover>
-      <Popover.Trigger>
-        <div
-          className={cn(
-            "inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium transition-colors",
-            active
-              ? "bg-accent-soft text-accent"
-              : "border border-border bg-surface text-foreground-secondary hover:border-accent/40",
-          )}
-        >
-          <Icon className="h-4 w-4" aria-hidden />
-          <span>{label}</span>
-          {badge ? (
-            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-accent-foreground">
-              {badge}
-            </span>
-          ) : null}
-          <ChevronDown className="h-3.5 w-3.5" aria-hidden />
-        </div>
+      <Popover.Trigger
+        className={cn(
+          "inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium transition-colors",
+          active
+            ? "bg-accent-soft text-accent"
+            : "border border-border bg-surface text-foreground-secondary hover:border-accent/40",
+        )}
+      >
+        <Icon className="h-4 w-4" aria-hidden />
+        <span>{label}</span>
+        {badge ? (
+          <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-accent-foreground">
+            {badge}
+          </span>
+        ) : null}
+        <ChevronDown className="h-3.5 w-3.5" aria-hidden />
       </Popover.Trigger>
       <Popover.Content className="w-64 p-0">
         <Popover.Dialog aria-label={title}>

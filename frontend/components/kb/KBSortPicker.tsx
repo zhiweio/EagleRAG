@@ -1,7 +1,7 @@
 "use client";
 
 import type { KBSort } from "@/lib/hooks/useKB";
-import { Popover } from "@heroui/react";
+import { Button, Popover } from "@heroui/react";
 import { ArrowUpDown, Check, ChevronDown } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
@@ -30,24 +30,19 @@ export function KBSortPicker({ value, onChange }: KBSortPickerProps) {
 
   return (
     <Popover isOpen={open} onOpenChange={setOpen}>
-      <Popover.Trigger>
-        <button
-          type="button"
-          aria-label={t("sort")}
-          aria-expanded={open}
-          className="inline-flex h-[42px] cursor-pointer items-center gap-2 rounded-xl border border-border bg-surface px-3.5 text-sm font-medium text-foreground shadow-[0_1px_3px_0_rgba(0,0,0,0.04)] transition-colors hover:bg-background-secondary focus-visible:border-field-border-focus focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-1"
-        >
-          <ArrowUpDown
-            className="h-[15px] w-[15px] shrink-0 text-foreground-secondary"
-            aria-hidden
-          />
-          <span className="whitespace-nowrap">{t(current.labelKey)}</span>
-          <ChevronDown
-            className={`h-3.5 w-3.5 shrink-0 text-foreground-tertiary transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-            aria-hidden
-          />
-        </button>
-      </Popover.Trigger>
+      <Button
+        aria-label={t("sort")}
+        aria-expanded={open}
+        variant="tertiary"
+        className="inline-flex h-[42px] items-center gap-2 rounded-xl border border-border bg-surface px-3.5 text-sm font-medium text-foreground shadow-[0_1px_3px_0_rgba(0,0,0,0.04)] hover:bg-background-secondary"
+      >
+        <ArrowUpDown className="h-[15px] w-[15px] shrink-0 text-foreground-secondary" aria-hidden />
+        <span className="whitespace-nowrap">{t(current.labelKey)}</span>
+        <ChevronDown
+          className={`h-3.5 w-3.5 shrink-0 text-foreground-tertiary transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+          aria-hidden
+        />
+      </Button>
       <Popover.Content className="min-w-56 p-0" placement="bottom end">
         <Popover.Dialog aria-label={t("sort")}>
           <div className="flex flex-col gap-0.5 p-1.5">

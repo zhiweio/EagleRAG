@@ -71,14 +71,11 @@ export function KBCard({ kb }: { kb: KnowledgeBase }) {
   return (
     <div className="group relative flex flex-col gap-4 rounded-2xl border border-border bg-surface p-[18px] shadow-[0_2px_8px_0_rgba(0,0,0,0.04)] transition-[border-color,box-shadow] hover:border-accent/60 hover:shadow-[0_8px_24px_0_rgba(4,133,247,0.10)]">
       <Popover>
-        <Popover.Trigger>
-          <button
-            type="button"
-            aria-label={t("more")}
-            className="absolute right-3 top-3 z-10 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-foreground-tertiary transition-colors hover:bg-background-secondary hover:text-foreground"
-          >
-            <EllipsisVertical className="h-[17px] w-[17px]" aria-hidden />
-          </button>
+        <Popover.Trigger
+          aria-label={t("more")}
+          className="absolute right-3 top-3 z-10 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-foreground-tertiary transition-colors hover:bg-background-secondary hover:text-foreground"
+        >
+          <EllipsisVertical className="h-[17px] w-[17px]" aria-hidden />
         </Popover.Trigger>
         <Popover.Content className="min-w-40 p-1">
           <button
