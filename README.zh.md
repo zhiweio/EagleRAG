@@ -20,28 +20,28 @@
 
 上传 PDF、Office、扫描件或网页即可——Eagle-RAG 同时理解正文与图表版式。回答流式返回、附可核对出处；多个团队可各建知识库，数据彼此隔离。
 
-## 产品截图
-
-**多模态问答** — 流式回答，附可核对引用
+## 工作原理
 
 <p align="center">
   <img
-    src="docs/images/screenshot-qa.png"
-    alt="多模态问答界面"
+    src="docs/images/eaglerag-pipeline.png"
+    alt="Eagle-RAG 管线图"
     width="1000"
-    style="max-width: 1000px; max-height: 640px; width: 100%; height: auto; object-fit: contain;"
+    style="max-width: 1000px; width: 100%; height: auto; object-fit: contain;"
   />
 </p>
 
-**证据面板** — 检索来源与文档语义结构
+## 眼见为实
 
 <p align="center">
-  <img
-    src="docs/images/screenshot-sources-structure.png"
-    alt="来源与文档结构"
-    width="1000"
-    style="max-width: 1000px; max-height: 640px; width: 100%; height: auto; object-fit: contain;"
-  />
+  <a href="https://youtu.be/Bj6lI48p7Zw">
+    <img
+      src="https://img.youtube.com/vi/Bj6lI48p7Zw/maxresdefault.jpg"
+      alt="Eagle-RAG：多模态问答与可核对引用"
+      width="1000"
+      style="max-width: 1000px; width: 100%; height: auto; object-fit: contain;"
+    />
+  </a>
 </p>
 
 ## 核心能力
@@ -56,20 +56,20 @@
 ## 系统架构
 
 ```
-                         客户端层
+                         CLIENT TIER
               ┌─────────────────┐   ┌─────────────────┐
-              │  Next.js 前端   │   │  外部 Agent     │
-              │  问答·摄取·KB   │   │  (MCP / HTTP)   │
+              │  Next.js UI     │   │ External Agents │
+              │  QA·Ingest·KB   │   │  (MCP / HTTP)   │
               └────────┬────────┘   └────────┬────────┘
                        │ REST / SSE          │ MCP
                        └──────────┬──────────┘
                                   ▼
               ┌───────────────────────────────────────────┐
               │  FastAPI :8000  —  REST · SSE · MCP       │
-              │  路由引擎 (DeepSeek) → 多模态引擎         │
-              │  (Qwen-VL-Max)                            │
+              │  Router Engine (DeepSeek) → Multimodal    │
+              │  Engine (Qwen-VL-Max)                     │
               └───────┬───────────────────────┬───────────┘
-                      │ 问答 / 检索           │ 摄入
+                      │ query / retrieve      │ ingest
                       │                       ▼
                       │            ┌──────────────────────┐
                       │            │  Celery workers      │
@@ -79,24 +79,25 @@
                       │            └──────┬───────┬───────┘
                       │                   │       │
                       │                   ▼       ▼
-                      │            ┌──────────┐ ┌──────────┐
-                      │            │ Knowhere │ │ PixelRAG │
-                      │            │ HTTP:5005│ │ 进程内库 │
-                      │            │ 文本+图谱│ │ 渲染嵌入 │
-                      │            └────┬─────┘ └────┬─────┘
-                      │         1536d 文本│    2048d 视觉
+                      │     ┌─────────────────────────┐ ┌──────────┐
+                      │     │ Knowhere (KNOWHERE_MODE)│ │ PixelRAG │
+                      │     │  api    → HTTP :5005    │ │ in-proc  │
+                      │     │  parser → parse-sdk     │ │ render   │
+                      │     │  text + KG              │ │          │
+                      │     └───────────┬─────────────┘ └────┬─────┘
+                      │         1536d text│           2048d visual
                       │                 └──────┬─────┘
                       ▼                        ▼
               ┌───────────────────────────────────────────┐
-              │  存储层                                   │
+              │  STORAGE                                  │
               │  Milvus 2.6   eagle_text + eagle_visual   │
-              │  PostgreSQL   会话 · 去重 · 审计          │
-              │  MinIO        原文件 · 视觉切片           │
-              │  Redis 7      Celery broker · 任务日志    │
+              │  PostgreSQL   sessions · dedup · audit    │
+              │  MinIO        originals · visual tiles    │
+              │  Redis 7      Celery broker · task logs   │
               └───────────────────────────────────────────┘
 ```
 
-基础设施：Milvus（etcd + MinIO）+ PostgreSQL（会话 / 去重 / 审计）+ Redis（Celery broker / result）+ MinIO（对象存储）。
+基础设施：Milvus（etcd + MinIO）+ PostgreSQL（会话 / 去重 / 审计）+ Redis（Celery broker / result）+ MinIO（对象存储）。Knowhere 后端由 `KNOWHERE_MODE` 选择（`api` = `knowhere-python-sdk` → HTTP `:5005`；`parser` = 进程内 `knowhere-parse-sdk`）。
 
 ## 技术栈
 

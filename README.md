@@ -20,28 +20,28 @@
 
 Feed it PDFs, Office files, scans, or web pages — Eagle-RAG understands both the words and the visuals. Answers stream back with citations you can check, and multiple teams can each run their own knowledge base without mixing data.
 
-## Screenshots
-
-**Multimodal Q&A** — streaming answers with verifiable citations
+## How It Work
 
 <p align="center">
   <img
-    src="docs/images/screenshot-qa.png"
-    alt="Multimodal Q&A interface"
+    src="docs/images/eaglerag-pipeline.png"
+    alt="Eagle-RAG pipeline"
     width="1000"
-    style="max-width: 1000px; max-height: 640px; width: 100%; height: auto; object-fit: contain;"
+    style="max-width: 1000px; width: 100%; height: auto; object-fit: contain;"
   />
 </p>
 
-**Evidence viewer** — retrieved sources and semantic document structure
+## See it in action
 
 <p align="center">
-  <img
-    src="docs/images/screenshot-sources-structure.png"
-    alt="Sources panel and document structure"
-    width="1000"
-    style="max-width: 1000px; max-height: 640px; width: 100%; height: auto; object-fit: contain;"
-  />
+  <a href="https://youtu.be/Bj6lI48p7Zw">
+    <img
+      src="https://img.youtube.com/vi/Bj6lI48p7Zw/maxresdefault.jpg"
+      alt="Eagle-RAG: multimodal Q&A with cited sources"
+      width="1000"
+      style="max-width: 1000px; width: 100%; height: auto; object-fit: contain;"
+    />
+  </a>
 </p>
 
 ## Core capabilities
@@ -79,24 +79,25 @@ Feed it PDFs, Office files, scans, or web pages — Eagle-RAG understands both t
                       │            └──────┬───────┬───────┘
                       │                   │       │
                       │                   ▼       ▼
-                      │            ┌──────────┐ ┌──────────┐
-                      │            │ Knowhere │ │ PixelRAG │
-                      │            │ HTTP:5005│ │ in-proc  │
-                      │            │ text+KG  │ │ render   │
-                      │            └────┬─────┘ └────┬─────┘
-                      │         1536d text│    2048d visual
+                      │     ┌─────────────────────────┐ ┌──────────┐
+                      │     │ Knowhere (KNOWHERE_MODE)│ │ PixelRAG │
+                      │     │  api    → HTTP :5005    │ │ in-proc  │
+                      │     │  parser → parse-sdk     │ │ render   │
+                      │     │  text + KG              │ │          │
+                      │     └───────────┬─────────────┘ └────┬─────┘
+                      │         1536d text│           2048d visual
                       │                 └──────┬─────┘
                       ▼                        ▼
               ┌───────────────────────────────────────────┐
               │  STORAGE                                  │
               │  Milvus 2.6   eagle_text + eagle_visual   │
-              │  PostgreSQL   sessions · dedup · audit      │
-              │  MinIO        originals · visual tiles      │
-              │  Redis 7      Celery broker · task logs     │
+              │  PostgreSQL   sessions · dedup · audit    │
+              │  MinIO        originals · visual tiles    │
+              │  Redis 7      Celery broker · task logs   │
               └───────────────────────────────────────────┘
 ```
 
-Infrastructure: Milvus (etcd + MinIO) + PostgreSQL (sessions / dedup / audit) + Redis (Celery broker / result) + MinIO (object storage).
+Infrastructure: Milvus (etcd + MinIO) + PostgreSQL (sessions / dedup / audit) + Redis (Celery broker / result) + MinIO (object storage). Knowhere backend is selected by `KNOWHERE_MODE` (`api` = `knowhere-python-sdk` → HTTP `:5005`; `parser` = in-process `knowhere-parse-sdk`).
 
 ## Technology stack
 
