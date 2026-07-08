@@ -1,17 +1,38 @@
-# Eagle-RAG
+<div align="center">
 
-<p align="center">
-  <a href="README.md">English</a> | <a href="README.zh.md">中文</a>
-</p>
+  <img
+    src="docs/images/banner.png"
+    alt="Eagle-RAG — 面向更智能 AI 应用的企业级 RAG 平台"
+    width="1000"
+    style="max-width: 1000px; width: 100%; height: auto;"
+  />
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Milvus-2.6-00A6FB?logo=milvus&logoColor=white&style=flat-square" alt="Milvus"/>
-  <img src="https://img.shields.io/badge/LlamaIndex-RAG-0A0A0A?style=flat-square" alt="LlamaIndex"/>
-  <img src="https://img.shields.io/badge/Knowhere-Ontos--AI-9F2B68?style=flat-square" alt="Knowhere"/>
-  <img src="https://img.shields.io/badge/PixelRAG-StarTrail--org-8A2BE2?style=flat-square" alt="PixelRAG"/>
-  <img src="https://img.shields.io/badge/MinerU-OpenDataLab-FF6B35?style=flat-square" alt="MinerU"/>
-  <img src="https://img.shields.io/badge/MCP-HTTP+stdio-6366F1?style=flat-square" alt="MCP"/>
-</p>
+  <h1>Eagle-RAG</h1>
+
+  <p>
+    <a href="https://github.com/zhiweio/EagleRAG/stargazers"><img src="https://img.shields.io/github/stars/zhiweio/EagleRAG?style=social" alt="GitHub stars"/></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License"/></a>
+    <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.12+-blue.svg" alt="Python"/></a>
+  </p>
+
+  <p>
+    <img src="https://img.shields.io/badge/Milvus-2.6-00A6FB?logo=milvus&logoColor=white&style=flat-square" alt="Milvus"/>
+    <img src="https://img.shields.io/badge/LlamaIndex-RAG-0A0A0A?style=flat-square" alt="LlamaIndex"/>
+    <img src="https://img.shields.io/badge/Knowhere-Ontos--AI-9F2B68?style=flat-square" alt="Knowhere"/>
+    <img src="https://img.shields.io/badge/PixelRAG-StarTrail--org-8A2BE2?style=flat-square" alt="PixelRAG"/>
+    <img src="https://img.shields.io/badge/MinerU-OpenDataLab-FF6B35?style=flat-square" alt="MinerU"/>
+    <img src="https://img.shields.io/badge/MCP-HTTP+stdio-6366F1?style=flat-square" alt="MCP"/>
+  </p>
+
+  <p>
+    <a href="https://zhiweio.github.io/EagleRAG/zh/"><strong>文档</strong></a>
+    ·
+    <a href="https://youtu.be/Bj6lI48p7Zw"><strong>演示</strong></a>
+    ·
+    <a href="README.md">English</a> | <a href="README.zh.md">中文</a>
+  </p>
+
+</div>
 
 > **语义纵深 · 视觉澄明**
 >
@@ -33,16 +54,7 @@
 
 ## 眼见为实
 
-<p align="center">
-  <a href="https://youtu.be/Bj6lI48p7Zw">
-    <img
-      src="https://img.youtube.com/vi/Bj6lI48p7Zw/maxresdefault.jpg"
-      alt="Eagle-RAG：多模态问答与可核对引用"
-      width="1000"
-      style="max-width: 1000px; width: 100%; height: auto; object-fit: contain;"
-    />
-  </a>
-</p>
+[在 YouTube 观看演示](https://youtu.be/Bj6lI48p7Zw) —— 多模态问答与可核对引用。
 
 ## 核心能力
 
