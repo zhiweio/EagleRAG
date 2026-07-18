@@ -25,7 +25,6 @@ from eagle_rag.api.schemas.ingest import (
     UrlValidateResponse,
 )
 from eagle_rag.config import get_settings
-from eagle_rag.db import sync_execute
 from eagle_rag.index import registry
 from eagle_rag.ingest.limits import IngestLimitError, validate_file_preflight
 from eagle_rag.ingest.runner import ingest, ingest_url
@@ -435,6 +434,7 @@ async def retry_task(job_id: str) -> TaskRetryResponse | JSONResponse:
     object_key: str | None = None
     source_uri: str | None = None
     source_type_hint: str | None = None
+    doc: dict[str, Any] | None = None
     if document_id:
         doc = await _run_sync(registry.get_document_sync, document_id)
         if doc is not None:
@@ -448,18 +448,40 @@ async def retry_task(job_id: str) -> TaskRetryResponse | JSONResponse:
                 # (see runner.py: source_uri=source_uri or object_key).
                 object_key = stored_uri
 
-    # Reset the audit state to PENDING *before* dispatching, so the worker
-    # sees a legal pending→rendering transition when it starts. Doing this
-    # after send_task races the worker (it may read the old failed status).
+    current_status = str(audit.get("status") or TaskState.PENDING.value).lower()
+    doc_pipeline = ""
+    if doc is not None:
+        doc_pipeline = str(doc.get("pipeline") or "").lower()
+
+    # Router audits stay in RENDERING after dispatch; manual retry must re-run
+    # the downstream pipeline (knowhere/pixelrag), not router again — otherwise
+    # router races an in-flight downstream task (indexing -> rendering).
+    if pipeline_key == "router" and doc_pipeline:
+        if "knowhere" in doc_pipeline:
+            pipeline_key = "knowhere"
+        elif "pixelrag" in doc_pipeline:
+            pipeline_key = "pixelrag"
+        task_name, queue = _PIPELINE_QUEUE.get(pipeline_key, _PIPELINE_QUEUE["router"])
+
+    if task_state.downstream_owns_lifecycle(current_status):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"task is still active in state {current_status!r}; "
+                "wait for completion or failure before retrying"
+            ),
+        )
+
+    # Reset via the state machine (not raw SQL) so interrupted embedding/indexing
+    # audits bridge through RETRYING instead of illegal pending resets.
     try:
         await _run_sync(
-            sync_execute,
-            "UPDATE task_audit SET status = %s, progress = 0, "
-            "error = NULL, updated_at = NOW() WHERE job_id = %s",
-            (TaskState.PENDING.value, job_id),
+            task_state.prepare_rerun,
+            job_id,
+            log_entry="Manual retry requested",
         )
     except Exception:  # noqa: BLE001
-        logger.warning("Failed to reset audit status to PENDING (non-fatal)")
+        logger.warning("prepare_rerun failed during manual retry (non-fatal)")
 
     if pipeline_key == "knowhere_visual":
         if not document_id:
@@ -478,6 +500,17 @@ async def retry_task(job_id: str) -> TaskRetryResponse | JSONResponse:
             "kb_name": kb_name,
             "source_type": source_type_hint or "other",
             "chunks": chunks,
+        }
+    elif pipeline_key in ("knowhere", "pixelrag"):
+        kwargs = {
+            "job_id": job_id,
+            "document_id": document_id,
+            "name": name,
+            "object_key": object_key,
+            "local_path": None,
+            "source_uri": source_uri,
+            "source_type": source_type_hint or "other",
+            "kb_name": kb_name,
         }
     else:
         kwargs = {

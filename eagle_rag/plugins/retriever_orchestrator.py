@@ -14,7 +14,7 @@ from eagle_rag.plugins.milvus_ns import milvus_db_name
 from eagle_rag.plugins.routing import CollectionQueryPlan, QueryRouteDecision
 from eagle_rag.retrievers.knowhere_graph_retriever import KnowhereGraphRetriever
 from eagle_rag.retrievers.pixelrag_visual_retriever import PixelRAGVisualRetriever
-from eagle_rag.router.rerank_fusion import dedupe_cross_collection, merge_rrf
+from eagle_rag.router.rerank_fusion import dedupe_cross_collection, merge_rrf, rerank_merged
 from eagle_rag.telemetry import get_logger, trace_span
 
 if TYPE_CHECKING:
@@ -136,6 +136,13 @@ class RetrieverOrchestrator:
         successful_plans = sum(1 for lst in plan_results if lst)
         if successful_plans > 1:
             merged = dedupe_cross_collection(merged, audit=self._manager.audit)
+        merged = rerank_merged(
+            merged,
+            query=query,
+            top_n=top_k,
+            plugin_namespace=plugin_namespace,
+            audit=self._manager.audit,
+        )
         return merged
 
     def _apply_rerank(

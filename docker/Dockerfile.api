@@ -44,6 +44,43 @@ ENV HOME=/root
 RUN mkdir -p /root/.cache/knowhere-parse-sdk \
     && (/opt/venv/bin/python -c "from knowhere_parse import KnowhereParser; KnowhereParser()" || true)
 
+# ---------------- biomed encoder prefetch (optional, biomed profile only) ----------------
+# Downloads PubMedBERT / MolFormer / MedImageInsight / UNI2 weights so the API
+# can encode biomed queries without HuggingFace connectivity. Enabled via
+# PREFETCH_BIOMED_MODELS=1 (off by default; core builds skip this entirely).
+FROM python:${PYTHON_VERSION}-slim AS biomed-model-prefetch
+
+ARG PREFETCH_BIOMED_MODELS=0
+ARG MODEL_DOWNLOAD_SOURCE=modelscope
+ARG HF_ENDPOINT=https://hf-mirror.com
+ARG HF_HUB_DOWNLOAD_MAX_WORKERS=8
+ARG BIOMED_HTTP_PROXY=
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HF_HOME=/opt/huggingface/hub \
+    HF_ENDPOINT=${HF_ENDPOINT} \
+    HF_HUB_DOWNLOAD_TIMEOUT=600 \
+    HF_HUB_DOWNLOAD_MAX_WORKERS=${HF_HUB_DOWNLOAD_MAX_WORKERS} \
+    MODEL_DOWNLOAD_SOURCE=${MODEL_DOWNLOAD_SOURCE} \
+    BIOMED_HTTP_PROXY=${BIOMED_HTTP_PROXY}
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+RUN uv venv /opt/venv \
+    && uv pip install --python /opt/venv/bin/python 'huggingface_hub>=0.26' 'modelscope>=1.9'
+
+COPY docker/scripts/prefetch_biomed_models.py /tmp/prefetch_biomed_models.py
+RUN --mount=type=cache,target=/var/cache/eagle-rag/biomed-models,id=eagle-rag-biomed-models-cache \
+    mkdir -p /opt/huggingface/biomed \
+    && if [ "${PREFETCH_BIOMED_MODELS}" = "1" ]; then \
+        PREFETCH_BIOMED_MODELS=1 \
+        BIOMED_MODEL_ROOT=/opt/huggingface/biomed \
+        /opt/venv/bin/python /tmp/prefetch_biomed_models.py; \
+    else \
+        echo "PREFETCH_BIOMED_MODELS=${PREFETCH_BIOMED_MODELS}; skipping biomed encoder prefetch"; \
+    fi \
+    && rm -f /tmp/prefetch_biomed_models.py
+
 # ---------------- runtime ----------------
 FROM python:${PYTHON_VERSION}-slim AS runtime
 
@@ -69,8 +106,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy venv and knowhere-parse-sdk worker cache from builder.
+# biomed-model-prefetch provides /opt/huggingface/biomed when PREFETCH_BIOMED_MODELS=1.
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /root/.cache/knowhere-parse-sdk /home/eagle/.cache/knowhere-parse-sdk
+COPY --from=biomed-model-prefetch /opt/huggingface/biomed /opt/huggingface/biomed
 
 # Non-root user: create and chown /app plus writable dirs (logs / data) before USER.
 # settings.yaml defaults op_log_file=logs/eagle_rag.log,
@@ -78,8 +117,8 @@ COPY --from=builder /root/.cache/knowhere-parse-sdk /home/eagle/.cache/knowhere-
 # storage.data_dir=./data — all relative to /app. If /app is root-owned, eagle cannot
 # create logs/ → PermissionError at startup. Compose mounts ./logs:/app/logs for host access.
 RUN useradd --create-home --uid 1000 eagle \
-    && mkdir -p /app/logs /app/data /home/eagle/.cache/knowhere-parse-sdk \
-    && chown -R eagle:eagle /app /home/eagle/.cache
+    && mkdir -p /app/logs /app/data /home/eagle/.cache/knowhere-parse-sdk /opt/huggingface \
+    && chown -R eagle:eagle /app /home/eagle/.cache /opt/huggingface
 
 # Source and lockfiles (eagle_rag/settings.yaml ships in-package).
 COPY --chown=eagle:eagle pyproject.toml uv.lock ./

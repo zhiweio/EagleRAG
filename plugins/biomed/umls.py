@@ -49,6 +49,25 @@ def _normalize_alias(name: str) -> str:
     return re.sub(r"\s+", " ", name.strip().lower())
 
 
+# Compiled regex cache for entity name boundary matching.
+# Boundaries are letters only: a digit or hyphen adjacent to the match does not
+# break it. This lets ``VEGFR`` match inside ``VEGFR1-3`` (trailing digit) while
+# preventing ``EGFR`` from matching inside ``VEGFR`` (leading letter) and ``MET``
+# from matching inside ``metastatic`` (trailing letter).
+_ENTITY_BOUNDARY_CACHE: dict[str, re.Pattern[str]] = {}
+
+
+def _entity_pattern(name: str) -> re.Pattern[str]:
+    """Compile a case-insensitive, letter-boundary regex for ``name``."""
+    cached = _ENTITY_BOUNDARY_CACHE.get(name)
+    if cached is not None:
+        return cached
+    escaped = re.escape(name.lower())
+    pattern = re.compile(rf"(?<![a-z]){escaped}(?![a-z])", re.IGNORECASE)
+    _ENTITY_BOUNDARY_CACHE[name] = pattern
+    return pattern
+
+
 def load_umls_metathesaurus(path: str | Path | None = None) -> dict[str, dict[str, Any]]:
     """Parse a UMLS MRCONSO RRF file into ``{canonical_name: {aliases, cui}}``.
 
@@ -135,13 +154,18 @@ def _merged_index() -> dict[str, Any]:
 
 
 def match_entities(query: str) -> list[str]:
-    """Return canonical entity keys matched in ``query`` (substring + keyword)."""
+    """Return canonical entity keys matched in ``query`` (letter-boundary match).
+
+    Entity names and aliases are matched with letter-only boundaries so that
+    ``EGFR`` does not fire on ``VEGFR`` and ``MET`` does not fire on
+    ``metastatic``. Digits and hyphens are not boundaries, so ``VEGFR`` still
+    matches inside ``VEGFR1-3`` and ``PD-1`` matches intact.
+    """
     rules = _merged_index()
     hits: list[str] = []
-    lowered = query.lower()
     for entity, meta in rules.get("umls_entities", {}).items():
         names = [entity, *list(meta.get("aliases", []) or [])]
-        if any(str(name).lower() in lowered for name in names):
+        if any(_entity_pattern(str(name)).search(query) for name in names):
             hits.append(entity)
     for keyword in rules.get("entity_keywords", []):
         if re.search(rf"\b{re.escape(str(keyword))}\b", query, re.IGNORECASE):
@@ -181,17 +205,41 @@ def resolve_entity(entity: str) -> dict[str, Any]:
     }
 
 
-def expand_query_with_entities(query: str, *, limit: int = 8) -> str | None:
-    """Return an expansion suffix for QUERY_ASSEMBLE, or None when nothing matched."""
+def expand_query_with_entities(query: str, *, limit: int = 12) -> str | None:
+    """Return an expansion suffix for QUERY_ASSEMBLE, or None when nothing matched.
+
+    Hits are ordered by their first occurrence in ``query`` so that entities the
+    user actually mentioned take precedence over coincidental alias matches.
+    Aliases/pathways per entity are capped (2 aliases, 1 pathway) to avoid
+    diluting the query embedding with loosely related terms.
+    """
     hits = match_entities(query)
     if not hits:
         return None
+
+    # Rank hits by first occurrence in the query; unmatched-position entities
+    # sort last while preserving discovery order.
+    lowered = query.lower()
+
+    def _hit_position(entity: str) -> int:
+        rules = _merged_index()
+        meta = rules.get("umls_entities", {}).get(entity, {})
+        names = [entity, *list(meta.get("aliases", []) or [])]
+        positions = [
+            lowered.find(str(name).lower())
+            for name in names
+            if lowered.find(str(name).lower()) != -1
+        ]
+        return min(positions) if positions else len(lowered)
+
+    hits.sort(key=_hit_position)
+
     aliases: list[str] = []
     for hit in hits[:limit]:
         resolved = resolve_entity(hit)
         if resolved.get("found"):
-            aliases.extend(resolved.get("aliases", [])[:3])
-            aliases.extend(resolved.get("pathways", [])[:2])
+            aliases.extend(resolved.get("aliases", [])[:2])
+            aliases.extend(resolved.get("pathways", [])[:1])
         else:
             aliases.append(hit)
     # de-dupe preserving order

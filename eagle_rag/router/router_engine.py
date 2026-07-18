@@ -473,6 +473,11 @@ class EagleRouterQueryEngine:
                 "text_count": len(text_sources),
                 "visual_count": len(image_sources),
             },
+            {
+                "name": "rerank",
+                "model": "qwen3-rerank",
+                "text_count": len(text_sources),
+            },
         ]
         if attach_step:
             steps.append(attach_step)

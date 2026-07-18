@@ -154,6 +154,7 @@ def get_text_vector_store(plugin_namespace: str | None = None) -> MilvusVectorSt
         dim=cfg.dim_text,
         overwrite=False,
         similarity_metric="COSINE",
+        db_name=db_name,
     )
     _text_stores_by_db[db_name] = store
     if db_name == "default" and plugin_namespace is None:

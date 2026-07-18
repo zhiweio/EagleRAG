@@ -5,20 +5,33 @@
 #     --profile dev up -d
 #
 # Ensures app containers load .env.biomed (base compose hardcodes env_file: .env).
+# Biomed encoder weights are pre-downloaded during image build (PREFETCH_BIOMED_MODELS=1);
+# EAGLE_BIOMED_ALLOW_DETERMINISTIC defaults to 0 so missing weights fail-fast instead of
+# silently degrading to hash embeddings (which produce semantically meaningless vectors).
+
+x-biomed-env: &biomed-env
+  EAGLE_RAG_PROFILE: biomed
+  PLUGIN_NAMESPACE: biomed
+  PYTHONPATH: /app
+  KB_NAME: hutchmed
+  VISUAL_EMBEDDING_PROVIDER: dashscope
+  VISUAL_EMBEDDING_MODEL: qwen3-vl-embedding
+  EAGLE_BIOMED_ENCODER_MODE: ${EAGLE_BIOMED_ENCODER_MODE:-auto}
+  # fail-fast: do NOT silently fall back to deterministic hash embeddings in prod.
+  # Set EAGLE_BIOMED_ALLOW_DETERMINISTIC=1 only in CI/test without native weights.
+  EAGLE_BIOMED_ALLOW_DETERMINISTIC: ${EAGLE_BIOMED_ALLOW_DETERMINISTIC:-0}
+  # Local pre-downloaded biomed encoder paths (populated at build time).
+  EAGLE_BIOMED_PUBMEDBERT_MODEL: /opt/huggingface/biomed/pubmedbert
+  EAGLE_BIOMED_MOLFORMER_MODEL: /opt/huggingface/biomed/molformer
+  EAGLE_BIOMED_MEDIMAGE_MODEL: /opt/huggingface/biomed/medimageinsight
+  EAGLE_BIOMED_UNI2_MODEL: /opt/huggingface/biomed/uni2
 
 services:
   api:
     env_file:
       - .env.biomed
     environment:
-      EAGLE_RAG_PROFILE: biomed
-      PLUGIN_NAMESPACE: biomed
-      PYTHONPATH: /app
-      KB_NAME: hutchmed
-      VISUAL_EMBEDDING_PROVIDER: dashscope
-      VISUAL_EMBEDDING_MODEL: qwen3-vl-embedding
-      EAGLE_BIOMED_ENCODER_MODE: ${EAGLE_BIOMED_ENCODER_MODE:-auto}
-      EAGLE_BIOMED_ALLOW_DETERMINISTIC: ${EAGLE_BIOMED_ALLOW_DETERMINISTIC:-1}
+      <<: *biomed-env
 
   # Browser calls NEXT_PUBLIC_API_BASE from the host; inject from .env.biomed
   # (base compose only sets HOSTNAME/PORT on frontend).
@@ -32,37 +45,16 @@ services:
     env_file:
       - .env.biomed
     environment:
-      EAGLE_RAG_PROFILE: biomed
-      PLUGIN_NAMESPACE: biomed
-      PYTHONPATH: /app
-      KB_NAME: hutchmed
-      VISUAL_EMBEDDING_PROVIDER: dashscope
-      VISUAL_EMBEDDING_MODEL: qwen3-vl-embedding
-      EAGLE_BIOMED_ENCODER_MODE: ${EAGLE_BIOMED_ENCODER_MODE:-auto}
-      EAGLE_BIOMED_ALLOW_DETERMINISTIC: ${EAGLE_BIOMED_ALLOW_DETERMINISTIC:-1}
+      <<: *biomed-env
 
   worker-knowhere:
     env_file:
       - .env.biomed
     environment:
-      EAGLE_RAG_PROFILE: biomed
-      PLUGIN_NAMESPACE: biomed
-      PYTHONPATH: /app
-      KB_NAME: hutchmed
-      VISUAL_EMBEDDING_PROVIDER: dashscope
-      VISUAL_EMBEDDING_MODEL: qwen3-vl-embedding
-      EAGLE_BIOMED_ENCODER_MODE: ${EAGLE_BIOMED_ENCODER_MODE:-auto}
-      EAGLE_BIOMED_ALLOW_DETERMINISTIC: ${EAGLE_BIOMED_ALLOW_DETERMINISTIC:-1}
+      <<: *biomed-env
 
   worker-pixelrag:
     env_file:
       - .env.biomed
     environment:
-      EAGLE_RAG_PROFILE: biomed
-      PLUGIN_NAMESPACE: biomed
-      PYTHONPATH: /app
-      KB_NAME: hutchmed
-      VISUAL_EMBEDDING_PROVIDER: dashscope
-      VISUAL_EMBEDDING_MODEL: qwen3-vl-embedding
-      EAGLE_BIOMED_ENCODER_MODE: ${EAGLE_BIOMED_ENCODER_MODE:-auto}
-      EAGLE_BIOMED_ALLOW_DETERMINISTIC: ${EAGLE_BIOMED_ALLOW_DETERMINISTIC:-1}
+      <<: *biomed-env

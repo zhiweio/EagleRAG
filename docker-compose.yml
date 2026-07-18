@@ -46,6 +46,11 @@ x-worker-build: &worker-build
     MODEL_REPO_ID: ${MODEL_REPO_ID:-Qwen/Qwen3-VL-Embedding-2B}
     MODEL_DOWNLOAD_SOURCE: ${MODEL_DOWNLOAD_SOURCE:-modelscope}
     HF_HUB_DOWNLOAD_MAX_WORKERS: ${HF_HUB_DOWNLOAD_MAX_WORKERS:-8}
+    # Biomed profile: set PREFETCH_BIOMED_MODELS=1 to pre-download PubMedBERT/MolFormer/
+    # MedImageInsight/UNI2 weights into the image (avoids runtime HF dependency).
+    # Set BIOMED_HTTP_PROXY if the build host needs a proxy to reach HF/ModelScope.
+    PREFETCH_BIOMED_MODELS: ${PREFETCH_BIOMED_MODELS:-0}
+    BIOMED_HTTP_PROXY: ${BIOMED_HTTP_PROXY:-}
 
 # Shared app env for API + workers: PluginAudit multi-sink (AI JSONL + Redis recent window)
 # needs broker Redis reachable and the knobs below. See eagle_rag/plugins/audit.py.
@@ -175,6 +180,12 @@ services:
       dockerfile: docker/Dockerfile.api
       args:
         GITHUB_PROXY: ${GITHUB_PROXY:-}
+        # Biomed profile: set PREFETCH_BIOMED_MODELS=1 to pre-download biomed encoders.
+        PREFETCH_BIOMED_MODELS: ${PREFETCH_BIOMED_MODELS:-0}
+        MODEL_DOWNLOAD_SOURCE: ${MODEL_DOWNLOAD_SOURCE:-modelscope}
+        HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+        HF_HUB_DOWNLOAD_MAX_WORKERS: ${HF_HUB_DOWNLOAD_MAX_WORKERS:-8}
+        BIOMED_HTTP_PROXY: ${BIOMED_HTTP_PROXY:-}
     image: eagle-rag-api:latest
     env_file: .env
     environment:

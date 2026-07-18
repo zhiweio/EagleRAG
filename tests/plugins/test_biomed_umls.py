@@ -33,6 +33,28 @@ def test_match_entities_substring_and_alias() -> None:
     assert "EGFR" in match_entities("epidermal growth factor receptor mutation")
 
 
+def test_match_entities_no_false_substring() -> None:
+    """Letter boundaries prevent short entity names matching inside longer words.
+
+    ``EGFR`` must not fire on ``VEGFR``; ``MET`` must not fire on ``metastatic``;
+    ``VEGFR`` must still match ``VEGFR1-3`` (digit suffix is not a boundary).
+    """
+    vegfr_hits = match_entities("selective VEGFR1-3 inhibitors as monotherapy")
+    assert "VEGFR" in vegfr_hits
+    assert "EGFR" not in vegfr_hits
+
+    crc_hits = match_entities("metastatic colorectal cancer patients")
+    assert "colorectal cancer" in crc_hits
+    assert "MET" not in crc_hits
+
+    # Positive control: standalone EGFR still matches.
+    assert "EGFR" in match_entities("EGFR exon 19 deletion")
+
+    # ``PD-1`` matches intact (hyphen is not a letter boundary).
+    pd1_hits = match_entities("combination with PD-1 inhibitors")
+    assert "PD-1" in pd1_hits
+
+
 def test_match_entities_keyword_supplements() -> None:
     hits = match_entities("kinase inhibitor pharmacokinetics")
     assert "kinase" in hits

@@ -33,6 +33,7 @@ __all__ = [
     "transition",
     "create_audit",
     "prepare_rerun",
+    "downstream_owns_lifecycle",
     "update_state",
     "get_audit",
     "list_audits",
@@ -101,6 +102,16 @@ ALLOWED_TRANSITIONS: dict[TaskState, set[TaskState]] = {
 }
 
 
+# States where knowhere/pixelrag (not router) owns the audit lifecycle.
+_DOWNSTREAM_ACTIVE_STATES = frozenset(
+    {
+        TaskState.EMBEDDING,
+        TaskState.INDEXING,
+        TaskState.RETRYING,
+    }
+)
+
+
 class InvalidStateTransitionError(Exception):
     """Raised on illegal state transition or missing audit record."""
 
@@ -116,6 +127,13 @@ def transition(from_state: TaskState, to_state: TaskState) -> None:
         raise InvalidStateTransitionError(
             f"illegal state transition: {from_state.value} -> {to_state.value}"
         )
+
+
+def downstream_owns_lifecycle(status: TaskState | str) -> bool:
+    """Return whether a downstream ingest task owns the job lifecycle."""
+    if not isinstance(status, TaskState):
+        status = TaskState(str(status).lower())
+    return status in _DOWNSTREAM_ACTIVE_STATES
 
 
 def prepare_rerun(job_id: str, *, log_entry: str | None = None) -> TaskState | None:

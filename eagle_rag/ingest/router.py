@@ -364,6 +364,30 @@ def ingest_router(  # type: ignore[no-untyped-def]
 
     On exception, calls ``retry_on_failure(self, exc)``.
     """
+    from eagle_rag.tasks.state import downstream_owns_lifecycle, get_audit, prepare_rerun
+
+    existing = get_audit(job_id)
+    if existing is not None:
+        status = str(existing.get("status") or TaskState.PENDING.value).lower()
+        if status == TaskState.SUCCESS.value:
+            return {
+                "job_id": job_id,
+                "document_id": document_id,
+                "skipped": True,
+                "reason": "already_success",
+            }
+        if downstream_owns_lifecycle(status):
+            from eagle_rag.tasks.state import append_log
+
+            append_log(job_id, "Router skipped; downstream pipeline in progress")
+            return {
+                "job_id": job_id,
+                "document_id": document_id,
+                "skipped": True,
+                "reason": "downstream_active",
+            }
+        prepare_rerun(job_id)
+
     try:
         update_state(job_id, TaskState.RENDERING, log_entry="Routing decision in progress")
 

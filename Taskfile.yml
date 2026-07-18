@@ -224,14 +224,24 @@ tasks:
 
   # ======================== Biomed profile (HUTCHMED eval; does not modify .env) ========================
   biomed:env:
-    desc: Create .env.biomed from .env (or .env.example) with biomed profile overlays
+    desc: Create .env.biomed from .env (or .env.example) with biomed profile overlays (auto + fail-fast)
     cmds:
       - |
         if [ ! -f .env.biomed ]; then
           if [ -f .env ]; then cp .env .env.biomed; else cp .env.biomed.example .env.biomed; fi
         fi
         python3 eval/biomed/scripts/apply_biomed_env.py .env.biomed
-        echo "Wrote/updated .env.biomed (EAGLE_RAG_PROFILE=biomed, KB_NAME=hutchmed, visual=dashscope)"
+        echo "Wrote/updated .env.biomed (auto + fail-fast; pre-download weights via Docker PREFETCH_BIOMED_MODELS=1)"
+
+  biomed:env:offline:
+    desc: Create .env.biomed with deterministic hash embeddings (CI/e2e without HF connectivity)
+    cmds:
+      - |
+        if [ ! -f .env.biomed ]; then
+          if [ -f .env ]; then cp .env .env.biomed; else cp .env.biomed.example .env.biomed; fi
+        fi
+        python3 eval/biomed/scripts/apply_biomed_env.py .env.biomed --offline
+        echo "Wrote/updated .env.biomed (offline deterministic; not for production recall)"
 
   biomed:up:
     desc: Start Docker stack with .env.biomed + docker-compose.biomed.yml (stop core first)

@@ -40,6 +40,27 @@ RUN --mount=type=cache,target=/var/cache/eagle-rag/visual-model,id=eagle-rag-vis
     && /opt/venv/bin/python /tmp/prefetch_hf_model.py \
     && rm /tmp/prefetch_hf_model.py
 
+# ---------------- biomed encoder prefetch (optional, biomed profile only) ----------------
+# Downloads PubMedBERT / MolFormer / MedImageInsight / UNI2 weights so runtime
+# never depends on HuggingFace connectivity. Enabled via PREFETCH_BIOMED_MODELS=1.
+FROM model-prefetch AS biomed-model-prefetch
+
+ARG PREFETCH_BIOMED_MODELS=0
+ARG BIOMED_HTTP_PROXY=
+ENV BIOMED_HTTP_PROXY=${BIOMED_HTTP_PROXY}
+
+COPY docker/scripts/prefetch_biomed_models.py /tmp/prefetch_biomed_models.py
+RUN --mount=type=cache,target=/var/cache/eagle-rag/biomed-models,id=eagle-rag-biomed-models-cache \
+    mkdir -p /opt/huggingface/biomed \
+    && if [ "${PREFETCH_BIOMED_MODELS}" = "1" ]; then \
+        PREFETCH_BIOMED_MODELS=1 \
+        BIOMED_MODEL_ROOT=/opt/huggingface/biomed \
+        /opt/venv/bin/python /tmp/prefetch_biomed_models.py; \
+    else \
+        echo "PREFETCH_BIOMED_MODELS=${PREFETCH_BIOMED_MODELS}; skipping biomed encoder prefetch"; \
+    fi \
+    && rm -f /tmp/prefetch_biomed_models.py
+
 # ---------------- builder ----------------
 FROM python:${PYTHON_VERSION}-slim AS builder
 
@@ -114,10 +135,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # venv + Playwright browsers + knowhere-parse-sdk worker cache + HuggingFace model weights.
+# biomed-model-prefetch extends model-prefetch, so /opt/huggingface carries both the
+# visual embedding model and (when PREFETCH_BIOMED_MODELS=1) biomed encoder weights.
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /opt/pw-browsers /opt/pw-browsers
 COPY --from=builder /root/.cache/knowhere-parse-sdk /home/eagle/.cache/knowhere-parse-sdk
-COPY --from=model-prefetch /opt/huggingface /opt/huggingface
+COPY --from=biomed-model-prefetch /opt/huggingface /opt/huggingface
 
 # Stable symlink for pixelrag_render CHROME_PATH (survives Playwright version bumps).
 RUN ln -sf /opt/pw-browsers/chromium-*/chrome-linux/chrome /usr/local/bin/chrome

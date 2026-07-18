@@ -799,6 +799,16 @@ def knowhere_parse(  # noqa: ANN001
     effective_kb = kb_name if kb_name is not None else get_settings().kb_name
     ns = instance_namespace(plugin_namespace)
 
+    from eagle_rag.tasks.state import get_audit, prepare_rerun
+
+    existing = get_audit(job_id)
+    if existing is not None:
+        if (existing.get("status") or "").lower() == TaskState.SUCCESS.value:
+            return
+        # Worker restart / Celery redelivery leaves audits mid-pipeline
+        # (embedding/indexing). prepare_rerun bridges to a legal RENDERING entry.
+        prepare_rerun(job_id)
+
     try:
         with trace_span("ingest.knowhere"):
             t0 = time.monotonic()
