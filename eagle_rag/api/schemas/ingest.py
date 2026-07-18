@@ -51,6 +51,37 @@ class IngestLimitErrorDetail(BaseModel):
     suggestion: str | None = Field(default=None, description="Optional corrective suggestion")
 
 
+class FileValidateResponse(BaseModel):
+    """Successful ``POST /ingest/validate/file`` preview."""
+
+    ok: bool = True
+    filename: str
+    size_bytes: int
+    resource_kind: str = Field(description="html | pdf | image | other")
+    page_count: int | None = None
+    content_type: str | None = None
+
+
+class UrlValidateResponse(BaseModel):
+    """Successful ``POST /ingest/validate/url`` preview."""
+
+    ok: bool = True
+    status_code: int
+    content_type: str | None = None
+    final_url: str | None = None
+    resource_kind: str = Field(description="html | pdf | image | other")
+    size_bytes: int | None = None
+    page_count: int | None = None
+    suggested_pipeline: str | None = Field(
+        default=None,
+        description="Informational default pipeline hint (pixelrag | knowhere)",
+    )
+    ssl_insecure: bool = Field(
+        default=False,
+        description="True when TLS verify was skipped after a certificate-chain failure",
+    )
+
+
 _STATUS_PHASE_MAP: dict[str, str] = {
     "pending": "pending",
     "queued": "pending",

@@ -126,6 +126,9 @@ override-dependencies = [
     "alembic>=1.14",
     # knowhere-shared pins psutil==5.9.8 (no linux/aarch64 wheel); use a version with prebuilt wheels.
     "psutil>=7.0",
+    # knowhere-shared pins kombu==5.4.0; that release calls get_connection('_'), which
+    # redis-py >=5.3.0 warns about. 5.5.4+ selects the no-arg API when redis>=5.3.
+    "kombu>=5.5.4",
 ]
 
 [tool.ruff]

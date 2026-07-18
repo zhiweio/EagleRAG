@@ -24,6 +24,7 @@ they initialize only on function invocation.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import TYPE_CHECKING, Any
 
@@ -36,6 +37,8 @@ if TYPE_CHECKING:
     from llama_index.vector_stores.milvus import MilvusVectorStore
 
 __all__ = [
+    "MILVUS_VARCHAR_TEXT_MAX",
+    "clamp_milvus_varchar",
     "get_text_vector_store",
     "get_text_index",
     "upsert_text_nodes",
@@ -50,10 +53,70 @@ __all__ = [
 
 logger = get_logger(__name__)
 
+# Milvus VARCHAR hard limit (characters). LlamaIndex ``eagle_text`` and biomed
+# specialized text collections both declare ``text`` with this max_length.
+MILVUS_VARCHAR_TEXT_MAX = 65535
+_MILVUS_VARCHAR_PATH_MAX = 512
+_TRUNCATE_SUFFIX = "\n...[truncated]"
+# Preview of the discarded tail in the warning log (for locating original content).
+_TRUNCATE_PREVIEW_CHARS = 240
+
 _text_vector_store: MilvusVectorStore | None = None
 _text_index: VectorStoreIndex | None = None
 _text_stores_by_db: dict[str, MilvusVectorStore] = {}
 _text_indices_by_db: dict[str, VectorStoreIndex] = {}
+
+
+def clamp_milvus_varchar(value: str, max_length: int = MILVUS_VARCHAR_TEXT_MAX) -> str:
+    """Truncate ``value`` so it fits a Milvus VARCHAR(max_length) field.
+
+    Appends a short marker when truncation occurs. Used as a write-side guard:
+    Knowhere chunks / section summaries can exceed the schema ceiling (65535),
+    which otherwise fails upsert with MilvusException code 1100.
+    """
+    if max_length < 1:
+        return ""
+    if len(value) <= max_length:
+        return value
+    suffix = _TRUNCATE_SUFFIX
+    keep = max_length - len(suffix)
+    if keep < 1:
+        return value[:max_length]
+    return value[:keep] + suffix
+
+
+def _clamp_text_nodes_for_milvus(nodes: list[TextNode]) -> None:
+    """In-place clamp of TextNode.text to the Milvus VARCHAR ceiling."""
+    for node in nodes:
+        text = node.get_content()
+        if not isinstance(text, str):
+            text = str(text or "")
+        if len(text) <= MILVUS_VARCHAR_TEXT_MAX:
+            continue
+        meta = node.metadata or {}
+        keep = max(0, MILVUS_VARCHAR_TEXT_MAX - len(_TRUNCATE_SUFFIX))
+        dropped = text[keep:]
+        preview = dropped[:_TRUNCATE_PREVIEW_CHARS]
+        if len(dropped) > _TRUNCATE_PREVIEW_CHARS:
+            preview = f"{preview}…"
+        text_sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        logger.warning(
+            "truncating text node for Milvus VARCHAR limit "
+            "node_id=%s document_id=%s kb_name=%s path=%s type=%s "
+            "original_len=%d max_len=%d dropped_len=%d text_sha256=%s "
+            "dropped_preview=%r",
+            node.node_id,
+            meta.get("document_id") or "",
+            meta.get("kb_name") or "",
+            meta.get("path") or "",
+            meta.get("chunk_type") or meta.get("type") or "",
+            len(text),
+            MILVUS_VARCHAR_TEXT_MAX,
+            len(dropped),
+            text_sha256,
+            preview,
+        )
+        node.text = clamp_milvus_varchar(text)
 
 
 def _resolve_ns(plugin_namespace: str | None) -> str:
@@ -210,6 +273,9 @@ def upsert_text_nodes(
     collection: str | None = None,
 ) -> list[str]:
     """Insert text nodes into the namespace text collection and return node ids."""
+    if not nodes:
+        return []
+    _clamp_text_nodes_for_milvus(nodes)
     coll = collection or get_settings().milvus.text_collection
     if coll != get_settings().milvus.text_collection:
         return _upsert_text_nodes_direct(nodes, collection=coll, plugin_namespace=plugin_namespace)
@@ -231,7 +297,7 @@ def _upsert_text_nodes_direct(
     rows: list[dict[str, Any]] = []
     ids: list[str] = []
     for node in nodes:
-        text = node.get_content()
+        text = clamp_milvus_varchar(node.get_content() or "")
         meta = node.metadata or {}
         embedding = meta.get("embedding")
         if isinstance(embedding, list) and embedding:
@@ -246,6 +312,7 @@ def _upsert_text_nodes_direct(
         # ``chunk_type``; Core ``eagle_text`` historically used ``type``. Prefer
         # ``chunk_type`` and omit bare ``type`` so non-dynamic schemas accept rows.
         chunk_type = meta.get("chunk_type") or meta.get("type") or "text"
+        path = clamp_milvus_varchar(str(meta.get("path") or ""), _MILVUS_VARCHAR_PATH_MAX)
         rows.append(
             {
                 "id": row_id,
@@ -253,7 +320,7 @@ def _upsert_text_nodes_direct(
                 "text": text,
                 "document_id": meta.get("document_id", ""),
                 "kb_name": meta.get("kb_name", get_settings().kb_name),
-                "path": meta.get("path", ""),
+                "path": path,
                 "chunk_type": chunk_type,
                 "source_type": meta.get("source_type"),
                 "source_chunk_id": meta.get("source_chunk_id"),

@@ -135,7 +135,11 @@ def ingest_visual_record(
         kb_name=kb_name,
         document_id=document_id,
     )
-    modality = str(record.get("chunk_type") or "tile")
+    # PixelRAG uses chunk_type="tile". That must classify as visual — never as text.
+    # Passing the raw chunk_type as modality used to route tiles through CLASSIFY_CHUNK
+    # and then treat the visual dict as a TextNode (AttributeError on .embedding/.get_content).
+    chunk_type = str(record.get("chunk_type") or "tile")
+    modality = "visual" if chunk_type in {"tile", "image", "table", "medical_image"} else chunk_type
     class_ctx = ClassificationContext(
         content=b"",
         modality=modality,
@@ -144,6 +148,7 @@ def ingest_visual_record(
         plugin_namespace=plugin_namespace,
         parent_section=str(record.get("parent_section") or ""),
         source_chunk_id=str(record.get("source_chunk_id") or record.get("image_id") or ""),
+        extra={"chunk_type": chunk_type},
     )
     decision = orchestrator.classify(hook_ctx, class_ctx)
     record_ingest_collection(decision.target_collection)

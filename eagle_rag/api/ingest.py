@@ -14,6 +14,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from eagle_rag.api.schemas.common import DeletedResponse
 from eagle_rag.api.schemas.ingest import (
+    FileValidateResponse,
     IngestQueueMetricsResponse,
     IngestResponse,
     QueueMetricItem,
@@ -21,17 +22,18 @@ from eagle_rag.api.schemas.ingest import (
     TaskListResponse,
     TaskLogsResponse,
     TaskRetryResponse,
+    UrlValidateResponse,
 )
 from eagle_rag.config import get_settings
 from eagle_rag.db import sync_execute
 from eagle_rag.index import registry
-from eagle_rag.ingest.limits import IngestLimitError
+from eagle_rag.ingest.limits import IngestLimitError, validate_file_preflight
 from eagle_rag.ingest.runner import ingest, ingest_url
 from eagle_rag.ingest.url_validator import (
     UrlValidationError,
     assert_not_ssrf_target,
-    prefetch_url,
     validate_url_format,
+    validate_url_preflight,
 )
 from eagle_rag.tasks import state as task_state
 from eagle_rag.tasks.celery_app import app as celery_app
@@ -65,14 +67,94 @@ def _serialize(audit: dict[str, Any]) -> str:
     return json.dumps(audit, default=str, ensure_ascii=False)
 
 
+def _url_gate(url: str) -> None:
+    """Lightweight enqueue gate: format + bounded SSRF (no prefetch)."""
+    cfg = get_settings().ingest.url_prefetch
+    validate_url_format(url)
+    assert_not_ssrf_target(url, dns_timeout_sec=cfg.dns_timeout_sec)
+
+
+def _run_url_preflight(url: str) -> UrlValidateResponse:
+    """Sync helper for ``POST /ingest/validate/url``."""
+    cfg = get_settings().ingest.url_prefetch
+    result = validate_url_preflight(
+        url,
+        dns_timeout_sec=cfg.dns_timeout_sec,
+        timeout_sec=cfg.timeout_sec,
+        max_redirects=cfg.max_redirects,
+        pdf_download_timeout_sec=cfg.pdf_download_timeout_sec,
+        verify_ssl=cfg.verify_ssl,
+        ssl_verify_fallback=cfg.ssl_verify_fallback,
+    )
+    return UrlValidateResponse(
+        ok=True,
+        status_code=result.status_code,
+        content_type=result.content_type,
+        final_url=result.final_url,
+        resource_kind=result.resource_kind,
+        size_bytes=result.size_bytes,
+        page_count=result.page_count,
+        suggested_pipeline=result.suggested_pipeline,
+        ssl_insecure=result.ssl_insecure,
+    )
+
+
+def _run_file_preflight(data: bytes, filename: str | None) -> FileValidateResponse:
+    """Sync helper for ``POST /ingest/validate/file``."""
+    import tempfile
+
+    suffix = Path(filename or "upload.bin").suffix or ".bin"
+    with tempfile.NamedTemporaryFile(prefix="eagle-validate-", suffix=suffix, delete=False) as tmp:
+        tmp.write(data)
+        tmp_path = Path(tmp.name)
+    try:
+        result = validate_file_preflight(tmp_path, filename or tmp_path.name)
+        return FileValidateResponse(
+            ok=True,
+            filename=result.filename,
+            size_bytes=result.size_bytes,
+            resource_kind=result.resource_kind,
+            page_count=result.page_count,
+            content_type=result.content_type,
+        )
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+@router.post("/ingest/validate/file", response_model=FileValidateResponse)
+async def validate_ingest_file_endpoint(
+    file: UploadFile = File(...),
+) -> FileValidateResponse:
+    """Validate a staged file against MinerU size/page limits (no enqueue)."""
+    data = await file.read()
+    try:
+        return await _run_sync(_run_file_preflight, data, file.filename)
+    except IngestLimitError as exc:
+        raise HTTPException(status_code=422, detail=exc.to_detail()) from exc
+
+
+@router.post("/ingest/validate/url", response_model=UrlValidateResponse)
+async def validate_ingest_url_endpoint(
+    url: str = Form(...),
+) -> UrlValidateResponse:
+    """Validate a URL: format, SSRF, reachability, and kind-aware PDF limits."""
+    try:
+        return await _run_sync(_run_url_preflight, url)
+    except UrlValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.to_detail()) from exc
+    except IngestLimitError as exc:
+        raise HTTPException(status_code=422, detail=exc.to_detail()) from exc
+
+
 @router.post("/ingest", response_model=IngestResponse)
 async def post_ingest(
     file: UploadFile | None = File(None),
     url: str | None = Form(None),
     source_type_hint: str | None = Form(None),
     kb_name: str | None = Form(None),
+    filename: str | None = Form(None),
 ) -> IngestResponse | JSONResponse:
-    """Unified ingest entry: multipart file or URL."""
+    """Unified ingest entry: multipart file or URL (enqueue after client validate)."""
     if file is None and not url:
         raise HTTPException(status_code=422, detail="Either file or url is required")
 
@@ -87,20 +169,18 @@ async def post_ingest(
                 kb_name=kb_name,
             )
         else:
-            # URL prefetch: validate format, guard SSRF, check reachability before dispatching.
+            # Enqueue gate only: format + SSRF. Reachability/PDF limits belong to
+            # POST /ingest/validate/url so the submit button stays snappy.
             try:
-                validate_url_format(url)
-                assert_not_ssrf_target(url)
-                cfg = get_settings()
-                prefetch_url(
-                    url,
-                    timeout=cfg.ingest.url_prefetch.timeout_sec,
-                    max_redirects=cfg.ingest.url_prefetch.max_redirects,
-                )
+                await _run_sync(_url_gate, url)
             except UrlValidationError as exc:
                 raise HTTPException(status_code=422, detail=exc.to_detail()) from exc
             result = await _run_sync(
-                ingest_url, url, source_type_hint=source_type_hint, kb_name=kb_name
+                ingest_url,
+                url,
+                filename=filename,
+                source_type_hint=source_type_hint,
+                kb_name=kb_name,
             )
     except IngestLimitError as exc:
         raise HTTPException(status_code=422, detail=exc.to_detail()) from exc

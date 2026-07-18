@@ -117,6 +117,8 @@ upsert_text_nodes(nodes: list[TextNode]) -> list[str]:
 
 LlamaIndex stores full node content in `_node_content` JSON field plus promoted scalar metadata.
 
+`text` is Milvus `VARCHAR(65535)` (schema hard limit). Oversized Knowhere chunks / section summaries are truncated at upsert (`clamp_milvus_varchar`) so writes do not fail with MilvusException code 1100.
+
 ### 3.4 Read path
 
 Two access patterns:

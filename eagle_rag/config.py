@@ -429,10 +429,16 @@ class IngestSourceTypeSettings(BaseModel):
 
 
 class UrlPrefetchConfig(BaseModel):
-    """URL preflight config (validate/ssrf/prefetch before dispatching ingest-by-URL)."""
+    """URL preflight config for ``POST /ingest/validate/url`` (and enqueue SSRF)."""
 
-    timeout_sec: float = 10.0
+    dns_timeout_sec: float = 3.0
+    timeout_sec: float = 5.0
     max_redirects: int = 3
+    pdf_download_timeout_sec: float = 30.0
+    verify_ssl: bool = True
+    # After SSRF passes, retry once with verify=False when the peer sends an
+    # incomplete certificate chain (common on some corporate sites).
+    ssl_verify_fallback: bool = True
 
 
 class IngestLimitsConfig(BaseModel):

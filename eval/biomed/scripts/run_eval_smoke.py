@@ -22,7 +22,6 @@ RESULTS = ROOT / "eval" / "biomed" / "results"
 sys.path.insert(0, str(SCRIPTS))
 from metrics import (  # noqa: E402
     mean,
-    mrr,
     non_llm_context_recall,
     substring_hit,
     term_coverage,

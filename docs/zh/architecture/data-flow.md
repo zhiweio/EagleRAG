@@ -112,7 +112,7 @@ sequenceDiagram
 
 ### URL 来源
 
-URL 摄入在 API 跳过 upfront MinIO/去重 — 文件在管线任务内懒取（`url_prefetch` 设置）。索引成功后应用去重。
+URL 摄入：客户端先调 `POST /ingest/validate/url`（可达性 + 按类型的 PDF 限制，见 `url_prefetch`），再 `POST /ingest` 仅做格式/SSRF 后入队。正文在管线任务内懒取；索引成功后应用去重。
 
 ### Knowhere 路径（`knowhere_parse`）
 

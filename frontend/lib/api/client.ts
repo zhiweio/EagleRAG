@@ -8,7 +8,9 @@
  */
 import { client } from "./generated/client.gen";
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+// Use || so an empty NEXT_PUBLIC_API_BASE (common when unset in Docker) still
+// falls back — Next may inline missing public env as "" rather than undefined.
+export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "").trim() || "http://localhost:8000";
 
 /** Image byte-stream URL (used as `<img src>`; no GET wrapper in the OpenAPI spec). */
 export function imageUrl(imageId: string): string {

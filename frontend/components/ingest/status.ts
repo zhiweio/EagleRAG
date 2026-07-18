@@ -23,6 +23,33 @@ export function normalizeStatus(status: string | null | undefined): TaskPhase {
   return "running";
 }
 
+/** Prefer API ``status_phase`` when present; otherwise derive from raw ``status``. */
+export function taskPhase(task: Pick<Task, "status" | "status_phase">): TaskPhase {
+  const phase = (task.status_phase ?? "").toLowerCase();
+  if (phase === "pending" || phase === "running" || phase === "success" || phase === "failed") {
+    return phase;
+  }
+  return normalizeStatus(task.status);
+}
+
+/** Which primary action the Actions column should expose for a task row. */
+export type TaskRowAction = "cancel" | "retry" | "none";
+
+/**
+ * Actions column policy:
+ * - pending/queued → Cancel (delete audit)
+ * - failed/error → Retry
+ * - retrying → Retry (manual re-dispatch while Celery auto-retry waits)
+ * - running / success → none ("—")
+ */
+export function taskRowAction(task: Pick<Task, "status" | "status_phase">): TaskRowAction {
+  const raw = (task.status ?? "").toLowerCase();
+  const phase = taskPhase(task);
+  if (phase === "pending") return "cancel";
+  if (phase === "failed" || raw === "retrying") return "retry";
+  return "none";
+}
+
 /** Phase → semantic tone (used for status dots, progress bars, row tints). */
 export const PHASE_TONE: Record<TaskPhase, "warning" | "accent" | "success" | "danger"> = {
   pending: "warning",

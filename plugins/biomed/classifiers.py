@@ -88,7 +88,8 @@ class BiomedImageClassifier:
     """Route visual assets to biomed or core visual collections."""
 
     def classify(self, ctx: ClassificationContext) -> ClassificationDecision | None:
-        if ctx.modality != "visual":
+        # Accept PixelRAG tiles and Knowhere image/table chunks, not only modality="visual".
+        if ctx.modality not in {"visual", "image", "table", "tile", "medical_image"}:
             return None
 
         settings = get_settings()

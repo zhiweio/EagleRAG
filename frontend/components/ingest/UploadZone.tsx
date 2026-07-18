@@ -1,8 +1,12 @@
 "use client";
 
 import type { RoutingMode } from "@/components/ingest/RoutingModeCards";
-import { Chip } from "@/components/ui";
-import { errorMessage, parseIngestLimitError, useIngestFile } from "@/lib/hooks/useIngest";
+import {
+  errorMessage,
+  parseIngestLimitError,
+  useIngestFile,
+  useValidateIngestFile,
+} from "@/lib/hooks/useIngest";
 import {
   INGEST_MAX_FILE_BYTES,
   INGEST_MAX_PDF_PAGES,
@@ -33,9 +37,7 @@ function applyRoutingPrefix(file: File, mode: RoutingMode): File {
 
 /**
  * UploadZone — "Upload & Routing Strategy" card body:
- * drag/browse to stage files → submit to the queue. KB selection and routing
- * strategy are rendered by IngestClient (shared with UrlInputZone); the
- * `mode` prop drives the filename routing prefix on submit.
+ * drag/browse to stage files → server validate → submit to the queue.
  */
 export function UploadZone({ onIngested, onError, onBatch, kbName, mode }: UploadZoneProps) {
   const t = useTranslations("ingest");
@@ -44,6 +46,7 @@ export function UploadZone({ onIngested, onError, onBatch, kbName, mode }: Uploa
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const ingestFile = useIngestFile();
+  const validateFile = useValidateIngestFile();
 
   function addFiles(files: File[]) {
     if (files.length === 0) return;
@@ -81,16 +84,29 @@ export function UploadZone({ onIngested, onError, onBatch, kbName, mode }: Uploa
   }
 
   async function handleSubmit() {
-    if (staged.length === 0 || busy) return;
+    if (staged.length === 0 || busy || !kbName) return;
     setBusy(true);
     const files = staged;
     let ok = 0;
     await Promise.allSettled(
       files.map(async (file) => {
         try {
-          const violation = await checkIngestFileLimits(file);
-          if (violation) {
-            onError(file.name, formatLimitMessage(violation));
+          // Instant client hint, then authoritative server validate.
+          const localViolation = await checkIngestFileLimits(file);
+          if (localViolation) {
+            onError(file.name, formatLimitMessage(localViolation));
+            return;
+          }
+          try {
+            await validateFile.mutateAsync({ file });
+          } catch (err) {
+            const limitErr = parseIngestLimitError(err);
+            if (limitErr) {
+              const suggestion = limitErr.suggestion ? ` ${limitErr.suggestion}` : "";
+              onError(file.name, `${limitErr.reason}${suggestion}`);
+              return;
+            }
+            onError(file.name, errorMessage(err));
             return;
           }
           const resp = await ingestFile.mutateAsync({
@@ -117,20 +133,19 @@ export function UploadZone({ onIngested, onError, onBatch, kbName, mode }: Uploa
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Card header */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <h2 className="text-sm font-semibold text-foreground">{t("upload.title")}</h2>
-          <Chip tone="success" size="sm" icon={ScanSearch}>
+          <span className="inline-flex items-center gap-1 rounded-full bg-success-soft px-2 py-0.5 text-[11px] font-semibold text-success">
+            <ScanSearch className="h-3 w-3" aria-hidden />
             {t("upload.autoDetect")}
-          </Chip>
+          </span>
         </div>
         <span className="text-[11px] font-medium text-foreground-tertiary">
           {t("upload.step", { current: 1, total: 2 })}
         </span>
       </div>
 
-      {/* Drop zone */}
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -167,7 +182,6 @@ export function UploadZone({ onIngested, onError, onBatch, kbName, mode }: Uploa
         />
       </div>
 
-      {/* Staged files */}
       {staged.length > 0 ? (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-[11px] font-medium text-foreground-tertiary">
@@ -192,15 +206,14 @@ export function UploadZone({ onIngested, onError, onBatch, kbName, mode }: Uploa
         </div>
       ) : null}
 
-      {/* Submit */}
       <Button
         variant="primary"
         size="lg"
         className="w-full font-semibold shadow-[0_4px_16px_-4px_var(--accent)]"
-        isDisabled={staged.length === 0 || busy}
+        isDisabled={staged.length === 0 || busy || !kbName}
         onPress={() => void handleSubmit()}
       >
-        <UploadCloud className="h-4 w-4" aria-hidden />
+        <ScanSearch className="h-4 w-4" aria-hidden />
         {busy ? t("upload.submitting") : t("upload.submit")}
       </Button>
     </div>

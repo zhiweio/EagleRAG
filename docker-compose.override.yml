@@ -77,6 +77,11 @@ services:
     image: oven/bun:1.2.18
     build: !reset null
     working_dir: /app
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+      # Required at next-dev runtime so client bundles see a non-empty public API URL.
+      NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
     volumes:
       - ./frontend:/app
       - /app/node_modules

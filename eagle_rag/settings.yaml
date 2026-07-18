@@ -204,8 +204,12 @@ ingest:
     rules: []                         # Empty in Core; set per deployment / profile if needed.
     default: other
   url_prefetch:
-    timeout_sec: ${INGEST_URL_PREFETCH_TIMEOUT:-10}
+    dns_timeout_sec: ${INGEST_URL_DNS_TIMEOUT:-3}
+    timeout_sec: ${INGEST_URL_PREFETCH_TIMEOUT:-5}
     max_redirects: ${INGEST_URL_PREFETCH_MAX_REDIRECTS:-3}
+    pdf_download_timeout_sec: ${INGEST_URL_PDF_DOWNLOAD_TIMEOUT:-30}
+    verify_ssl: ${INGEST_URL_VERIFY_SSL:-true}
+    ssl_verify_fallback: ${INGEST_URL_SSL_VERIFY_FALLBACK:-true}
   # Early reject before MinIO/Celery/MinerU (MinerU Precision Extract: 200 MiB / 200 pages).
   limits:
     enabled: ${INGEST_LIMITS_ENABLED:-true}

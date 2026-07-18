@@ -5,10 +5,11 @@ import { StatusPill } from "@/components/ingest/StatusPill";
 import {
   type TaskPhase,
   documentName,
-  normalizeStatus,
   pipelineKind,
   progressPercent,
   stateLabel,
+  taskPhase,
+  taskRowAction,
 } from "@/components/ingest/status";
 import { FileBadge } from "@/components/kb/kb-visuals";
 import { TablePagination, cn } from "@/components/ui";
@@ -52,7 +53,8 @@ function TaskRow({
   retryLabel: string;
   hideKbBadge?: boolean;
 }) {
-  const phase = normalizeStatus(task.status);
+  const phase = taskPhase(task);
+  const action = taskRowAction(task);
   const pct = progressPercent(task);
   const isVisual = pipelineKind(task) === "pixelrag";
   const tint = ROW_TINT[phase];
@@ -131,7 +133,7 @@ function TaskRow({
       </div>
 
       <div className="flex items-center justify-end">
-        {phase === "pending" ? (
+        {action === "cancel" ? (
           <button
             type="button"
             onClick={() => onDelete(task)}
@@ -140,7 +142,7 @@ function TaskRow({
             <X className="h-3 w-3" aria-hidden />
             {cancelLabel}
           </button>
-        ) : phase === "failed" ? (
+        ) : action === "retry" ? (
           <button
             type="button"
             onClick={() => onRetry(task)}

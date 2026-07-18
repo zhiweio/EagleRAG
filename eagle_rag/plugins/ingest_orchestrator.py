@@ -18,6 +18,20 @@ if TYPE_CHECKING:
 
 __all__ = ["IngestOrchestrator", "UpsertPayload", "get_ingest_orchestrator"]
 
+# Modalities that must hit CLASSIFY_VISUAL / EMBED_VISUAL (not text upsert).
+_VISUAL_MODALITIES = frozenset({"image", "table", "visual", "tile", "medical_image"})
+_VISUAL_CHUNK_TYPES = frozenset({"image", "table", "tile", "medical_image"})
+
+
+def _looks_like_visual_record(chunk: object) -> bool:
+    """True when ``chunk`` is a PixelRAG/Knowhere visual dict already carrying a vector."""
+    if not isinstance(chunk, dict):
+        return False
+    if chunk.get("image_id") or chunk.get("image_bytes"):
+        return True
+    vector = chunk.get("vector")
+    return isinstance(vector, list) and bool(vector)
+
 
 @dataclass
 class UpsertPayload:
@@ -51,7 +65,7 @@ class IngestOrchestrator:
         """Resolve a chunk/asset classification via CLASSIFY_* hooks."""
         hook = (
             Hook.CLASSIFY_VISUAL
-            if class_ctx.modality in ("image", "table", "visual")
+            if class_ctx.modality in _VISUAL_MODALITIES
             else Hook.CLASSIFY_CHUNK
         )
         decision = self._bus.invoke_first(hook, hook_ctx, class_ctx)
@@ -79,8 +93,10 @@ class IngestOrchestrator:
 
         self._encoder_registry.validate_plan(decision.target_collection, decision.target_encoder)
 
-        is_visual = decision.chunk_type in ("image", "table", "tile") or isinstance(
-            chunk, VisualChunk
+        is_visual = (
+            decision.chunk_type in _VISUAL_CHUNK_TYPES
+            or isinstance(chunk, VisualChunk)
+            or _looks_like_visual_record(chunk)
         )
         embed_hook = Hook.EMBED_VISUAL if is_visual else Hook.EMBED_TEXT
         embedded = self._bus.invoke_first(

@@ -1,10 +1,38 @@
 # 入库 API
 
-文档入库经 **`POST /ingest`** 进入，经 **`/tasks`** 与 **`/ingest/queue-metrics`** 跟踪。实现：`eagle_rag/api/ingest.py`，模式在 `eagle_rag/api/schemas/ingest.py`，runner 在 `eagle_rag/ingest/runner.py`。
+文档入库经 **`POST /ingest`** 进入，经 **`/tasks`** 与 **`/ingest/queue-metrics`** 跟踪。预检使用独立的 validate 端点。实现：`eagle_rag/api/ingest.py`，模式在 `eagle_rag/api/schemas/ingest.py`，runner 在 `eagle_rag/ingest/runner.py`。
+
+## 预检：先 validate 再入队
+
+客户端应先调用 validate，再调用 enqueue。File 与 URL 使用**不同**端点与错误码。
+
+### `POST /ingest/validate/file`
+
+仅 multipart `file`。经 `validate_file_preflight` 执行 MinerU `ingest.limits`（体积 + PDF 页数）。后续可按类型扩展。
+
+**`200 FileValidateResponse`：** `ok`、`filename`、`size_bytes`、`resource_kind`、`page_count?`、`content_type?`
+
+**`422`：** `IngestLimitErrorDetail` — `file_too_large` | `pdf_too_many_pages` | `pdf_unreadable`
+
+### `POST /ingest/validate/url`
+
+表单字段 `url`。顺序：格式 → 有界 DNS SSRF → HEAD/GET prefetch → 按内容类型加深：
+
+| `resource_kind` | 额外检查 |
+|-----------------|----------|
+| `html` | 仅可达性 |
+| `pdf` | 与本地文件相同的 MinerU 体积/页数（限流下载，上限 `max_file_bytes`） |
+| `image` / `other` | 有 `Content-Length` 时比对 `max_file_bytes` |
+
+**`200 UrlValidateResponse`：** `ok`、`status_code`、`content_type`、`final_url`、`resource_kind`、`size_bytes?`、`page_count?`、`suggested_pipeline?`
+
+**`422`：** URL 错误码，或 PDF/体积的 limit 错误码。
+
+配置：`ingest.url_prefetch`（`dns_timeout_sec`、`timeout_sec`、`max_redirects`、`pdf_download_timeout_sec`）。
 
 ## `POST /ingest`
 
-**multipart 文件上传**或 **URL 表单字段**的统一入口。
+**multipart 文件上传**或 **URL 表单字段**的统一**入队**入口（客户端 validate 之后）。
 
 ### 请求
 
@@ -14,7 +42,8 @@
 |-------|------|----------|-------------|
 | `file` | `UploadFile` | `file` / `url` 二选一 | 原始字节 |
 | `url` | `string` | `file` / `url` 二选一 | `http://` 或 `https://` 源 |
-| `source_type_hint` | `string` | 否 | `policy \| financial \| business \| bidding \| tax \| other` |
+| `filename` | `string` | 否 | URL 摄入可选展示/路由名（如 `knowhere:https://…`） |
+| `source_type_hint` | `string` | 否 | 自由文本来源类型元数据 |
 | `kb_name` | `string` | 否 | 目标 KB；必须已注册 |
 
 ### 响应 — `IngestResponse`
@@ -33,16 +62,17 @@
 | `201` | 新入库已分发 |
 | `200` | 去重命中 — 复用已有 `(sha256, kb_name)` 行 |
 | `404` | 知识库未注册 |
-| `422` | 缺少 file/url、校验错误、URL 预取失败 |
+| `422` | 缺少 file/url、校验错误、SSRF/格式失败 |
 | `500` | Runner 异常（`{"detail": "…"}` JSON 体） |
 
-### URL 入库防护
+### URL 入队门禁
 
-Celery 分发前，API：
+Celery 分发前（轻量；可达性属于 validate）：
 
 1. `validate_url_format(url)`
-2. `assert_not_ssrf_target(url)` — 阻止私有 IP / 元数据端点
-3. `prefetch_url(url)` — 带超时与重定向上限的 HEAD/GET 可达性检查
+2. `assert_not_ssrf_target(url)` — 有界 DNS；阻止私有 IP / 元数据端点
+
+Worker 在 HTTP 抓取前复检 SSRF。文件路径仍会执行 `validate_ingest_file` 作为安全网。
 
 422 响应可含结构化 `UrlValidationErrorDetail`：
 

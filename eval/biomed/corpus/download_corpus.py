@@ -499,9 +499,6 @@ def _try_hf_abstracts(lock: list[dict[str, Any]], seen: set[str], need: int) -> 
     for i, row in enumerate(ds):
         if added >= need or i > 50000:
             break
-        text = " ".join(
-            str(row.get(k) or "") for k in ("MedlineCitation", "title", "abstract", "AbstractText")
-        )
         # pubmed dataset schemas vary; try common fields
         title = str(row.get("title") or row.get("ArticleTitle") or f"hf_{i}")
         abstract = str(row.get("abstract") or row.get("AbstractText") or "")
@@ -916,7 +913,10 @@ def main() -> int:
     parser.add_argument(
         "--insecure-ssl",
         action="store_true",
-        help="Skip TLS verify (needed when local proxy MITM breaks cert chain; or BIOMED_SSL_INSECURE=1)",
+        help=(
+            "Skip TLS verify (needed when local proxy MITM breaks cert chain; "
+            "or BIOMED_SSL_INSECURE=1)"
+        ),
     )
     parser.add_argument(
         "--purge-thin",
@@ -940,7 +940,8 @@ def main() -> int:
     else:
         print(
             "HTTP proxy: direct "
-            f"(set BIOMED_HTTP_PROXY or --local-proxy / --proxy {DEFAULT_LOCAL_PROXY} if overseas fetch hangs)"
+            f"(set BIOMED_HTTP_PROXY or --local-proxy / --proxy {DEFAULT_LOCAL_PROXY} "
+            "if overseas fetch hangs)"
         )
 
     cfg = _load_manifest()

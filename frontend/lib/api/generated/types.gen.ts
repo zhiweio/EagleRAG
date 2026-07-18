@@ -543,6 +543,10 @@ export type BodyPostIngestIngestPost = {
      * Kb Name
      */
     kb_name?: string | null;
+    /**
+     * Filename
+     */
+    filename?: string | null;
 };
 
 /**
@@ -557,6 +561,26 @@ export type BodyUploadAttachmentAttachmentsPost = {
      * Session Id
      */
     session_id?: string | null;
+};
+
+/**
+ * Body_validate_ingest_file_endpoint_ingest_validate_file_post
+ */
+export type BodyValidateIngestFileEndpointIngestValidateFilePost = {
+    /**
+     * File
+     */
+    file: Blob | File;
+};
+
+/**
+ * Body_validate_ingest_url_endpoint_ingest_validate_url_post
+ */
+export type BodyValidateIngestUrlEndpointIngestValidateUrlPost = {
+    /**
+     * Url
+     */
+    url: string;
 };
 
 /**
@@ -926,6 +950,40 @@ export type DocumentVisualRef = {
 export type EmbeddingSettings = {
     text: TextEmbeddingSettings;
     visual: VisualEmbeddingSettings;
+};
+
+/**
+ * FileValidateResponse
+ *
+ * Successful ``POST /ingest/validate/file`` preview.
+ */
+export type FileValidateResponse = {
+    /**
+     * Ok
+     */
+    ok?: boolean;
+    /**
+     * Filename
+     */
+    filename: string;
+    /**
+     * Size Bytes
+     */
+    size_bytes: number;
+    /**
+     * Resource Kind
+     *
+     * html | pdf | image | other
+     */
+    resource_kind: string;
+    /**
+     * Page Count
+     */
+    page_count?: number | null;
+    /**
+     * Content Type
+     */
+    content_type?: string | null;
 };
 
 /**
@@ -3178,6 +3236,56 @@ export type TextSource = {
 };
 
 /**
+ * UrlValidateResponse
+ *
+ * Successful ``POST /ingest/validate/url`` preview.
+ */
+export type UrlValidateResponse = {
+    /**
+     * Ok
+     */
+    ok?: boolean;
+    /**
+     * Status Code
+     */
+    status_code: number;
+    /**
+     * Content Type
+     */
+    content_type?: string | null;
+    /**
+     * Final Url
+     */
+    final_url?: string | null;
+    /**
+     * Resource Kind
+     *
+     * html | pdf | image | other
+     */
+    resource_kind: string;
+    /**
+     * Size Bytes
+     */
+    size_bytes?: number | null;
+    /**
+     * Page Count
+     */
+    page_count?: number | null;
+    /**
+     * Suggested Pipeline
+     *
+     * Informational default pipeline hint (pixelrag | knowhere)
+     */
+    suggested_pipeline?: string | null;
+    /**
+     * Ssl Insecure
+     *
+     * True when TLS verify was skipped after a certificate-chain failure
+     */
+    ssl_insecure?: boolean;
+};
+
+/**
  * UserOut
  */
 export type UserOut = {
@@ -3780,6 +3888,68 @@ export type GetImageMetaApiImagesImageIdMetaGetResponses = {
 };
 
 export type GetImageMetaApiImagesImageIdMetaGetResponse = GetImageMetaApiImagesImageIdMetaGetResponses[keyof GetImageMetaApiImagesImageIdMetaGetResponses];
+
+export type ValidateIngestFileEndpointIngestValidateFilePostData = {
+    body: BodyValidateIngestFileEndpointIngestValidateFilePost;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/ingest/validate/file';
+};
+
+export type ValidateIngestFileEndpointIngestValidateFilePostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ValidateIngestFileEndpointIngestValidateFilePostError = ValidateIngestFileEndpointIngestValidateFilePostErrors[keyof ValidateIngestFileEndpointIngestValidateFilePostErrors];
+
+export type ValidateIngestFileEndpointIngestValidateFilePostResponses = {
+    /**
+     * Successful Response
+     */
+    200: FileValidateResponse;
+};
+
+export type ValidateIngestFileEndpointIngestValidateFilePostResponse = ValidateIngestFileEndpointIngestValidateFilePostResponses[keyof ValidateIngestFileEndpointIngestValidateFilePostResponses];
+
+export type ValidateIngestUrlEndpointIngestValidateUrlPostData = {
+    body: BodyValidateIngestUrlEndpointIngestValidateUrlPost;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/ingest/validate/url';
+};
+
+export type ValidateIngestUrlEndpointIngestValidateUrlPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ValidateIngestUrlEndpointIngestValidateUrlPostError = ValidateIngestUrlEndpointIngestValidateUrlPostErrors[keyof ValidateIngestUrlEndpointIngestValidateUrlPostErrors];
+
+export type ValidateIngestUrlEndpointIngestValidateUrlPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: UrlValidateResponse;
+};
+
+export type ValidateIngestUrlEndpointIngestValidateUrlPostResponse = ValidateIngestUrlEndpointIngestValidateUrlPostResponses[keyof ValidateIngestUrlEndpointIngestValidateUrlPostResponses];
 
 export type PostIngestIngestPostData = {
     body?: BodyPostIngestIngestPost;

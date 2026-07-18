@@ -117,6 +117,8 @@ upsert_text_nodes(nodes: list[TextNode]) -> list[str]:
 
 LlamaIndex 将完整节点内容存入 `_node_content` JSON 字段，并提升标量元数据。
 
+`text` 为 Milvus `VARCHAR(65535)`（schema 硬上限）。超长的 Knowhere chunk / section summary 在 upsert 时截断（`clamp_milvus_varchar`），避免写入时触发 MilvusException code 1100。
+
 ### 3.4 读取路径
 
 两种访问模式：

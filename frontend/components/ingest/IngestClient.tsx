@@ -11,36 +11,24 @@ import { UploadZone } from "@/components/ingest/UploadZone";
 import { UrlInputZone } from "@/components/ingest/UrlInputZone";
 import { normalizeStatus, pipelineKind } from "@/components/ingest/status";
 import { Card, Chip, PageHeader } from "@/components/ui";
-import { streamTaskProgress } from "@/lib/api/sse";
 import { errorMessage, useDeleteTask, useRetryTask, useTasks } from "@/lib/hooks/useIngest";
 import { useKnowledgeBases } from "@/lib/hooks/useKB";
 import { useUserPreferences } from "@/lib/hooks/useUser";
 import { useFilterStore } from "@/lib/stores/filterStore";
 import { useKBStore } from "@/lib/stores/kbStore";
 import { useUIStore } from "@/lib/stores/uiStore";
-import type { IngestResponse, Task, TaskListResponse } from "@/lib/types";
-import { useQueryClient } from "@tanstack/react-query";
+import type { IngestResponse, Task } from "@/lib/types";
 import { Globe, LibraryBig, UploadCloud } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-function parseTask(data: string): Task | null {
-  try {
-    const parsed = JSON.parse(data) as Task;
-    return typeof parsed?.job_id === "string" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
+import { useCallback, useMemo, useState } from "react";
 
 const DEFAULT_POLL_INTERVAL = 5000;
 
 /** Ingest page orchestrator: wires upload, queue metrics, toolbar, task table, log modal, and toasts.
- * Data fetching is handled by useTasks (react-query); filter / kbName state lives in the zustand store;
- * running tasks are kept in sync via SSE. */
+ * Data fetching is handled by useTasks (react-query); filter / kbName state lives in the zustand store.
+ * Task progress on the list uses polling; SSE is only opened from TaskLogsModal. */
 export function IngestClient() {
   const t = useTranslations("ingest");
-  const queryClient = useQueryClient();
 
   const { kbName, setKbName } = useKBStore();
   const { taskFilter } = useFilterStore();
@@ -75,60 +63,6 @@ export function IngestClient() {
   const error = tasksQuery.error ? errorMessage(tasksQuery.error) : null;
 
   const [toasts, setToasts] = useState<IngestToastItem[]>([]);
-
-  // Running-task list: each subscribes to its own progress SSE stream.
-  const runningIds = useMemo(
-    () =>
-      tasks.filter((task) => normalizeStatus(task.status) === "running").map((task) => task.job_id),
-    [tasks],
-  );
-  const runningKey = runningIds.join(",");
-  const subsRef = useRef<Map<string, () => void>>(new Map());
-
-  useEffect(() => {
-    const subs = subsRef.current;
-    const running = runningKey ? runningKey.split(",") : [];
-
-    for (const [id, cancel] of subs) {
-      if (!running.includes(id)) {
-        cancel();
-        subs.delete(id);
-      }
-    }
-    for (const id of running) {
-      if (subs.has(id)) continue;
-      const cancel = streamTaskProgress(
-        id,
-        (event) => {
-          if (event.event !== "progress") return;
-          const updated = parseTask(event.data);
-          if (!updated) return;
-          // SSE updates the matching task in the react-query cache in real time.
-          queryClient.setQueriesData<TaskListResponse>({ queryKey: ["tasks"] }, (old) => {
-            if (!old) return old;
-            return {
-              ...old,
-              items: old.items.map((task) => (task.job_id === id ? { ...task, ...updated } : task)),
-            };
-          });
-        },
-        () => {
-          // SSE errors are non-fatal — automatic polling is the fallback.
-        },
-      );
-      subs.set(id, cancel);
-    }
-  }, [runningKey, queryClient]);
-
-  // Clean up all SSE subscriptions on unmount.
-  useEffect(() => {
-    return () => {
-      for (const cancel of subsRef.current.values()) {
-        cancel();
-      }
-      subsRef.current.clear();
-    };
-  }, []);
 
   const filteredTasks = useMemo(() => {
     if (pipelines.length === 0 && statuses.length === 0) return tasks;
@@ -166,9 +100,12 @@ export function IngestClient() {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
   }, []);
 
-  // Upload success callback: the mutation's onSuccess already invalidates tasks, so no manual refetch is needed.
+  // File ingest: dedup hit / immediate success uses success toast; pending is covered by onBatch.
   const handleIngested = useCallback(
     (resp: IngestResponse, name: string) => {
+      if (resp.status === "pending") {
+        return;
+      }
       pushToast({
         variant: "success",
         title: t("toast.success"),
@@ -211,6 +148,15 @@ export function IngestClient() {
     },
     [pushToast, t, queueCount],
   );
+
+  const handleUrlQueued = useCallback(() => {
+    const start = queueCount + 1;
+    pushToast({
+      variant: "created",
+      title: t("toast.queued"),
+      hint: t("toast.createdHint", { range: `#${start}` }),
+    });
+  }, [pushToast, t, queueCount]);
 
   const retryTask = useRetryTask();
   const handleRetry = useCallback(
@@ -330,7 +276,9 @@ export function IngestClient() {
                 <UrlInputZone
                   onIngested={handleIngested}
                   onError={handleIngestError}
+                  onQueued={handleUrlQueued}
                   kbName={kbName}
+                  mode={mode}
                 />
               )}
             </div>

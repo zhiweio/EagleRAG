@@ -20,6 +20,14 @@ services:
       EAGLE_BIOMED_ENCODER_MODE: ${EAGLE_BIOMED_ENCODER_MODE:-auto}
       EAGLE_BIOMED_ALLOW_DETERMINISTIC: ${EAGLE_BIOMED_ALLOW_DETERMINISTIC:-1}
 
+  # Browser calls NEXT_PUBLIC_API_BASE from the host; inject from .env.biomed
+  # (base compose only sets HOSTNAME/PORT on frontend).
+  frontend:
+    env_file:
+      - .env.biomed
+    environment:
+      NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
+
   worker-router:
     env_file:
       - .env.biomed

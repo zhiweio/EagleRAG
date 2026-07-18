@@ -599,7 +599,6 @@ def test_post_ingest_url(client: TestClient) -> None:
     with (
         patch("eagle_rag.api.ingest.validate_url_format"),
         patch("eagle_rag.api.ingest.assert_not_ssrf_target"),
-        patch("eagle_rag.api.ingest.prefetch_url"),
         patch("eagle_rag.api.ingest.ingest_url", MagicMock(return_value=result)) as mock_ingest_url,
     ):
         response = client.post(

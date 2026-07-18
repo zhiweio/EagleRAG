@@ -112,7 +112,7 @@ Fixed hook order (G26): `PARSE` → `CHUNK` → `INGEST_VISUAL_EXTRACT` → `CLA
 
 ### URL sources
 
-URL ingest skips upfront MinIO/dedup at API — file fetched lazily inside pipeline tasks (`url_prefetch` settings). Dedup applies after successful index.
+URL ingest: clients call `POST /ingest/validate/url` (reachability + kind-aware PDF limits via `url_prefetch` settings), then `POST /ingest` enqueues with format/SSRF only. Content is fetched lazily inside pipeline tasks; dedup applies after successful index.
 
 ### Knowhere path (`knowhere_parse`)
 

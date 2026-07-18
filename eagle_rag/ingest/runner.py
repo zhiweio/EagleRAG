@@ -330,13 +330,18 @@ def ingest_file(
 def ingest_url(
     url: str,
     *,
+    filename: str | None = None,
     source_type_hint: str | None = None,
     kb_name: str | None = None,
 ) -> dict[str, Any]:
-    """Convenience wrapper: ingest a web URL (filename is the URL)."""
+    """Convenience wrapper: ingest a web URL.
+
+    ``filename`` may carry a routing prefix (``knowhere:`` / ``pixelrag:``) while
+    ``source_uri`` stays the bare fetchable URL.
+    """
     return ingest(
         source_uri=url,
-        filename=url,
+        filename=filename or url,
         source_type_hint=source_type_hint,
         kb_name=kb_name,
     )

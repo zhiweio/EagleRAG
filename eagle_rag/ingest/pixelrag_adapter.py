@@ -235,6 +235,10 @@ def render_to_tiles(
     src_lower = source.lower()
     with tempfile.TemporaryDirectory(prefix="pixelrag_render_") as outdir:
         if source.startswith(("http://", "https://")):
+            from eagle_rag.ingest.url_validator import assert_not_ssrf_target
+
+            dns_timeout = get_settings().ingest.url_prefetch.dns_timeout_sec
+            assert_not_ssrf_target(source, dns_timeout_sec=dns_timeout)
             paths = pixelrag_render.render_url(
                 source,
                 outdir,
@@ -244,6 +248,9 @@ def render_to_tiles(
                 viewport_width=_viewport_width,
             )
         elif src_lower.endswith(".pdf"):
+            from eagle_rag.ingest.limits import validate_ingest_file
+
+            validate_ingest_file(source, Path(source).name)
             paths = pixelrag_render.render_pdf(
                 source,
                 outdir,
