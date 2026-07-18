@@ -169,6 +169,7 @@ DeepSeek + Qwen only:
 | Variable | Default | Description |
 | --- | --- | --- |
 | `EAGLE_RAG_PROFILE` | `core` | Deploy profile: `core` / `biomed` (experimental) / `lakehouse-bi` (in development); sets `default_namespace` + Milvus `db_name` |
+| Biomed HUTCHMED e2e/eval | — | See [`eval/biomed/`](eval/biomed/) (`.env.biomed`, ~300-doc corpus, recall smoke); Core visual uses DashScope |
 | `KB_NAME` | `default` | Default knowledge-base id **inside** the bound domain, e.g. `finance` / `patent` / `pharma` |
 | `KNOWHERE_MODE` | `api` | Knowhere backend: `api` (HTTP `:5005` via `knowhere-python-sdk`) or `parser` (in-process `knowhere-parse-sdk`) |
 | `KNOWHERE_BASE_URL` | `http://localhost:5005` | Knowhere HTTP parsing service URL (`api` mode only) |

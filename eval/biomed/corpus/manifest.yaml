@@ -1,0 +1,196 @@
+# HUTCHMED Oncology Innovative Drugs KB — corpus download quotas (~300 ingest docs).
+# download_corpus.py reads this file; adjust quotas only with matching eval gold sets.
+
+theme: hutchmed_oncology_innovative_drugs
+kb_name: hutchmed
+total_target: 300
+
+quotas:
+  papers: 120          # A — PMC OA / Europe PMC full text
+  abstracts: 80        # B — PubMed-style abstracts (Europe PMC + optional HF)
+  trials: 40           # C — ClinicalTrials.gov
+  compounds: 30        # D — PubChem compound cards
+  labels: 20           # E — openFDA / DailyMed-style labels
+  guidance: 15         # F — FDA / ICH public guidance
+  company: 15          # G — HUTCHMED public pages
+
+# Europe PMC query layers. download_corpus.py always AND-s OPEN_ACCESS:y AND HAS_PDF:y
+# and rejects abstract-only stubs (PDF >=40KB or fullTextXML >=6k chars).
+paper_queries:
+  - '(fruquintinib OR "HMPL-013" OR ELUNATE OR FRUZAQLA) AND (REVIEW OR "clinical trial" OR "phase")'
+  - '(savolitinib OR "HMPL-504" OR ORPATHYS OR volitinib OR AZD6094) AND (REVIEW OR "clinical trial" OR NSCLC)'
+  - '(surufatinib OR sulfatinib OR "HMPL-012" OR SULANDA) AND (REVIEW OR "clinical trial" OR neuroendocrine)'
+  - 'VEGFR inhibitor AND (colorectal OR mCRC) AND (REVIEW OR "randomized" OR "phase III")'
+  - '("MET amplification" OR "MET exon 14") AND NSCLC AND (REVIEW OR "clinical trial")'
+  - '("neuroendocrine tumor" OR pNET) AND (sunitinib OR surufatinib OR everolimus) AND REVIEW'
+  - '(PDAC OR "pancreatic ductal adenocarcinoma") AND (immunotherapy OR camrelizumab) AND ("clinical trial" OR REVIEW)'
+  - '(sintilimab OR camrelizumab) AND (fruquintinib OR surufatinib OR "tyrosine kinase") AND ("clinical trial" OR REVIEW)'
+  - '(osimertinib AND MET) AND (savolitinib OR capmatinib OR tepotinib) AND ("clinical trial" OR REVIEW)'
+  - '(cabozantinib OR lenvatinib OR regorafenib) AND (RCC OR mCRC) AND (REVIEW OR "phase III")'
+
+abstract_queries:
+  - 'fruquintinib OR savolitinib OR surufatinib'
+  - 'VEGFR inhibitor colorectal cancer'
+  - 'MET amplification osimertinib resistance'
+  - 'neuroendocrine tumor tyrosine kinase inhibitor'
+  - 'PD-1 inhibitor combination anti-angiogenic'
+
+trial_queries:
+  - fruquintinib
+  - savolitinib
+  - surufatinib
+  - "fruquintinib sintilimab"
+  - "savolitinib osimertinib"
+  - "surufatinib camrelizumab"
+  - "HMPL-013"
+  - "HMPL-504"
+  - "HMPL-012"
+
+compound_names:
+  - fruquintinib
+  - savolitinib
+  - surufatinib
+  - sunitinib
+  - cabozantinib
+  - lenvatinib
+  - regorafenib
+  - osimertinib
+  - gefitinib
+  - erlotinib
+  - lapatinib
+  - imatinib
+  - capmatinib
+  - tepotinib
+  - pazopanib
+  - axitinib
+  - sorafenib
+  - vandetanib
+  - nintedanib
+  - anlotinib
+  - apatinib
+  - olaparib
+  - sotorasib
+  - alectinib
+  - crizotinib
+  - lorlatinib
+  - pembrolizumab
+  - bevacizumab
+  - everolimus
+  - gemcitabine
+
+label_names:
+  - sunitinib
+  - cabozantinib
+  - lenvatinib
+  - regorafenib
+  - osimertinib
+  - gefitinib
+  - erlotinib
+  - imatinib
+  - bevacizumab
+  - everolimus
+  - pembrolizumab
+  - nivolumab
+  - olaparib
+  - sotorasib
+  - alectinib
+  - crizotinib
+  - pazopanib
+  - axitinib
+  - sorafenib
+  - gemcitabine
+
+# Public FDA / ICH guidance PDFs (stable URLs; may 302).
+guidance_urls:
+  - url: https://www.fda.gov/media/71195/download
+    title: FDA clinical trial endpoints for cancer drugs and biologics
+    tags: [guidance, endpoints, oncology]
+  - url: https://www.fda.gov/media/127712/download
+    title: FDA developing targeted therapies in low-frequency molecular subsets of a disease
+    tags: [guidance, biomarker, targeted]
+  - url: https://www.fda.gov/media/138776/download
+    title: FDA cancer clinical trial eligibility criteria
+    tags: [guidance, clinical, eligibility]
+  - url: https://database.ich.org/sites/default/files/E6_R2_Addendum.pdf
+    title: ICH E6 R2 Good Clinical Practice
+    tags: [guidance, ich, gcp]
+  - url: https://database.ich.org/sites/default/files/E9_Guideline.pdf
+    title: ICH E9 Statistical Principles for Clinical Trials
+    tags: [guidance, ich, statistics]
+  - url: https://database.ich.org/sites/default/files/E8_R1_Guideline_2021_1006.pdf
+    title: ICH E8 R1 General Considerations for Clinical Studies
+    tags: [guidance, ich, clinical]
+  - url: https://www.fda.gov/media/135888/download
+    title: FDA project optimus dosage optimization oncology
+    tags: [guidance, dosage, oncology]
+  - url: https://www.fda.gov/media/139088/download
+    title: FDA master protocols for efficient clinical trial design
+    tags: [guidance, master-protocol]
+  - url: https://www.fda.gov/media/128793/download
+    title: FDA placebo controls in oncology clinical trials
+    tags: [guidance, placebo, oncology]
+  - url: https://www.fda.gov/media/152317/download
+    title: FDA clinical considerations for therapeutic cancer vaccines
+    tags: [guidance, immuno-oncology]
+  - url: https://www.fda.gov/media/83507/download
+    title: FDA pathologic complete response breast cancer neoadjuvant
+    tags: [guidance, endpoints]
+  - url: https://www.fda.gov/media/116573/download
+    title: FDA companion diagnostic devices oncology
+    tags: [guidance, cdx, biomarker]
+  - url: https://www.fda.gov/media/167126/download
+    title: FDA clinical pharmacology considerations for antibody-drug conjugates
+    tags: [guidance, adc]
+  - url: https://www.fda.gov/media/164960/download
+    title: FDA dose optimization for oncology drugs
+    tags: [guidance, dosage]
+  - url: https://www.fda.gov/media/162799/download
+    title: FDA reformulating drugs for oncology indications
+    tags: [guidance, oncology]
+
+company_urls:
+  - url: https://www.hutch-med.com/pipeline-and-products/our-pipeline/
+    title: HUTCHMED Our Pipeline
+    tags: [company, pipeline]
+  - url: https://www.hutch-med.com/
+    title: HUTCHMED Home
+    tags: [company, overview]
+  - url: https://www.hutch-med.com/about-us/
+    title: HUTCHMED About Us
+    tags: [company, about]
+  - url: https://www.hutch-med.com/pipeline-and-products/our-products/
+    title: HUTCHMED Our Products
+    tags: [company, products]
+  - url: https://www.hutch-med.com/science/
+    title: HUTCHMED Science
+    tags: [company, science]
+  - url: https://www.hutch-med.com/investors/
+    title: HUTCHMED Investors
+    tags: [company, investors]
+  - url: https://www.hutch-med.com/news/
+    title: HUTCHMED News
+    tags: [company, news]
+  - url: https://www.hutch-med.com/pipeline-and-products/
+    title: HUTCHMED Pipeline and Products Hub
+    tags: [company, pipeline]
+  - url: https://www.hutch-med.com/about-us/our-story/
+    title: HUTCHMED Our Story
+    tags: [company, about]
+  - url: https://www.hutch-med.com/about-us/leadership/
+    title: HUTCHMED Leadership
+    tags: [company, about]
+  - url: https://www.hutch-med.com/sustainability/
+    title: HUTCHMED Sustainability
+    tags: [company, overview]
+  - url: https://www.hutch-med.com/contact/
+    title: HUTCHMED Contact
+    tags: [company, overview]
+  - url: https://www.hutch-med.com/china-nda-acceptance-for-fruquintinib-plus-sintilimab-for-renal-cell-carcinoma/
+    title: HUTCHMED Fruquintinib Sintilimab RCC NDA
+    tags: [company, news, fruquintinib]
+  - url: https://www.hutch-med.com/surufatinib-pdac-phase-iii-initiate/
+    title: HUTCHMED Surufatinib PDAC Phase III
+    tags: [company, news, surufatinib]
+  - url: https://www.hutch-med.com/esmoasia-ash-2025/
+    title: HUTCHMED ESMO Asia ASH 2025 Data
+    tags: [company, news, clinical]

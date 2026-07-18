@@ -272,6 +272,10 @@ profiles:
     plugins:
       enabled: [eagle_rag.plugins.core_defaults, plugins.biomed]
       default_namespace: biomed
+      options:
+        biomed:
+          default_dual_text_search: true
+          encoder_mode: ${EAGLE_BIOMED_ENCODER_MODE:-auto}
     milvus:
       db_name: biomed
   lakehouse-bi:

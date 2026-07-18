@@ -1,0 +1,64 @@
+# HUTCHMED Biomed 垂类 RAG 端到端与 Eval
+
+本目录包含**和黄医药（HUTCHMED）肿瘤创新药研发**场景下的 biomed 插件端到端部署说明、约 300 篇公开语料下载、召回评测金标与冒烟脚本。
+
+> 不修改默认 `.env`（core）。使用独立 `.env.biomed`。Core 视觉嵌入固定 **DashScope**（`VISUAL_EMBEDDING_PROVIDER=dashscope`），不使用 PixelRAG 本地嵌入模型。
+
+## 快速开始
+
+```bash
+# 0) 依赖（垂类编码器）
+uv sync --extra biomed
+
+# 1) 生成/更新 .env.biomed（从 .env 复制密钥并覆盖 profile）
+task biomed:env
+# 确认 DASHSCOPE_API_KEY / LLM / VLM 已填写
+
+# 2) 停掉 core 栈后启动 biomed
+task down          # 若 core 正在跑
+task biomed:up
+task biomed:health
+
+# 3) 下载公开语料（≈300；可先 --limit 40 冒烟）
+# 大陆外网易卡住时先开本地代理（默认 Clash HTTP: 1087）：
+export BIOMED_HTTP_PROXY=http://127.0.0.1:1087
+export BIOMED_SSL_INSECURE=1   # 代理 HTTPS MITM 时需要
+task biomed:corpus
+# 或: task biomed:corpus CORPUS_ARGS='--local-proxy --insecure-ssl'
+# 或: task biomed:corpus CORPUS_ARGS='--limit 40'
+# 或: task biomed:corpus CORPUS_ARGS='--only compounds'
+
+# 4) 部署冒烟 + 召回 eval
+task biomed:e2e
+task biomed:eval
+# 全量金标: task biomed:eval EVAL_ARGS='--queries eval/biomed/datasets/eval_queries.jsonl --no-fail'
+```
+
+## 文档索引
+
+| 文档 | 内容 |
+| --- | --- |
+| [SCENARIO.md](./SCENARIO.md) | 企业场景、角色、真实研发工作流 |
+| [SETUP.md](./SETUP.md) | 环境、与 core 切换、DashScope visual |
+| [CORPUS.md](./CORPUS.md) | 300 篇配额、来源、下载与入库 |
+| [SOURCES.md](./SOURCES.md) | 许可与合规 |
+| [EVAL.md](./EVAL.md) | 金标字段、指标、smoke vs full |
+
+## 目录结构
+
+```text
+eval/biomed/
+  corpus/           # manifest + download_corpus.py
+  datasets/         # eval_queries*.jsonl, workflows, compounds
+  scripts/          # e2e / eval / metrics
+  fixtures/         # 可提交的最小样例 MD
+  results/          # 评测报告（gitignore）
+```
+
+## 验收清单
+
+- [ ] `GET /health/plugins` → `default_namespace=biomed`
+- [ ] MCP / 工具列表含 `biomed_query_entities`、`biomed_retrieve_compounds`
+- [ ] `VISUAL_EMBEDDING_PROVIDER=dashscope`（无本地 Qwen3-VL-Embedding-2B）
+- [ ] 语料入库 `kb_name=hutchmed`，`plugin_namespace=biomed`
+- [ ] `task biomed:eval` smoke 指标过线（见 EVAL.md）

@@ -166,6 +166,7 @@ Eagle-RAG 采用 **微内核 + 同仓插件**：Core（`namespace=core`）提供
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `EAGLE_RAG_PROFILE` | `core` | 部署 profile：`core` / `biomed`（实验性）/ `lakehouse-bi`（开发中）；设定 `default_namespace` + Milvus `db_name` |
+| Biomed 和黄医药 e2e/eval | — | 见 [`eval/biomed/`](eval/biomed/)（`.env.biomed`、约 300 篇语料、召回冒烟）；Core 视觉用 DashScope |
 | `KB_NAME` | `default` | 绑定领域**内**的默认知识库 id，如 `finance` / `patent` / `pharma` |
 | `KNOWHERE_BASE_URL` | `http://localhost:5005` | Knowhere HTTP 解析服务地址 |
 | `LLM_API_KEY` / `LLM_BASE_URL` | — | DeepSeek |

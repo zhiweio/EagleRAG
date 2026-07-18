@@ -56,10 +56,10 @@ umls_entities:
     pathways: ["MAPK", "RAF-MEK-ERK"]
     related_drugs: ["vemurafenib", "dabrafenib", "encorafenib"]
   MET:
-    aliases: ["c-Met", "hepatocyte growth factor receptor", "HGFR"]
+    aliases: ["c-Met", "hepatocyte growth factor receptor", "HGFR", "MET exon 14"]
     cui: "C1332879"
     pathways: ["MAPK", "PI3K-AKT", "RAS"]
-    related_drugs: ["capmatinib", "tepotinib"]
+    related_drugs: ["savolitinib", "capmatinib", "tepotinib", "cabozantinib"]
   RET:
     aliases: ["rearranged during transfection"]
     cui: "C1332174"
@@ -99,7 +99,17 @@ umls_entities:
     aliases: ["VEGFA", "vascular endothelial growth factor"]
     cui: "C0078058"
     pathways: ["angiogenesis"]
-    related_drugs: ["bevacizumab", "ramucirumab"]
+    related_drugs: ["bevacizumab", "ramucirumab", "fruquintinib", "surufatinib"]
+  VEGFR:
+    aliases: ["VEGFR-1", "VEGFR-2", "VEGFR-3", "vascular endothelial growth factor receptor", "KDR", "FLT1"]
+    cui: "C0211620"
+    pathways: ["angiogenesis", "VEGF"]
+    related_drugs: ["fruquintinib", "surufatinib", "sunitinib", "cabozantinib", "lenvatinib", "regorafenib"]
+  CSF-1R:
+    aliases: ["CSF1R", "colony stimulating factor 1 receptor", "CD115", "M-CSF receptor"]
+    cui: "C1332752"
+    pathways: ["tumor microenvironment", "macrophage"]
+    related_drugs: ["surufatinib", "pexidartinib"]
   PD-L1:
     aliases: ["CD274", "PDL1", "B7-H1"]
     cui: "C3887640"
@@ -136,10 +146,10 @@ umls_entities:
     pathways: ["cell cycle"]
     related_drugs: ["palbociclib", "ribociclib", "abemaciclib"]
   FGFR:
-    aliases: ["fibroblast growth factor receptor", "FGFR1"]
+    aliases: ["fibroblast growth factor receptor", "FGFR1", "FGFR2", "FGFR3"]
     cui: "C0282627"
     pathways: ["MAPK", "PI3K-AKT"]
-    related_drugs: ["erdafitinib", "pemigatinib"]
+    related_drugs: ["erdafitinib", "pemigatinib", "surufatinib", "lenvatinib"]
   NOTCH1:
     aliases: ["Notch", "Notch-1"]
     cui: "C0284097"
@@ -187,6 +197,51 @@ umls_entities:
     related_drugs: ["olaparib", "talazoparib", "rucaparib"]
 
   # --- Drugs / small molecules ---
+  fruquintinib:
+    aliases: ["HMPL-013", "ELUNATE", "FRUZAQLA", "fruquintinib capsule"]
+    cui: "C4505466"
+    pathways: ["angiogenesis", "VEGFR"]
+    related_drugs: ["regorafenib", "bevacizumab", "sintilimab"]
+  savolitinib:
+    aliases: ["HMPL-504", "AZD6094", "ORPATHYS", "volitinib"]
+    cui: "C4519234"
+    pathways: ["MET", "MAPK"]
+    related_drugs: ["osimertinib", "capmatinib", "tepotinib"]
+  surufatinib:
+    aliases: ["HMPL-012", "sulfatinib", "SULANDA"]
+    cui: "C4519235"
+    pathways: ["angiogenesis", "VEGFR", "FGFR", "CSF-1R"]
+    related_drugs: ["sunitinib", "everolimus", "camrelizumab"]
+  sunitinib:
+    aliases: ["Sutent", "SU11248"]
+    cui: "C1177435"
+    pathways: ["VEGFR", "KIT", "PDGFR"]
+    related_drugs: ["cabozantinib", "pazopanib", "surufatinib"]
+  cabozantinib:
+    aliases: ["Cabometyx", "Cometriq", "XL184"]
+    cui: "C2935551"
+    pathways: ["VEGFR", "MET", "AXL"]
+    related_drugs: ["sunitinib", "lenvatinib", "savolitinib"]
+  lenvatinib:
+    aliases: ["Lenvima", "E7080"]
+    cui: "C2983965"
+    pathways: ["VEGFR", "FGFR"]
+    related_drugs: ["sorafenib", "cabozantinib", "fruquintinib"]
+  regorafenib:
+    aliases: ["Stivarga", "BAY 73-4506"]
+    cui: "C2935550"
+    pathways: ["VEGFR", "angiogenesis"]
+    related_drugs: ["fruquintinib", "bevacizumab"]
+  sintilimab:
+    aliases: ["Tyvyt", "IBI308"]
+    cui: "C000711226"
+    pathways: ["immune checkpoint", "PD-1"]
+    related_drugs: ["fruquintinib", "pembrolizumab", "camrelizumab"]
+  camrelizumab:
+    aliases: ["AiRuiKa", "SHR-1210"]
+    cui: "C000711225"
+    pathways: ["immune checkpoint", "PD-1"]
+    related_drugs: ["surufatinib", "sintilimab", "pembrolizumab"]
   imatinib:
     aliases: ["Gleevec", "STI-571", "CGP57148"]
     cui: "C0935989"
@@ -270,10 +325,25 @@ umls_entities:
     pathways: ["EGFR", "ALK", "KRAS"]
     related_drugs: ["osimertinib", "crizotinib", "pembrolizumab"]
   "colorectal cancer":
-    aliases: ["CRC", "colon cancer", "rectal cancer"]
+    aliases: ["CRC", "colon cancer", "rectal cancer", "mCRC", "metastatic colorectal cancer"]
     cui: "C0009402"
-    pathways: ["EGFR", "BRAF", "KRAS"]
-    related_drugs: ["cetuximab", "bevacizumab"]
+    pathways: ["EGFR", "BRAF", "KRAS", "angiogenesis"]
+    related_drugs: ["cetuximab", "bevacizumab", "fruquintinib", "regorafenib"]
+  "neuroendocrine tumor":
+    aliases: ["NET", "neuroendocrine neoplasm", "pNET", "EP-NET"]
+    cui: "C0206754"
+    pathways: ["angiogenesis", "VEGFR"]
+    related_drugs: ["surufatinib", "sunitinib", "everolimus"]
+  "pancreatic cancer":
+    aliases: ["PDAC", "pancreatic ductal adenocarcinoma", "pancreatic carcinoma"]
+    cui: "C0235974"
+    pathways: ["KRAS", "angiogenesis"]
+    related_drugs: ["surufatinib", "gemcitabine", "nab-paclitaxel"]
+  "renal cell carcinoma":
+    aliases: ["RCC", "kidney cancer", "clear cell RCC", "ccRCC"]
+    cui: "C0007134"
+    pathways: ["VEGFR", "MET", "angiogenesis"]
+    related_drugs: ["sunitinib", "cabozantinib", "fruquintinib", "sintilimab"]
   melanoma:
     aliases: ["malignant melanoma", "skin melanoma"]
     cui: "C0025202"
@@ -377,6 +447,13 @@ chemical:
     aspirin: "CC(=O)Oc1ccccc1C(=O)O"
     caffeine: "CN1C=NC2=C1C(=O)N(C(=O)N2C)C"
     imatinib: "Cc1ccc(NC(=O)c2ccc(CN3CCN(C)CC3)cc2)cc1Nc1nccc(-c2cccnc2)n1"
+    fruquintinib: "CCc1nc2c(C)cc(-c3nc(N)nc(N4CCOCC4)n3)cc2n1CC"
+    savolitinib: "COc1cc2nccc(Oc3ccc(NC(=O)C4(C(=O)Nc5ccc(F)cc5)CC4)cc3F)c2cc1OC"
+    surufatinib: "COc1cc2nccc(Oc3ccc(NC(=O)Nc4cc(C(F)(F)F)ccc4Cl)c(F)c3)c2cc1OCCCN1CCOCC1"
+    sunitinib: "CCN(CC)CCNC(=O)c1c(C)[nH]c(C=C2C(=O)Nc3ccc(F)cc32)c1C"
+    osimertinib: "COc1cc(N(C)CCN(C)C)c(Nc2nccc(-c3cn(C)c4ccccc34)n2)cc1NC(=O)C=C"
+    gefitinib: "COc1cc2ncnc(Nc3ccc(F)c(Cl)c3)c2cc1OCCCN1CCOCC1"
+    lapatinib: "CS(=O)(=O)CCNCc1ccc(-c2ccc3ncnc(Nc4ccc(OCc5cccc(F)c5)c(Cl)c4)c3c2)o1"
 
 radiology:
   keywords:

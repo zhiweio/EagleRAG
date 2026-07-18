@@ -150,6 +150,7 @@ activemq-data/
 
 # Environments
 .env
+.env.biomed
 .envrc
 .venv
 env/
@@ -226,3 +227,8 @@ __marimo__/
 assets/
 .task/
 data/
+# Biomed eval reports (keep directory placeholder)
+eval/biomed/results/**
+!eval/biomed/results/.gitkeep
+# Downloaded corpus blobs live under assets/; lock file is generated locally
+eval/biomed/corpus/manifest.lock.json

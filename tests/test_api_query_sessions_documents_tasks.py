@@ -645,9 +645,12 @@ def _audit_row(job_id: str = "j1", status: str = "success", updated_at: str | No
 
 
 def test_list_tasks(client: TestClient) -> None:
-    """GET /tasks returns {items: TaskAuditOut[], limit, offset}."""
+    """GET /tasks returns {items: TaskAuditOut[], total, limit, offset}."""
     audits = [_audit_row("j1", "success"), _audit_row("j2", "pending", "t2")]
-    with patch("eagle_rag.api.ingest.task_state.list_audits", MagicMock(return_value=audits)):
+    with (
+        patch("eagle_rag.api.ingest.task_state.list_audits", MagicMock(return_value=audits)),
+        patch("eagle_rag.api.ingest.task_state.count_audits", MagicMock(return_value=2)),
+    ):
         response = client.get(
             "/tasks",
             params={
@@ -662,6 +665,7 @@ def test_list_tasks(client: TestClient) -> None:
     data = response.json()
     assert "items" in data
     assert len(data["items"]) == 2
+    assert data["total"] == 2
     assert data["items"][0]["job_id"] in {"j1", "j2"}
 
 

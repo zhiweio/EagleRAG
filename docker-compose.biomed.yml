@@ -1,0 +1,60 @@
+# Overlay for biomed / HUTCHMED local e2e (does not replace core .env).
+# Usage:
+#   docker compose --env-file .env.biomed \
+#     -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.biomed.yml \
+#     --profile dev up -d
+#
+# Ensures app containers load .env.biomed (base compose hardcodes env_file: .env).
+
+services:
+  api:
+    env_file:
+      - .env.biomed
+    environment:
+      EAGLE_RAG_PROFILE: biomed
+      PLUGIN_NAMESPACE: biomed
+      PYTHONPATH: /app
+      KB_NAME: hutchmed
+      VISUAL_EMBEDDING_PROVIDER: dashscope
+      VISUAL_EMBEDDING_MODEL: qwen3-vl-embedding
+      EAGLE_BIOMED_ENCODER_MODE: ${EAGLE_BIOMED_ENCODER_MODE:-auto}
+      EAGLE_BIOMED_ALLOW_DETERMINISTIC: ${EAGLE_BIOMED_ALLOW_DETERMINISTIC:-1}
+
+  worker-router:
+    env_file:
+      - .env.biomed
+    environment:
+      EAGLE_RAG_PROFILE: biomed
+      PLUGIN_NAMESPACE: biomed
+      PYTHONPATH: /app
+      KB_NAME: hutchmed
+      VISUAL_EMBEDDING_PROVIDER: dashscope
+      VISUAL_EMBEDDING_MODEL: qwen3-vl-embedding
+      EAGLE_BIOMED_ENCODER_MODE: ${EAGLE_BIOMED_ENCODER_MODE:-auto}
+      EAGLE_BIOMED_ALLOW_DETERMINISTIC: ${EAGLE_BIOMED_ALLOW_DETERMINISTIC:-1}
+
+  worker-knowhere:
+    env_file:
+      - .env.biomed
+    environment:
+      EAGLE_RAG_PROFILE: biomed
+      PLUGIN_NAMESPACE: biomed
+      PYTHONPATH: /app
+      KB_NAME: hutchmed
+      VISUAL_EMBEDDING_PROVIDER: dashscope
+      VISUAL_EMBEDDING_MODEL: qwen3-vl-embedding
+      EAGLE_BIOMED_ENCODER_MODE: ${EAGLE_BIOMED_ENCODER_MODE:-auto}
+      EAGLE_BIOMED_ALLOW_DETERMINISTIC: ${EAGLE_BIOMED_ALLOW_DETERMINISTIC:-1}
+
+  worker-pixelrag:
+    env_file:
+      - .env.biomed
+    environment:
+      EAGLE_RAG_PROFILE: biomed
+      PLUGIN_NAMESPACE: biomed
+      PYTHONPATH: /app
+      KB_NAME: hutchmed
+      VISUAL_EMBEDDING_PROVIDER: dashscope
+      VISUAL_EMBEDDING_MODEL: qwen3-vl-embedding
+      EAGLE_BIOMED_ENCODER_MODE: ${EAGLE_BIOMED_ENCODER_MODE:-auto}
+      EAGLE_BIOMED_ALLOW_DETERMINISTIC: ${EAGLE_BIOMED_ALLOW_DETERMINISTIC:-1}

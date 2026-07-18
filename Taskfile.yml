@@ -222,6 +222,77 @@ tasks:
     cmds:
       - curl -s http://localhost:{{.API_PORT}}/health | python3 -m json.tool
 
+  # ======================== Biomed profile (HUTCHMED eval; does not modify .env) ========================
+  biomed:env:
+    desc: Create .env.biomed from .env (or .env.example) with biomed profile overlays
+    cmds:
+      - |
+        if [ ! -f .env.biomed ]; then
+          if [ -f .env ]; then cp .env .env.biomed; else cp .env.biomed.example .env.biomed; fi
+        fi
+        python3 eval/biomed/scripts/apply_biomed_env.py .env.biomed
+        echo "Wrote/updated .env.biomed (EAGLE_RAG_PROFILE=biomed, KB_NAME=hutchmed, visual=dashscope)"
+
+  biomed:up:
+    desc: Start Docker stack with .env.biomed + docker-compose.biomed.yml (stop core first)
+    deps: [net:ensure, biomed:env]
+    preconditions:
+      - sh: test -f .env.biomed
+        msg: "Missing .env.biomed - run task biomed:env"
+    cmds:
+      - |
+        if [ "{{.KNOWHERE_MODE}}" != "parser" ]; then
+          unset POSTGRES_PASSWORD APP_ENV && (cd {{.KNOWHERE_DIR}} && docker compose up -d)
+        fi
+      - |
+        docker compose --env-file .env.biomed \
+          -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.biomed.yml \
+          --profile dev up -d
+      - echo "Biomed stack up - verify with task biomed:health"
+
+  biomed:down:
+    desc: Stop Docker stack started for biomed (same compose project)
+    cmds:
+      - |
+        docker compose --env-file .env.biomed \
+          -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.biomed.yml \
+          --profile dev down
+
+  biomed:health:
+    desc: Probe /health/plugins for biomed namespace + DashScope visual provider hint
+    cmds:
+      - |
+        curl -s http://localhost:{{.API_PORT}}/health/plugins | python3 -c "
+        import json,sys
+        d=json.load(sys.stdin)
+        ns=d.get('default_namespace') or d.get('plugin_namespace')
+        print('default_namespace=', ns)
+        print('enabled=', d.get('enabled_modules') or d.get('enabled') or d.get('plugins'))
+        assert ns=='biomed', f'expected biomed, got {ns}'
+        print('OK')
+        "
+
+  biomed:corpus:
+    desc: "Download HUTCHMED corpus (~300). Mainland: BIOMED_HTTP_PROXY=http://127.0.0.1:1087 or CORPUS_ARGS=--local-proxy"
+    deps: [biomed:env]
+    cmds:
+      - uv run python eval/biomed/corpus/download_corpus.py {{.CORPUS_ARGS}}
+
+  biomed:ingest:
+    desc: Batch POST /ingest for assets/biomed/hutchmed (+ fixtures)
+    cmds:
+      - uv run python eval/biomed/scripts/ingest_corpus.py {{.INGEST_ARGS}}
+
+  biomed:e2e:
+    desc: Biomed deploy smoke (health, KB, ingest sample, search)
+    cmds:
+      - uv run python eval/biomed/scripts/run_e2e.py {{.E2E_ARGS}}
+
+  biomed:eval:
+    desc: Biomed retrieval eval smoke (Hit@K / Recall@K / MRR)
+    cmds:
+      - uv run python eval/biomed/scripts/run_eval_smoke.py {{.EVAL_ARGS}}
+
   # ======================== Knowhere (self-hosted stack, KNOWHERE_MODE=api only) ========================
   # api mode: Knowhere document parser runs in docker/knowhere-self-hosted/compose.yaml;
   # eagle-rag reaches it via knowhere-net DNS name knowhere on :5005.
