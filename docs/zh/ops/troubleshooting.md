@@ -392,10 +392,10 @@ Prometheus 指标在 MCP 独立 `/metrics`（[`eagle_rag/metrics.py`](https://gi
 
 | 症状 | 原因 |
 | --- | --- |
-| 浏览器网络错误 | 前端构建中 `NEXT_PUBLIC_API_URL` 错误 |
+| 浏览器网络错误 | 前端构建中 `NEXT_PUBLIC_API_BASE` 错误 |
 | CORS（本地） | 浏览器无法到达 API 主机 |
 
-Dev Docker：`NEXT_PUBLIC_API_URL=http://localhost:8000`。Frontend `depends_on: api: service_healthy`。
+Dev Docker：`NEXT_PUBLIC_API_BASE=http://localhost:8000`。Frontend `depends_on: api: service_healthy`。
 
 ---
 

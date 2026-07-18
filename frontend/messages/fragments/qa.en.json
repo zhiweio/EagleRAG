@@ -23,7 +23,7 @@
       "filter": "Filter",
       "kbName": "Knowledge base",
       "kbNameAll": "All",
-      "kbNamePlaceholder": "Enter kb name, e.g. finance",
+      "kbNamePlaceholder": "Enter kb name, e.g. my-kb",
       "kbNameClear": "Clear",
       "kbNameHint": "Leave empty for the default kb; setting it narrows retrieval to that kb"
     },
@@ -210,9 +210,6 @@
       "docMeta": "{kb} · {nodes} nodes",
       "tagMeta": "{nodes} nodes · {kb} KBs",
       "navHint": "Multi-select across dimensions"
-    },
-    "scope": {
-      "exploratoryHint": "Empty scope searches the general text index by default. Biomedical specialized indexes require entity terms in the query, or narrow scope to documents/KBs that use them."
     },
     "role": {
       "user": "You",

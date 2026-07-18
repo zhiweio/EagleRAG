@@ -3,7 +3,7 @@
 Knowledge-base management UI at `/kb` and `/kb/[kbName]`. Components live in `components/kb/`.
 
 !!! note "Terminology"
-    - **Domain** (`plugin_namespace`) — deploy-time binding shown read-only in the AppBar. Not selectable in this UI.
+    - **Domain** (`plugin_namespace`) — deploy-time binding on the API process (Milvus Database). This Core UI does not display or switch domains.
     - **Knowledge base** (`kb_name`) — what this module creates, lists, and opens. Scalar filter inside the domain Milvus Database.
     - Do **not** call a KB a “namespace” or “tenant namespace” in UI copy.
 
@@ -98,7 +98,7 @@ Re-exports / narrows generated OpenAPI types for the knowledge-base module.
 ## Isolation UX notes
 
 - `kb_name` in the URL is the canonical KB identifier (lowercase + underscores)
-- AppBar shows the deploy **domain** (`NEXT_PUBLIC_PLUGIN_NAMESPACE`); users switch **KBs**, not domains
+- Built-in UI is Core-only; users switch **KBs** (`kb_name`), not deploy domains
 - Ingest page uses `TargetKBSelector` — separate from QA `scopeStore`
 - QA scope drawer can select **multiple** KBs via `scope_filter.kb_names[]`
 - i18n: prefer “knowledge base” / “知识库”; never “namespace” / “命名空间” for `kb_name`

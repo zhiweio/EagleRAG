@@ -3,7 +3,7 @@
 知识库管理 UI：`/kb` 与 `/kb/[kbName]`。组件在 `components/kb/`。
 
 !!! note "术语"
-    - **领域**（`plugin_namespace`）— 部署时绑定，AppBar 只读展示。本 UI **不可**切换领域。
+    - **领域**（`plugin_namespace`）— API 进程部署时绑定（Milvus Database）。Core 前端不展示、也不切换领域。
     - **知识库**（`kb_name`）— 本模块创建、列表与打开的对象；领域 Milvus Database 内的标量过滤键。
     - UI 文案中 **不要** 把知识库称作「命名空间」或「租户命名空间」。
 
@@ -98,7 +98,7 @@ Recharts 柱/面积图，颜色来自 KB `theme` token。
 ## 隔离 UX 说明
 
 - URL 中 `kb_name` 为规范知识库标识（小写 + 下划线）
-- AppBar 展示部署**领域**（`NEXT_PUBLIC_PLUGIN_NAMESPACE`）；用户切换的是**知识库**，不是领域
+- 内置前端仅 Core；用户切换的是**知识库**（`kb_name`），不是部署领域
 - 入库页用 `TargetKBSelector` —— 与问答 `scopeStore` 分离
 - 问答 scope 抽屉可通过 `scope_filter.kb_names[]` 选择**多个** KB
 - i18n：用「知识库」/ “knowledge base”；勿用「命名空间」指代 `kb_name`

@@ -166,7 +166,7 @@ curl -s http://localhost:8000/query -H 'Content-Type: application/json' \
 | `/health` 显示 milvus `down` | Milvus 仍在启动（约 60s） | 等待；`task ps` |
 | 查询返回 API 错误 | 缺少 `LLM_API_KEY` / `VLM_API_KEY` | 编辑 `.env`；重启 API |
 | 入库任务 `FAILED` | Knowhere 不可达 | `task knowhere:health` |
-| 前端无法连 API | `NEXT_PUBLIC_API_URL` 错误 | 设为 `http://localhost:8000` |
+| 前端无法连 API | `NEXT_PUBLIC_API_BASE` 错误 | 设为 `http://localhost:8000` |
 
 ---
 

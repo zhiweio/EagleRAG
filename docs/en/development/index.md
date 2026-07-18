@@ -122,7 +122,7 @@ bun run format
 
 Stack: Next.js 16, React 19, HeroUI v3, Tailwind v4, `next-intl` (zh/en), **light theme only**.
 
-`NEXT_PUBLIC_API_URL` must point at the API origin the browser can reach.
+`NEXT_PUBLIC_API_BASE` must point at the API origin the browser can reach.
 
 ## MCP tools
 

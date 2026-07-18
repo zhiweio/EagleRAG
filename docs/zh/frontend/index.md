@@ -15,7 +15,7 @@ Eagle-RAG 前端是基于 **Next.js 16** 的多模态检索增强生成（RAG）
 | 四锚点溯源 | `VisualSourceCard`（chunk_type / parent_section / content_summary / source_chunk_id） |
 | 文档结构 + 视觉命中 | `DocumentStructureTree`、Sources 栏 |
 | 路由 / `collection_plans` 可读性 | `ThinkingTrace` 路由步骤 |
-| Core 健康与部署域只读标签 | `/health`（不做垂类功能） |
+| Core 健康（knowhere / pixelrag / MCP） | `/health`（不做垂类功能） |
 
 ---
 
@@ -119,7 +119,6 @@ Next.js 16 将 `params` 作为 `Promise<{ locale: string }>` —— layout 在 `
 | 变量 | 默认 | 用途 |
 |----------|---------|---------|
 | `NEXT_PUBLIC_API_BASE` | `http://localhost:8000` | REST + SSE 基址 |
-| `NEXT_PUBLIC_PLUGIN_NAMESPACE` | `core` | AppBar 只读**领域**标签（`plugin_namespace`） |
 | `OPENAPI_URL` | 回退到 API 基址 | `bun run api:gen` 输入 |
 
 ---

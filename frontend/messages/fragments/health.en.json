@@ -50,7 +50,7 @@
     "mcpConfig": {
       "title": "MCP Server Configuration",
       "badge": "Streamable HTTP",
-      "desc": "Configure the endpoint below in your Agent / LLM app to gain universal knowledge-base retrieval (supports finance / patent / pharma multi-KB).",
+      "desc": "Configure the endpoint below in your Agent / LLM app to gain universal knowledge-base retrieval (multi-KB via kb_name).",
       "copy": "Copy",
       "copied": "Copied",
       "statusOnline": "Online",
@@ -218,8 +218,6 @@
       "documents": "{n} documents",
       "partitionMeta": "Documents: {documents} · Chunks: {chunks}",
       "tag": {
-        "patent": "Patent KB",
-        "finance": "Finance KB",
         "kb": "Knowledge base"
       },
       "actions": {

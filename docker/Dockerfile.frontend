@@ -2,9 +2,9 @@
 # Eagle-RAG frontend image (Next.js standalone output, multi-stage).
 # builder: Bun install + build (next.config.ts output:"standalone" → .next/standalone).
 # runtime: slim Node runtime with only standalone server + static + public + messages.
-# Build-time inject NEXT_PUBLIC_API_URL (browser → backend API; inlined into client bundle).
+# Build-time inject NEXT_PUBLIC_API_BASE (browser → backend API; inlined into client bundle).
 # Build: docker build -f docker/Dockerfile.frontend -t eagle-rag-frontend \
-#         --build-arg NEXT_PUBLIC_API_URL=http://localhost:8000 .
+#         --build-arg NEXT_PUBLIC_API_BASE=http://localhost:8000 .
 ARG NODE_VERSION=20
 
 # ---------------- builder ----------------
@@ -13,8 +13,8 @@ FROM oven/bun:1.2.18 AS builder
 WORKDIR /app
 
 # Build-time browser → backend API URL (Next.js inlines NEXT_PUBLIC_* into the client bundle).
-ARG NEXT_PUBLIC_API_URL=http://localhost:8000
-ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ARG NEXT_PUBLIC_API_BASE=http://localhost:8000
+ENV NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}
 
 # Install deps first (layer cache): copy manifests/lockfile, then frozen install.
 COPY frontend/package.json frontend/bun.lock ./

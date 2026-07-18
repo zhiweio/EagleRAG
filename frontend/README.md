@@ -37,7 +37,7 @@ bun run format
 bun run api:gen      # Regenerate OpenAPI client from backend /openapi.json
 ```
 
-Set `NEXT_PUBLIC_API_BASE_URL` (default `http://localhost:8000`) to point at the FastAPI backend.
+Set `NEXT_PUBLIC_API_BASE` (default `http://localhost:8000`) to point at the FastAPI backend.
 
 ## Constraints
 

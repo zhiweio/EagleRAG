@@ -10,9 +10,7 @@
     "manageAccount": "Account & preferences",
     "history": "History",
     "collapseSidebar": "Collapse sidebar",
-    "expandSidebar": "Expand sidebar",
-    "domain": "Domain: {domain}",
-    "domainHint": "Deployment domain (plugin_namespace, read-only). Select knowledge bases (kb_name) within this domain — not a domain switcher."
+    "expandSidebar": "Expand sidebar"
   },
   "nav": {
     "qa": "Q&A",

@@ -392,10 +392,10 @@ Prometheus metrics live on MCP standalone `/metrics` ([`eagle_rag/metrics.py`](h
 
 | Symptom | Cause |
 | --- | --- |
-| Browser network error | `NEXT_PUBLIC_API_URL` wrong in frontend build |
+| Browser network error | `NEXT_PUBLIC_API_BASE` wrong in frontend build |
 | CORS (local) | API host not reachable from browser |
 
-Dev Docker: `NEXT_PUBLIC_API_URL=http://localhost:8000`. Frontend `depends_on: api: service_healthy`.
+Dev Docker: `NEXT_PUBLIC_API_BASE=http://localhost:8000`. Frontend `depends_on: api: service_healthy`.
 
 ---
 

@@ -15,7 +15,7 @@ This page is the entry point for frontend documentation.
 | Four-anchor provenance | `VisualSourceCard` (`chunk_type` / `parent_section` / `content_summary` / `source_chunk_id`) |
 | Document structure + visual hits | `DocumentStructureTree`, Sources rail |
 | Route / `collection_plans` readability | `ThinkingTrace` route step |
-| Core health + read-only deploy domain label | `/health` (no vertical features) |
+| Core health (knowhere / pixelrag / MCP) | `/health` (no vertical features) |
 
 See [ADR-008](../architecture/adr/008-rag-only-plugin-platform.md).
 
@@ -121,7 +121,6 @@ All routes under `app/[locale]/`. No `getServerSideProps`.
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `NEXT_PUBLIC_API_BASE` | `http://localhost:8000` | REST + SSE base URL |
-| `NEXT_PUBLIC_PLUGIN_NAMESPACE` | `core` | Read-only deploy **domain** label in AppBar (`plugin_namespace`) |
 | `OPENAPI_URL` | falls back to API base | `bun run api:gen` input |
 
 ---

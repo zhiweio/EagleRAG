@@ -234,7 +234,7 @@ frontend/
 └── biome.json
 ```
 
-Frontend talks to backend only via HTTP (`NEXT_PUBLIC_API_URL`). No shared Python/TS types — OpenAPI is the contract.
+Frontend talks to backend only via HTTP (`NEXT_PUBLIC_API_BASE`). No shared Python/TS types — OpenAPI is the contract.
 
 ## `tests/` structure
 

@@ -234,7 +234,7 @@ frontend/
 └── biome.json
 ```
 
-前端仅通过 HTTP 与后端通信（`NEXT_PUBLIC_API_URL`）。无共享 Python/TS 类型 —— OpenAPI 即契约。
+前端仅通过 HTTP 与后端通信（`NEXT_PUBLIC_API_BASE`）。无共享 Python/TS 类型 —— OpenAPI 即契约。
 
 ## `tests/` 结构
 

@@ -74,16 +74,8 @@ export function AppBar() {
           <SearchKbd />
         </button>
 
-        {/* Right · deployment domain (read-only) + locale */}
+        {/* Right · locale */}
         <div className="ml-auto flex shrink-0 items-center gap-3">
-          <span
-            className="hidden rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium text-foreground-secondary sm:inline"
-            title={t("app.domainHint")}
-          >
-            {t("app.domain", {
-              domain: process.env.NEXT_PUBLIC_PLUGIN_NAMESPACE ?? "core",
-            })}
-          </span>
           <LocaleSwitcher />
         </div>
       </div>

@@ -199,7 +199,7 @@ In-process `pixelrag_render` + `pixelrag_embed`.
 | MinIO | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Object storage |
 | Postgres | `POSTGRES_DSN`, `POSTGRES_*` | Metadata |
 | Router | `ROUTER_MODE` | `auto` / `text` / `visual` / `hybrid` |
-| Frontend | `NEXT_PUBLIC_API_URL` | Browser → API URL |
+| Frontend | `NEXT_PUBLIC_API_BASE` | Browser → API URL |
 
 Override path for alternate config file:
 

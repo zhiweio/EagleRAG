@@ -199,7 +199,7 @@ sequenceDiagram
 | MinIO | `MINIO_ENDPOINT`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY` | 对象存储 |
 | Postgres | `POSTGRES_DSN`、`POSTGRES_*` | 元数据 |
 | Router | `ROUTER_MODE` | `auto` / `text` / `visual` / `hybrid` |
-| Frontend | `NEXT_PUBLIC_API_URL` | 浏览器 → API URL |
+| Frontend | `NEXT_PUBLIC_API_BASE` | 浏览器 → API URL |
 
 备用配置文件路径：
 

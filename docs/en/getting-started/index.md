@@ -166,7 +166,7 @@ curl -s http://localhost:8000/query -H 'Content-Type: application/json' \
 | `/health` shows milvus `down` | Milvus still starting (~60s) | Wait; `task ps` |
 | Query returns API error | Missing `LLM_API_KEY` / `VLM_API_KEY` | Edit `.env`; restart API |
 | Ingest task `FAILED` | Knowhere unreachable | `task knowhere:health` |
-| Frontend cannot reach API | Wrong `NEXT_PUBLIC_API_URL` | Set to `http://localhost:8000` |
+| Frontend cannot reach API | Wrong `NEXT_PUBLIC_API_BASE` | Set to `http://localhost:8000` |
 
 ---
 
