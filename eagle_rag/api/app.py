@@ -9,10 +9,11 @@ before deployment.
 from __future__ import annotations
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
+from eagle_rag.api.deps import enforce_plugin_namespace_header
 from eagle_rag.api.mcp_http import build_mcp_app, get_combined_lifespan
 from eagle_rag.api.schemas.common import RootResponse
 from eagle_rag.config import get_settings
@@ -32,7 +33,12 @@ mcp_app = build_mcp_app(path="/")
 # lifespan), then start the fastmcp ``StreamableHTTPSessionManager`` task group
 # (``mcp_app.lifespan``) so MCP HTTP requests don't raise
 # ``Task group is not initialized``.
-app = FastAPI(title="Eagle-RAG", version="0.1.0", lifespan=get_combined_lifespan(mcp_app))
+app = FastAPI(
+    title="Eagle-RAG",
+    version="0.1.0",
+    lifespan=get_combined_lifespan(settings.mcp.streamable_http_path),
+    dependencies=[Depends(enforce_plugin_namespace_header)],
+)
 
 # Telemetry middleware: open a SERVER span per HTTP request and bind
 # request_id/trace_id (does not read the body).

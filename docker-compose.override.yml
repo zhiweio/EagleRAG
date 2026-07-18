@@ -7,7 +7,7 @@
 
 services:
   api:
-    # 热重载：仅监听 eagle_rag 源码；勿监视 ./data（HuggingFace 缓存写入会触发 reload 并中断 SSE）。
+    # 热重载：监听 eagle_rag + plugins；勿监视 ./data（HF 缓存写入会触发 reload）。
     command:
       [
         "uvicorn",
@@ -19,27 +19,47 @@ services:
         "--reload",
         "--reload-dir",
         "eagle_rag",
+        "--reload-dir",
+        "plugins",
       ]
+    environment:
+      # Deployment profile: core | biomed | lakehouse-bi (see settings.yaml profiles)
+      EAGLE_RAG_PROFILE: ${EAGLE_RAG_PROFILE:-core}
+      EAGLE_BIOMED_ENCODER_MODE: ${EAGLE_BIOMED_ENCODER_MODE:-deterministic}
+      EAGLE_BIOMED_ALLOW_DETERMINISTIC: ${EAGLE_BIOMED_ALLOW_DETERMINISTIC:-1}
     volumes:
       - ./eagle_rag:/app/eagle_rag:ro
+      - ./plugins:/app/plugins:ro
 
   # Worker dev：仅挂载源码便于查看版本一致性，不再做热重载。
-  # 之前用 watchfiles 包装 celery 实现 .py 变更自动重启，但 yaml 的 `>` 折叠会
-  # 把 $${VAR} 仍传到 sh 单层解析 → Celery 拿到字面量 '${CONCURRENCY}' →
-  # "Invalid value for '-c': '${CONCURRENCY}' is not a valid integer"。
   # 改动 celery/任务代码后请用 `docker compose restart worker-*` 手动重启。
   worker-router:
+    environment:
+      EAGLE_RAG_PROFILE: ${EAGLE_RAG_PROFILE:-core}
+      EAGLE_BIOMED_ENCODER_MODE: ${EAGLE_BIOMED_ENCODER_MODE:-deterministic}
+      EAGLE_BIOMED_ALLOW_DETERMINISTIC: ${EAGLE_BIOMED_ALLOW_DETERMINISTIC:-1}
     volumes:
       - ./eagle_rag:/app/eagle_rag:ro
+      - ./plugins:/app/plugins:ro
 
   worker-knowhere:
+    environment:
+      EAGLE_RAG_PROFILE: ${EAGLE_RAG_PROFILE:-core}
+      EAGLE_BIOMED_ENCODER_MODE: ${EAGLE_BIOMED_ENCODER_MODE:-deterministic}
+      EAGLE_BIOMED_ALLOW_DETERMINISTIC: ${EAGLE_BIOMED_ALLOW_DETERMINISTIC:-1}
     volumes:
       - ./eagle_rag:/app/eagle_rag:ro
+      - ./plugins:/app/plugins:ro
     deploy: !reset null
 
   worker-pixelrag:
+    environment:
+      EAGLE_RAG_PROFILE: ${EAGLE_RAG_PROFILE:-core}
+      EAGLE_BIOMED_ENCODER_MODE: ${EAGLE_BIOMED_ENCODER_MODE:-deterministic}
+      EAGLE_BIOMED_ALLOW_DETERMINISTIC: ${EAGLE_BIOMED_ALLOW_DETERMINISTIC:-1}
     volumes:
       - ./eagle_rag:/app/eagle_rag:ro
+      - ./plugins:/app/plugins:ro
     deploy: !reset null
 
   frontend:

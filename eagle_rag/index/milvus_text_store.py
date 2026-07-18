@@ -52,6 +52,71 @@ logger = get_logger(__name__)
 
 _text_vector_store: MilvusVectorStore | None = None
 _text_index: VectorStoreIndex | None = None
+_text_stores_by_db: dict[str, MilvusVectorStore] = {}
+_text_indices_by_db: dict[str, VectorStoreIndex] = {}
+
+
+def _resolve_ns(plugin_namespace: str | None) -> str:
+    from eagle_rag.db.repositories.base import instance_namespace
+
+    return instance_namespace(plugin_namespace)
+
+
+def _db_name(plugin_namespace: str | None) -> str:
+    from eagle_rag.plugins.milvus_ns import milvus_db_name
+
+    return milvus_db_name(_resolve_ns(plugin_namespace))
+
+
+def get_text_vector_store(plugin_namespace: str | None = None) -> MilvusVectorStore:
+    """Return a text vector store for the namespace database (G6 thin wrapper)."""
+    db_name = _db_name(plugin_namespace)
+    if db_name == "default" and plugin_namespace is None:
+        global _text_vector_store  # noqa: PLW0603
+        if _text_vector_store is not None:
+            return _text_vector_store
+    cached = _text_stores_by_db.get(db_name)
+    if cached is not None:
+        return cached
+    try:
+        from llama_index.vector_stores.milvus import MilvusVectorStore
+    except ImportError:  # pragma: no cover
+        from llama_index_vector_stores_milvus import MilvusVectorStore  # noqa: I001
+
+    cfg = get_settings().milvus
+    uri = f"http://{cfg.host}:{cfg.port}"
+    store = MilvusVectorStore(
+        uri=uri,
+        collection_name=cfg.text_collection,
+        dim=cfg.dim_text,
+        overwrite=False,
+        similarity_metric="COSINE",
+    )
+    _text_stores_by_db[db_name] = store
+    if db_name == "default" and plugin_namespace is None:
+        _text_vector_store = store
+    return store
+
+
+def get_text_index(plugin_namespace: str | None = None) -> VectorStoreIndex:
+    """Return a text ``VectorStoreIndex`` for the namespace database."""
+    db_name = _db_name(plugin_namespace)
+    if db_name == "default" and plugin_namespace is None:
+        global _text_index  # noqa: PLW0603
+        if _text_index is not None:
+            return _text_index
+    cached = _text_indices_by_db.get(db_name)
+    if cached is not None:
+        return cached
+    from llama_index.core import VectorStoreIndex
+
+    vector_store = get_text_vector_store(plugin_namespace)
+    embed_model = _build_embed_model()
+    index = VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)
+    _text_indices_by_db[db_name] = index
+    if db_name == "default" and plugin_namespace is None:
+        _text_index = index
+    return index
 
 
 def _build_embed_model():
@@ -138,56 +203,62 @@ def _build_embed_model():
     return _DimensionalDashScopeEmbedding(**kwargs)
 
 
-def get_text_vector_store() -> MilvusVectorStore:
-    """Return the text vector store singleton (lazy, reads ``settings.milvus``).
-
-    Uses collection=text_collection, dim=dim_text, overwrite=False,
-    similarity_metric=COSINE (matches DashScope text-embedding-v4 normalized output).
-    """
-    global _text_vector_store  # noqa: PLW0603
-    if _text_vector_store is None:
-        try:
-            from llama_index.vector_stores.milvus import MilvusVectorStore
-        except ImportError:  # pragma: no cover
-            from llama_index_vector_stores_milvus import (  # noqa: I001
-                MilvusVectorStore,
-            )
-
-        cfg = get_settings().milvus
-        uri = f"http://{cfg.host}:{cfg.port}"
-        logger.info(
-            "Initializing Milvus text vector store: uri=%s collection=%s dim=%s metric=COSINE",
-            uri,
-            cfg.text_collection,
-            cfg.dim_text,
-        )
-        _text_vector_store = MilvusVectorStore(
-            uri=uri,
-            collection_name=cfg.text_collection,
-            dim=cfg.dim_text,
-            overwrite=False,
-            similarity_metric="COSINE",
-        )
-    return _text_vector_store
-
-
-def get_text_index() -> VectorStoreIndex:
-    """Return the text ``VectorStoreIndex`` singleton (lazy; embed_model is lazily built)."""
-    global _text_index  # noqa: PLW0603
-    if _text_index is None:
-        from llama_index.core import VectorStoreIndex
-
-        vector_store = get_text_vector_store()
-        embed_model = _build_embed_model()
-        _text_index = VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)
-    return _text_index
-
-
-def upsert_text_nodes(nodes: list[TextNode]) -> list[str]:
-    """Insert a list of ``TextNode`` into the text index and return their node_ids."""
-    index = get_text_index()
+def upsert_text_nodes(
+    nodes: list[TextNode],
+    *,
+    plugin_namespace: str | None = None,
+    collection: str | None = None,
+) -> list[str]:
+    """Insert text nodes into the namespace text collection and return node ids."""
+    coll = collection or get_settings().milvus.text_collection
+    if coll != get_settings().milvus.text_collection:
+        return _upsert_text_nodes_direct(nodes, collection=coll, plugin_namespace=plugin_namespace)
+    index = get_text_index(plugin_namespace)
     index.insert_nodes(nodes)
     return [n.node_id for n in nodes]
+
+
+def _upsert_text_nodes_direct(
+    nodes: list[TextNode],
+    *,
+    collection: str,
+    plugin_namespace: str | None,
+) -> list[str]:
+    """Direct MilvusClient upsert for non-default collections (G6)."""
+    from eagle_rag.index.milvus_pool import get_milvus_pool
+
+    client = get_milvus_pool().get(plugin_namespace=plugin_namespace)
+    rows: list[dict[str, Any]] = []
+    ids: list[str] = []
+    for node in nodes:
+        text = node.get_content()
+        meta = node.metadata or {}
+        embedding = meta.get("embedding")
+        if isinstance(embedding, list) and embedding:
+            vector = embedding
+        else:
+            encoder_name = str(meta.get("target_encoder") or "text-embedding-v4")
+            from eagle_rag.plugins.encoder_runtime import encode_text_for_encoder
+
+            vector = encode_text_for_encoder(encoder_name, text)
+        row_id = node.node_id
+        rows.append(
+            {
+                "id": row_id,
+                "vector": vector,
+                "text": text,
+                "document_id": meta.get("document_id", ""),
+                "kb_name": meta.get("kb_name", get_settings().kb_name),
+                "path": meta.get("path", ""),
+                "type": meta.get("type", "text"),
+                "source_type": meta.get("source_type"),
+                "source_chunk_id": meta.get("source_chunk_id"),
+            }
+        )
+        ids.append(row_id)
+    if rows:
+        client.upsert(collection_name=collection, data=rows)
+    return ids
 
 
 def delete_text_nodes(node_ids: list[str]) -> None:
@@ -279,51 +350,44 @@ def search_text(
     return out
 
 
-def _get_text_milvus_client():
-    """Get a MilvusClient for management ops (count / delete).
+def _get_text_milvus_client(plugin_namespace: str | None = None):
+    """Return pooled ``(client, collection_name)`` for management ops (G24).
 
-    Returns ``(client, collection_name)``; returns ``(None, None)`` if the
-    collection does not exist. The caller is responsible for ``client.close()``
-    after use.
+    Returns ``(None, None)`` when the text collection does not exist.
+    **Never** call ``close()`` on the pooled client.
     """
-    from pymilvus import MilvusClient
+    from eagle_rag.db.repositories.base import instance_namespace
+    from eagle_rag.index.milvus_pool import get_milvus_pool
 
     cfg = get_settings().milvus
-    client = MilvusClient(uri=f"http://{cfg.host}:{cfg.port}")
+    ns = instance_namespace(plugin_namespace)
+    client = get_milvus_pool().get(plugin_namespace=ns)
     if not client.has_collection(cfg.text_collection):
-        client.close()
         return None, None
     return client, cfg.text_collection
 
 
-def count_text(*, kb_name: str | None = None) -> int:
+def count_text(*, kb_name: str | None = None, plugin_namespace: str | None = None) -> int:
     """Count text vector entities by kb_name (metadata dynamic field)."""
-    client, coll_name = _get_text_milvus_client()
+    client, coll_name = _get_text_milvus_client(plugin_namespace)
     if client is None:
         return 0
+    if kb_name is None:
+        stats = client.get_collection_stats(coll_name)
+        return int(stats.get("row_count", 0))
+    expr = f'kb_name == "{kb_name}"'
     try:
-        if kb_name is None:
-            stats = client.get_collection_stats(coll_name)
-            return int(stats.get("row_count", 0))
-        expr = f'kb_name == "{kb_name}"'
+        rows = client.query(coll_name, filter=expr, output_fields=["count(*)"])
+        if rows:
+            return int(rows[0].get("count(*)", 0))
+        return 0
+    except Exception:  # noqa: BLE001
         try:
-            rows = client.query(coll_name, filter=expr, output_fields=["count(*)"])
-            if rows:
-                return int(rows[0].get("count(*)", 0))
+            rows = client.query(coll_name, filter=expr, output_fields=["id"], limit=-1)
+            return len(rows)
+        except Exception:  # noqa: BLE001
+            logger.warning("count_text query failed kb=%s", kb_name)
             return 0
-        except Exception:  # noqa: BLE001
-            # fallback: query all ids without limit (accurate but memory-heavy)
-            try:
-                rows = client.query(coll_name, filter=expr, output_fields=["id"], limit=-1)
-                return len(rows)
-            except Exception:  # noqa: BLE001
-                logger.warning("count_text query failed kb=%s", kb_name)
-                return 0
-    finally:
-        try:
-            client.close()
-        except Exception:  # noqa: BLE001
-            pass
 
 
 # Metadata fields stored in Milvus dynamic field (must match chunks_to_text_nodes).
@@ -348,7 +412,7 @@ _REINDEX_OUTPUT_FIELDS = [
 _REINDEX_QUERY_BATCH = 1000
 
 
-def fetch_text_nodes_by_kb(kb_name: str) -> list[Any]:
+def fetch_text_nodes_by_kb(kb_name: str, *, plugin_namespace: str | None = None) -> list[Any]:
     """Fetch all TextNode data from Milvus for a given KB (for reindex).
 
     Returns a list of dicts with ``id``, ``text``, and ``metadata`` keys,
@@ -358,7 +422,7 @@ def fetch_text_nodes_by_kb(kb_name: str) -> list[Any]:
     Uses pagination (``_REINDEX_QUERY_BATCH``) to avoid loading everything
     into memory at once for large KBs.
     """
-    client, coll_name = _get_text_milvus_client()
+    client, coll_name = _get_text_milvus_client(plugin_namespace)
     if client is None:
         return []
 
@@ -394,11 +458,6 @@ def fetch_text_nodes_by_kb(kb_name: str) -> list[Any]:
         logger.info("fetch_text_nodes_by_kb: kb=%s fetched %d nodes", kb_name, len(nodes_data))
     except Exception as exc:  # noqa: BLE001
         logger.warning("fetch_text_nodes_by_kb failed kb=%s: %s", kb_name, exc)
-    finally:
-        try:
-            client.close()
-        except Exception:  # noqa: BLE001
-            pass
 
     return nodes_data
 
@@ -507,6 +566,7 @@ def fetch_text_nodes_by_document_id(
     limit: int | None = None,
     kb_name: str | None = None,
     path_prefix: str | None = None,
+    plugin_namespace: str | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch a document's text nodes from Milvus for structure reconstruction.
 
@@ -528,7 +588,7 @@ def fetch_text_nodes_by_document_id(
         carries ``path`` / ``level`` / ``summary`` / ``type`` / ``chunk_count``,
         enough to rebuild the section tree without a Knowhere re-parse.
     """
-    client, coll_name = _get_text_milvus_client()
+    client, coll_name = _get_text_milvus_client(plugin_namespace)
     if client is None:
         return []
 
@@ -576,11 +636,6 @@ def fetch_text_nodes_by_document_id(
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("fetch_text_nodes_by_document_id failed doc=%s: %s", document_id, exc)
-    finally:
-        try:
-            client.close()
-        except Exception:  # noqa: BLE001
-            pass
 
     return nodes_data
 
@@ -624,26 +679,9 @@ def reindex_kb_text(kb_name: str) -> int:
     return len(nodes)
 
 
-def delete_text_by_kb(kb_name: str) -> int:
+def delete_text_by_kb(kb_name: str, *, plugin_namespace: str | None = None) -> int:
     """Delete text vectors by kb_name."""
-    client, coll_name = _get_text_milvus_client()
-    if client is None:
-        return 0
-    try:
-        expr = f'kb_name == "{kb_name}"'
-        try:
-            rows = client.query(coll_name, filter=expr, output_fields=["id"], limit=16384)
-            if not rows:
-                rows = client.query(coll_name, filter=expr, output_fields=["node_id"], limit=16384)
-            if not rows:
-                return 0
-            client.delete(coll_name, filter=expr)
-            return len(rows)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("delete_text_by_kb failed kb=%s: %s", kb_name, exc)
-            return 0
-    finally:
-        try:
-            client.close()
-        except Exception:  # noqa: BLE001
-            pass
+    from eagle_rag.index.milvus_kb_ops import base_collection_names, delete_vectors_by_kb
+
+    text_coll, _ = base_collection_names()
+    return delete_vectors_by_kb(text_coll, kb_name, plugin_namespace=plugin_namespace)

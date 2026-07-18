@@ -9,8 +9,9 @@ Entry points: [`README.md`](https://github.com/fintax-ai/eagle-rag/blob/master/R
 ```
 eagle-rag/
 ├── eagle_rag/              # Python backend package (primary)
-├── frontend/               # Next.js 16 app (Bun)
-├── tests/                  # Pytest suite
+├── plugins/                # In-repo domain plugins (biomed / lakehouse_bi / _template)
+├── frontend/               # Next.js 16 app (Bun) — Core showcase UI only
+├── tests/                  # Pytest suite (includes tests/plugins/)
 ├── alembic/                # Database migrations
 │   └── versions/
 ├── docker/                 # Dockerfiles + knowhere-self-hosted/
@@ -36,8 +37,8 @@ eagle-rag/
 | `retrievers/` | LlamaIndex retrievers (text graph, visual) |
 | `router/` | `EagleRouterQueryEngine`, LLM routing, scope filter resolution |
 | `generation/` | Multimodal answer synthesis (VLM streaming) |
-| `index/` | Milvus text/visual stores, tag catalog, document structure |
-| `db/` | SQLModel models, async/sync DB helpers |
+| `index/` | Milvus text/visual stores, `milvus_pool.py`, tag catalog, document structure |
+| `db/` | SQLModel models, `namespace.py`, async/sync DB helpers, **repositories/** |
 | `storage/` | MinIO client, dedup registry |
 | `kb/` | Knowledge-base registry, lifecycle, stats |
 | `sessions/` | Session + message persistence |
@@ -45,9 +46,12 @@ eagle-rag/
 | `notifications/` | User notification store |
 | `tasks/` | Celery app, dead letter, task state audit |
 | `admin/` | Queue metrics sampling, MCP log, system settings |
+| `plugins/` (in-package) | Microkernel: HookBus, PluginManager, hotpath_hooks, mcp_registry |
 | `telemetry/` | loguru, structlog, OpenTelemetry |
 | `metrics.py` | Prometheus MCP metrics (standalone app) |
-| `config.py` | Settings loader |
+| `config.py` | Settings loader (includes `plugin_options()`) |
+
+The repo root also has in-repo domain plugins under `plugins/` (`biomed`, `lakehouse_bi`, `_template`). Authoring: [Authoring an industry plugin](../guides/authoring-industry-plugin.md). Product boundary: [ADR-008](../architecture/adr/008-rag-only-plugin-platform.md).
 
 ## Module dependency graph
 
@@ -71,6 +75,14 @@ flowchart TB
         SCH["schemas/"]
     end
 
+    subgraph plugins_kernel["eagle_rag/plugins/"]
+        PLM["manager.py PluginManager"]
+        HB["hookbus.py"]
+        IO["ingest_orchestrator.py"]
+        RO["retriever_orchestrator.py"]
+        MCPR["mcp_registry.py"]
+    end
+
     subgraph orchestration["Orchestration"]
         RE["router/router_engine.py"]
         GEN["generation/multimodal_engine.py"]
@@ -92,8 +104,10 @@ flowchart TB
     end
 
     subgraph data_layer["Data layer"]
+        POOL["index/milvus_pool.py"]
         MTX["index/milvus_text_store.py"]
         MVX["index/milvus_visual_store.py"]
+        REPO["db/repositories/"]
         MIN["storage/minio_client.py"]
         DED["storage/dedup.py"]
         DBM["db/models/*"]
@@ -112,40 +126,48 @@ flowchart TB
     subgraph observability["Observability"]
         TEL["telemetry/*"]
         ADM["admin/metrics.py"]
-        PM["metrics.py"]
+        MET["metrics.py"]
     end
 
     FE & MCPc & HTTP --> APP
     APP --> Q & ING & DOC & HL & MCP
+    APP --> PLM
+    MCP --> PLM
+    PLM --> HB
+    HB --> IO & RO
     Q --> RE --> GEN
+    RE --> RO
+    RO --> RET_K & RET_P
     RE --> RET_K & RET_P
     RET_K --> MTX
     RET_P --> MVX
+    MTX & MVX --> POOL
     GEN --> DS
     ING --> RUN --> RTR
+    IO --> MTX & MVX
     RTR --> CEL
     CEL --> KA & PA
     KA --> KH
     KA --> MTX
     PA --> MVX
     KA & PA --> MIN
-    RUN --> DED --> DBM
-    Q --> SESS --> DBM
+    RUN --> DED --> REPO --> DBM
+    Q --> SESS --> REPO
     HL --> ADM
-    MCP --> PM
+    MCP --> MET
     APP & CEL --> TEL
-    DBM --> PG
+    REPO --> PG
     CEL --> RD
-    MTX & MVX --> MV
+    POOL --> MV
     MIN --> S3
 ```
 
 ### Layer rules
 
-1. **`api/`** may call `router`, `ingest/runner`, `sessions`, `kb`, `admin` — not Milvus directly from routers (go through stores/retrievers).
-2. **`ingest/`** tasks write via `index/` + `storage/`; dispatch uses `send_task_with_trace`.
-3. **`router/`** + **`generation/`** read vectors only through retrievers and image store.
-4. **`db/models/`** — no business logic; Alembic owns schema.
+1. **`api/`** may call `router`, `ingest/runner`, `plugins` (via engines), `sessions`, `kb`, `admin` — not Milvus directly from routers (go through stores/retrievers/orchestrators).
+2. **`ingest/`** tasks write via `index/` + `IngestOrchestrator` hooks + `storage/`; dispatch uses `send_task_with_trace`.
+3. **`router/`** + **`generation/`** read vectors through retrievers and `RetrieverOrchestrator`.
+4. **`db/repositories/`** inject `plugin_namespace` on all PG reads/writes — no business logic in models.
 5. **`telemetry/`** — no imports from api/ingest (avoid cycles); consumers import telemetry.
 
 ## Request path (query)
@@ -251,7 +273,7 @@ alembic/
 ├── script.py.mako
 └── versions/
     ├── 0001_*.py
-    └── 0002_health_module_tables.py
+    └── 0008_namespace_unique_constraints.py
 ```
 
 Models live in `eagle_rag/db/models/`; migrations are the only DDL path.
@@ -284,10 +306,10 @@ Models live in `eagle_rag/db/models/`; migrations are the only DDL path.
 | Feature type | Touch |
 | --- | --- |
 | REST endpoint | `api/schemas/`, `api/<router>.py`, `app.py` include |
-| MCP tool | `mcp_server.py`, `TOOL_DEFINITIONS`, tests |
+| MCP tool | `mcp_registry.py` + domain `mcp_tools.py`, `TOOL_DEFINITIONS`, tests |
 | Ingest format | `ingest/router.py`, settings `ingest.routing`, adapter |
 | Retrieval mode | `router/`, `retrievers/`, `settings.yaml` router section |
-| Persistent entity | `db/models/`, Alembic revision, store module |
+| Persistent entity | `db/models/`, Alembic revision, `db/repositories/` module |
 | Background job | `ingest/*_adapter.py` or new module, `celery_app.include`, `task_routes` |
 
 ## Related

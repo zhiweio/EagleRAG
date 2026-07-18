@@ -172,15 +172,22 @@ When Knowhere parses a document with embedded images/tables, `extract_visual_chu
 
 Running RAG in production means **isolation**, **degradation**, and **observability** — not just higher `top_k`.
 
-### Multi-tenancy (`kb_name`)
+### Multi-tenancy (`plugin_namespace` + `kb_name`)
 
-A single Milvus cluster serves all tenants. Isolation is enforced by scalar filters, not separate indexes:
+Eagle-RAG uses **two isolation layers** inside one cluster:
+
+| Layer | Identifier | Mechanism |
+| --- | --- | --- |
+| Domain | `plugin_namespace` | Milvus Database + PostgreSQL repository filter (deploy-time) |
+| KB | `kb_name` | Scalar filter inside that Database (request-time) |
+
+Within one domain Database, many KBs share base collections (`eagle_text`, `eagle_visual`) and optional specialized collections. Isolation is `kb_name` scalar filtering — not separate Milvus collections per KB.
 
 ```
 kb_name == 'pharma' and document_id in ['doc_a', 'doc_b']
 ```
 
-Dedup key `(sha256, kb_name)` allows the same file in multiple KBs. Details: [Multi-tenancy](architecture/multi-tenancy.md).
+Dedup key `(sha256, kb_name, plugin_namespace)` allows the same file in multiple KBs and domains (on separate instances). Details: [Multi-tenancy](architecture/multi-tenancy.md).
 
 ### Reliability patterns
 
@@ -201,13 +208,17 @@ Dedup key `(sha256, kb_name)` allows the same file in multiple KBs. Details: [Mu
 - [ ] [Reliability](architecture/reliability.md)
 - [ ] [Observability](ops/observability.md)
 - [ ] [MCP tools](api/mcp-tools.md)
+- [ ] [Plugin architecture](architecture/plugin-architecture.md)
+- [ ] [ADR-008 RAG-only + frontend scope](architecture/adr/008-rag-only-plugin-platform.md)
+- [ ] [Authoring industry plugins](guides/authoring-industry-plugin.md)
 
 ### Hands-on: production exercises
 
 - [ ] Run hybrid query with `scope_filter` (KB + tag)
-- [ ] Call `query` via MCP at `/mcp`
+- [ ] Call `core_query` via MCP at `/mcp`
 - [ ] Simulate Knowhere down — verify `/health` degrades without API crash
 - [ ] Inspect dead letter queue via admin after forced task failure
+- [ ] (Optional) With `EAGLE_RAG_PROFILE=biomed`, confirm `biomed_*` MCP tools appear with no domain UI dependency
 
 **External references**
 
@@ -224,7 +235,7 @@ Dedup key `(sha256, kb_name)` allows the same file in multiple KBs. Details: [Mu
 - [ ] [Testing](development/testing.md)
 - [ ] [AGENTS.md](https://github.com/fintax-ai/eagle-rag/blob/master/AGENTS.md) — agent and architecture constraints
 
-When changing architecture, sync: `README.md`, `AGENTS.md`, `docs/en/architecture/multimodal-fusion.md`, `docs/zh/architecture/multimodal-fusion.md`, `eagle_rag/settings.yaml`.
+When changing architecture, sync: `README.md`, `README.zh.md`, `AGENTS.md`, `docs/*/architecture/plugin-architecture.md`, `docs/*/architecture/multimodal-fusion.md`, `docs/*/architecture/adr/008-*.md`, `eagle_rag/settings.yaml`.
 
 ---
 
@@ -236,6 +247,7 @@ When changing architecture, sync: `README.md`, `AGENTS.md`, `docs/en/architectur
 | PDF scanned detection | `pdf_probe.text_page_ratio`, `pdf_probe.avg_chars_per_page` |
 | Visual index at scale | `MILVUS_VISUAL_INDEX_TYPE=diskann` |
 | Scope filter bounds | `router.max_scope_documents` |
+| Profile / domain binding | `EAGLE_RAG_PROFILE`, `plugins.default_namespace`; verify `/health/plugins` |
 | Queue backpressure | `celery.queues.pixelrag_queue.concurrency` (keep at 1) |
 
 ---
@@ -246,8 +258,8 @@ When changing architecture, sync: `README.md`, `AGENTS.md`, `docs/en/architectur
 | --- | --- | --- |
 | Task stuck in `RENDERING` | Knowhere poll timeout | [Reliability](architecture/reliability.md) |
 | Empty visual sources | `pixelrag_queue` backlog or OOM | [Ops troubleshooting](ops/troubleshooting.md) |
-| Cross-tenant leakage | Missing `kb_name` filter in custom code | [Multi-tenancy](architecture/multi-tenancy.md) |
-| Duplicate upload rejected | Dedup hit `(sha256, kb_name)` | [Ingest API](api/ingest.md) |
+| Cross-tenant leakage | Missing `kb_name` filter or wrong `plugin_namespace` / profile | [Multi-tenancy](architecture/multi-tenancy.md) |
+| Duplicate upload rejected | Dedup hit `(sha256, kb_name, plugin_namespace)` | [Ingest API](api/ingest.md) |
 
 ---
 
@@ -256,7 +268,7 @@ When changing architecture, sync: `README.md`, `AGENTS.md`, `docs/en/architectur
 - [ ] `task setup && task up` — bring up the full stack
 - [ ] Ingest a text PDF and a scanned PDF; compare pipelines in `/tasks`
 - [ ] Run a hybrid query with `scope_filter` (KB + tag)
-- [ ] Call `query` via MCP at `/mcp`
+- [ ] Call `core_query` via MCP at `/mcp`
 - [ ] Open document structure in the frontend evidence viewer
 - [ ] Stream query via `POST /query/stream` — observe SSE event order
 - [ ] Run `task be:test` before submitting a PR

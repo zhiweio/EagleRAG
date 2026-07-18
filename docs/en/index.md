@@ -1,6 +1,9 @@
 # Eagle-RAG
 
-> An industry-agnostic, multi-tenant **multimodal Retrieval-Augmented Generation (RAG)** knowledge base — the data layer for Agents and LLMs.
+> An industry-agnostic, multi-tenant **multimodal Retrieval-Augmented Generation (RAG)** knowledge base — the **data layer** for Agents and LLMs (not a business Agent app).
+
+!!! important "Product boundary"
+    Eagle-RAG owns ingest, retrieval, context assembly, and provenance, exposed over REST/SSE/MCP to downstream Agents. The built-in frontend showcases **Core** knowhere + pixelrag only; domain plugins (biomed, lakehouse-bi, …) are **backend MCP only**. See [ADR-008](architecture/adr/008-rag-only-plugin-platform.md) and [plugin architecture](architecture/plugin-architecture.md).
 
 ## Theory and foundations
 
@@ -41,7 +44,7 @@ Eagle-RAG extends classic text RAG in three ways that matter for real enterprise
 | --- | --- | --- |
 | Mixed formats (PDF, Excel, images, URLs) | Dual ingest pipelines: Knowhere (text/structure) + PixelRAG (scanned/visual) | `eagle_rag/ingest/router.py` `route()` |
 | Charts, tables, diagrams lose detail in text | Semantic-tree anchored fusion — visual tiles linked to Knowhere `path` | `extract_visual_chunks()` → `upsert_visual()` |
-| Multiple teams on one cluster | `kb_name` multi-tenancy — scalar filters from API through Milvus | `router_engine._resolve_scope_filter()` |
+| Multiple teams / domains on one cluster | `plugin_namespace` (Milvus Database) + `kb_name` scalar filters inside that DB | `resolve_namespace()`, repositories, `milvus_pool.py` |
 
 !!! note "Further reading"
     New to RAG? Start with the [learning path](learning-path.md). For fusion design, see [Multimodal fusion](architecture/multimodal-fusion.md).
@@ -51,10 +54,11 @@ Eagle-RAG extends classic text RAG in three ways that matter for real enterprise
 ## Key capabilities
 
 - :octicons-git-branch-24: **Dual ingestion pipelines** — Knowhere (HTTP `:5005`, `knowhere-python-sdk`) for text-based PDFs, Office, CSV, Markdown; PixelRAG (`pixelrag_render` + `pixelrag_embed`) for scanned PDFs, images, and web pages.
-- :octicons-organization-24: **Multi-tenancy** — every document, vector, session, and task scoped by `kb_name`; dedup key `(sha256, kb_name)`.
+- :octicons-organization-24: **Multi-tenancy** — two layers: `plugin_namespace` (domain / Milvus Database) and `kb_name` (KB inside that domain); dedup `(sha256, kb_name, plugin_namespace)`.
 - :octicons-search-24: **Hybrid retrieval** — Milvus ANN on `eagle_text` (1536-d) and `eagle_visual` (2048-d), graph expansion on text nodes via `connect_to`, scalar filters on `kb_name` / `document_id` / tags.
 - :octicons-eye-24: **Multimodal generation** — DeepSeek routes queries; Qwen-VL-Max synthesizes over text chunks and image tiles; `qwen3-rerank` / `qwen3-rerank` reranks.
-- :octicons-plug-24: **MCP tool server** — `ingest`, `query`, `retrieve_text`, `retrieve_visual` at `/mcp` ([Model Context Protocol](https://modelcontextprotocol.io/)).
+- :octicons-plug-24: **MCP tool server** — `core_ingest`, `core_query`, `core_retrieve_text`, `core_retrieve_visual` at `/mcp` ([Model Context Protocol](https://modelcontextprotocol.io/)); domain profiles add `{namespace}_*` tools.
+- :octicons-puzzle-24: **Microkernel plugins** — Core + in-repo vertical plugins; `EAGLE_RAG_PROFILE` selects the deploy domain; see [Authoring an industry plugin](guides/authoring-industry-plugin.md).
 - :octicons-pulse-24: **Observable operations** — dependency probes, SSE log streaming, queue metrics, admin dashboards.
 
 ---
@@ -86,7 +90,7 @@ flowchart LR
     end
 
     subgraph Store["Storage tier"]
-        MILVUS[("Milvus 2.6<br/>eagle_text 1536d<br/>eagle_visual 2048d")]
+        MILVUS[("Milvus 2.6<br/>DB per plugin_namespace<br/>eagle_text + eagle_visual")]
         PG[("PostgreSQL 16")]
         MINIO[("MinIO")]
         REDIS[("Redis 7")]
@@ -150,8 +154,9 @@ Settings load from three layers (see [Configuration](getting-started/configurati
 
 | Concern | Key settings | Env vars |
 | --- | --- | --- |
-| Default tenant | `kb_name` | `KB_NAME` |
-| Milvus | `milvus.host`, `visual_index_type` | `MILVUS_HOST`, `MILVUS_VISUAL_INDEX_TYPE` |
+| Default tenant / domain | `kb_name`, `plugins.default_namespace` | `KB_NAME`, `EAGLE_RAG_PROFILE`, `PLUGIN_NAMESPACE` |
+| Milvus | `milvus.host`, `milvus.db_name`, `visual_index_type` | `MILVUS_HOST`, `MILVUS_VISUAL_INDEX_TYPE` |
+| Plugins | `plugins.enabled`, `plugins.options` | `EAGLE_RAG_PROFILE` |
 | Ingest routing | `ingest.routing`, `pdf_probe` | `ROUTER_MODE` (query-time; ingest uses `ingest.routing`) |
 | Models | `llm`, `vlm`, `embedding`, `rerank` | `LLM_API_KEY`, `VLM_API_KEY`, `DASHSCOPE_API_KEY` |
 | Queues | `celery.queues` | `CELERY_BROKER_URL` |

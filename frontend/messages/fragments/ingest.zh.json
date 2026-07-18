@@ -24,7 +24,7 @@
       "dropHint": "支持 PDF · Word · Excel/CSV · 图片 · URL · 单文件最大 50MB",
       "submit": "提交到队列",
       "submitting": "提交中…",
-      "systemDefault": "系统默认命名空间",
+      "systemDefault": "系统默认知识库",
       "filesSelected": "已选 {count} 个文件"
     },
     "url": {

@@ -92,7 +92,9 @@ OpenAPI SDK under `frontend/lib/api/generated/` regenerates via `predev` hook (`
 task db:migrate    # uv run alembic upgrade head
 ```
 
-Schema defined in `eagle_rag/db/models/` — **no DDL in store modules**. Migrations in `alembic/versions/`.
+Schema defined in `eagle_rag/db/models/` — **no DDL in repositories**. Migrations in `alembic/versions/`.
+
+Recent plugin-namespace migrations: `0007_plugin_namespace`, `0008_namespace_unique_constraints` — required for `plugin_namespace` columns and namespace-scoped uniqueness.
 
 ---
 
@@ -182,7 +184,8 @@ In-process `pixelrag_render` + `pixelrag_embed`.
 | Section | Key variables | Notes |
 | --- | --- | --- |
 | App | `APP_ENV`, `APP_HOST`, `APP_PORT`, `LOG_LEVEL` | |
-| KB | `KB_NAME` | Default tenant |
+| KB | `KB_NAME` | Default tenant inside the bound domain |
+| Profile | `EAGLE_RAG_PROFILE` | Optional — `core` (default), `biomed`, `lakehouse-bi`; merges `profiles:` overlay |
 | Knowhere | `KNOWHERE_BASE_URL`, `KNOWHERE_API_KEY` | Parser service |
 | LLM | `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL` | DeepSeek |
 | VLM | `VLM_API_KEY`, `VLM_BASE_URL`, `VLM_MODEL` | Qwen-VL |

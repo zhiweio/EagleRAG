@@ -3,7 +3,7 @@
     "management": {
       "breadcrumb": "知识库",
       "title": "知识库管理",
-      "subtitle": "管理 Eagle-RAG 系统内所有的行业知识库实例与路由规则。",
+      "subtitle": "管理当前部署领域内的知识库实例与路由规则。",
       "searchPlaceholder": "搜索知识库名称或 kb_name...",
       "sort": "按最近更新排序",
       "sortRecent": "按最近更新排序",
@@ -15,7 +15,7 @@
         "kbCount": "知识库实例",
         "kbCountSub": "{count} 个活跃摄入",
         "docs": "文档总量",
-        "docsSub": "跨全部命名空间",
+        "docsSub": "跨全部知识库",
         "nodes": "图谱节点 (Knowhere)",
         "nodesSub": "实体 + 关系",
         "vectors": "向量实体 (Milvus)",
@@ -23,7 +23,7 @@
       },
       "ghost": {
         "title": "新建知识库",
-        "sub": "创建独立检索命名空间"
+        "sub": "创建独立知识库"
       }
     },
     "card": {
@@ -67,13 +67,13 @@
     "create": {
       "title": "新建知识库实例",
       "subtitle": "Create Knowledge Base",
-      "desc": "创建一个独立的检索命名空间。数据与任务将在该维度下严格隔离。",
+      "desc": "创建一个独立知识库。数据与任务按 kb_name 在当前部署领域内严格隔离。",
       "sectionBasic": "基础信息 · BASIC INFO",
       "sectionAdvanced": "高级配置 · ADVANCED SETTINGS",
       "themeLabel": "主题色与图标",
       "kbNameLabel": "知识库标识符 (kb_name)",
       "kbNamePlaceholder": "仅限英文、数字和下划线，如 kb_medicine",
-      "kbNameHint": "创建后不可修改，将作为 Milvus 的标量过滤键 (scalar filter)。",
+      "kbNameHint": "创建后不可修改；在当前部署领域的 Milvus Database 内用作 kb_name 标量过滤键。",
       "kbNameError": "仅限小写英文、数字和下划线",
       "displayLabel": "显示名称 (Display Name)",
       "displayPlaceholder": "如：医药知识库",
@@ -88,7 +88,7 @@
       "probeHigh": "高于 {value}% → Knowhere",
       "collectionsTitle": "底层 Collection 绑定",
       "collectionsSub": "eagle_text · eagle_visual",
-      "collectionsHint": "新知识库将复用共享双 Collection，通过 kb_name 标量隔离数据。",
+      "collectionsHint": "新知识库复用本领域 Database 内的基础双 Collection（eagle_text / eagle_visual），通过 kb_name 标量隔离。",
       "cancel": "取消",
       "submit": "立即创建",
       "required": "必填",
@@ -209,12 +209,12 @@
       "logsDocument": "文档",
       "logsUpdated": "更新时间",
       "logsView": "查看日志",
-      "purgeConfirm": "确定清空知识库「{name}」？将删除该命名空间下全部向量、图谱与登记数据。",
+      "purgeConfirm": "确定清空知识库「{name}」？将删除该知识库下全部向量、图谱与登记数据。",
       "purgeError": "清空失败",
       "rebuildStarted": "重建任务已提交",
       "maintenance": {
         "title": "危险操作",
-        "desc": "重建索引会重新解析并向量化该知识库全部文档；清空会删除该命名空间下所有向量与图谱数据。",
+        "desc": "重建索引会重新解析并向量化该知识库全部文档；清空会删除该知识库下所有向量与图谱数据。",
         "rebuild": "重建索引",
         "purge": "清空知识库"
       },
@@ -230,7 +230,7 @@
       "purgeModal": {
         "title": "清空知识库",
         "subtitle": "kb_name: {name}",
-        "desc": "将永久删除该命名空间下全部向量、图谱与登记数据。此操作不可撤销。",
+        "desc": "将永久删除该知识库下全部向量、图谱与登记数据。此操作不可撤销。",
         "hint": "原始文档文件会保留，但所有索引数据将被永久清除，需重新摄入或重建索引才能恢复检索。",
         "confirm": "确认清空",
         "cancel": "取消",

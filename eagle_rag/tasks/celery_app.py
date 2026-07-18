@@ -17,7 +17,16 @@ from kombu import Queue
 
 from eagle_rag.config import get_settings
 
-__all__ = ["app", "celery_app"]
+__all__ = ["app", "celery_app", "autodiscover_tasks"]
+
+_BASE_CELERY_MODULES = [
+    "eagle_rag.ingest.router",
+    "eagle_rag.ingest.knowhere_adapter",
+    "eagle_rag.ingest.pixelrag_adapter",
+    "eagle_rag.kb.lifecycle",
+]
+
+_IMPORTED_MODULES: set[str] = set()
 
 _cfg = get_settings().celery
 
@@ -25,12 +34,7 @@ app = Celery(
     "eagle_rag",
     broker=_cfg.broker_url,
     backend=_cfg.result_backend,
-    include=[
-        "eagle_rag.ingest.router",
-        "eagle_rag.ingest.knowhere_adapter",
-        "eagle_rag.ingest.pixelrag_adapter",
-        "eagle_rag.kb.lifecycle",
-    ],
+    include=[],
 )
 
 # Three pipeline queues: router (dispatch) / knowhere (structured parsing)
@@ -79,7 +83,21 @@ app.conf.beat_schedule = {
 
 
 def autodiscover_tasks() -> None:
-    """No-op: task modules are explicitly registered via ``include=`` above."""
+    """Import Celery task modules from PluginManager (idempotent)."""
+    import importlib
+
+    try:
+        from eagle_rag.plugins import get_plugin_manager
+
+        modules = get_plugin_manager().collect_celery_modules()
+    except Exception:  # noqa: BLE001
+        modules = list(_BASE_CELERY_MODULES)
+
+    for module in modules:
+        if module in _IMPORTED_MODULES:
+            continue
+        importlib.import_module(module)
+        _IMPORTED_MODULES.add(module)
 
 
 # Telemetry: configure dual logger + tracing on worker subprocess startup; register
@@ -98,6 +116,13 @@ def _init_worker(**kwargs) -> None:  # noqa: ANN001
 
     try:
         configure_telemetry(get_settings())
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from eagle_rag.plugins import get_plugin_manager
+
+        get_plugin_manager()
+        autodiscover_tasks()
     except Exception:  # noqa: BLE001
         pass
 

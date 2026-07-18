@@ -16,7 +16,7 @@ from eagle_rag.api.app import app
 from eagle_rag.ingest.url_validator import UrlValidationError
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def client() -> TestClient:
     with TestClient(app) as c:
         yield c

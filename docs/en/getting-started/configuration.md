@@ -215,9 +215,44 @@ ingest:
     content_type_rules: [...]
     default_pipeline: knowhere
   source_type:
-    rules: [...]    # metadata only
+    rules: []       # Core default empty; industry keywords via profile / deploy YAML
     default: other
 ```
+
+### `plugins`
+
+Single-domain instance binding + in-repo plugin loading:
+
+```yaml
+plugins:
+  enabled:
+    - eagle_rag.plugins.core_defaults
+  default_namespace: core          # = Milvus DB / PG namespace
+  allow_namespace_override: false  # prod: ignore request plugin_namespace
+  query_assemble_enabled: true
+  options:                         # per-namespace knobs (not Core-typed)
+    biomed:
+      default_dual_text_search: false
+      encoder_mode: auto
+
+# EAGLE_RAG_PROFILE=biomed|lakehouse-bi|core
+profiles:
+  biomed:
+    plugins:
+      enabled: [eagle_rag.plugins.core_defaults, plugins.biomed]
+      default_namespace: biomed
+    milvus:
+      db_name: biomed
+```
+
+Authoring: copy `plugins/_template/`; see [Authoring an industry plugin](../guides/authoring-industry-plugin.md).
+
+**Deploy notes:**
+
+- Set `EAGLE_RAG_PROFILE` on API and **all** Celery workers — mismatched profiles cause wrong Milvus Database or missing domain MCP tools.
+- `milvus.db_name` in the active profile must match `plugins.default_namespace`.
+- Vertical knobs belong in `plugins.options.<namespace>` — do not add industry fields to Core `Settings`.
+- Probe after deploy: `GET /health/plugins` (manifests + `celery_modules`) and `GET /mcp/tools` (exposed tool names).
 
 ### `attachments`
 
@@ -276,7 +311,7 @@ The router decides **retrieval mode**, not ingest pipeline:
 
     `text`, `visual`, or `hybrid` skip LLM classification. Useful for benchmarks or constrained agents.
 
-Per-request override: `mode` on `POST /query` or MCP `query` tool.
+Per-request override: `mode` on `POST /query` or MCP `core_query` tool.
 
 **Ingest override (different knob):** `settings.router.mode` when not `auto` also forces ingest pipeline via `ForcedModeSelector` in `route()`.
 

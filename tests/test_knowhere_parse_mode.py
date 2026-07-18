@@ -56,7 +56,7 @@ def test_sanitize_knowhere_parser_env_maps_prod(monkeypatch) -> None:
     assert os.environ["APP_ENV"] == "production"
 
 
-def test_parser_bootstrap_does_not_install_global_fakeredis(monkeypatch) -> None:
+def test_parser_bootstrap_does_not_install_global_fakeredis(monkeypatch, tmp_path) -> None:
     """Bootstrap must not patch ``redis.Redis`` or the sync factory globally."""
     from knowhere_parse import KnowhereParser
 
@@ -66,6 +66,7 @@ def test_parser_bootstrap_does_not_install_global_fakeredis(monkeypatch) -> None
     )
 
     monkeypatch.setenv("APP_ENV", "")
+    monkeypatch.setenv("KNOWHERE_PARSER_TMP_PATH", str(tmp_path / "knowhere-parse"))
     _sanitize_knowhere_parser_env()
 
     try:
@@ -81,7 +82,7 @@ def test_parser_bootstrap_does_not_install_global_fakeredis(monkeypatch) -> None
         SyncRedisServiceFactory.reset()
 
 
-def test_local_redis_scope_uses_fakeredis_without_external_redis(monkeypatch) -> None:
+def test_local_redis_scope_uses_fakeredis_without_external_redis(monkeypatch, tmp_path) -> None:
     """Regression: parser ``parse()`` scopes fakeredis to the call, not bootstrap."""
     from knowhere_parse import KnowhereParser
     from knowhere_parse.local_redis import local_redis_scope
@@ -94,6 +95,7 @@ def test_local_redis_scope_uses_fakeredis_without_external_redis(monkeypatch) ->
 
     monkeypatch.delenv("REDIS_HOST", raising=False)
     monkeypatch.setenv("APP_ENV", "")
+    monkeypatch.setenv("KNOWHERE_PARSER_TMP_PATH", str(tmp_path / "knowhere-parse"))
     _sanitize_knowhere_parser_env()
 
     try:

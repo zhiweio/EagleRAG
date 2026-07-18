@@ -1,0 +1,124 @@
+# Biomed query routing rules (G15). Loaded by BiomedQueryRouteClassifier + UMLS index.
+umls_entities:
+  HER2:
+    aliases: ["ERBB2", "HER-2", "CD340", "neu"]
+    cui: "C1706866"
+    pathways: ["PI3K-AKT", "MAPK", "ERBB"]
+    related_drugs: ["trastuzumab", "pertuzumab", "lapatinib"]
+  EGFR:
+    aliases: ["ERBB1", "Epidermal growth factor receptor", "HER1"]
+    cui: "C0034812"
+    pathways: ["MAPK", "PI3K-AKT", "JAK-STAT"]
+    related_drugs: ["gefitinib", "erlotinib", "osimertinib"]
+  BRCA1:
+    aliases: ["BRCA-1", "breast cancer 1"]
+    cui: "C0376516"
+    pathways: ["HRR", "DNA repair"]
+    related_drugs: ["olaparib", "talazoparib"]
+  BRCA2:
+    aliases: ["BRCA-2", "breast cancer 2"]
+    cui: "C0376517"
+    pathways: ["HRR", "DNA repair"]
+    related_drugs: ["olaparib", "rucaparib"]
+  TP53:
+    aliases: ["p53", "P53", "tumor protein p53"]
+    cui: "C0080056"
+    pathways: ["apoptosis", "cell cycle"]
+    related_drugs: []
+  KRAS:
+    aliases: ["Kirsten rat sarcoma", "K-Ras"]
+    cui: "C0022730"
+    pathways: ["MAPK", "RAF-MEK-ERK"]
+    related_drugs: ["sotorasib", "adagrasib"]
+  ALK:
+    aliases: ["anaplastic lymphoma kinase", "CD246"]
+    cui: "C1332106"
+    pathways: ["RAS", "PI3K"]
+    related_drugs: ["crizotinib", "alectinib", "lorlatinib"]
+  PD-L1:
+    aliases: ["CD274", "PDL1", "B7-H1"]
+    cui: "C3887640"
+    pathways: ["immune checkpoint"]
+    related_drugs: ["atezolizumab", "pembrolizumab", "nivolumab"]
+  VEGF:
+    aliases: ["VEGFA", "vascular endothelial growth factor"]
+    cui: "C0078058"
+    pathways: ["angiogenesis"]
+    related_drugs: ["bevacizumab", "ramucirumab"]
+  imatinib:
+    aliases: ["Gleevec", "STI-571", "CGP57148"]
+    cui: "C0935989"
+    pathways: ["BCR-ABL"]
+    related_drugs: ["dasatinib", "nilotinib"]
+  metformin:
+    aliases: ["Glucophage", "dimethylbiguanide"]
+    cui: "C0025595"
+    pathways: ["AMPK"]
+    related_drugs: []
+  aspirin:
+    aliases: ["acetylsalicylic acid", "ASA"]
+    cui: "C0004057"
+    pathways: ["COX"]
+    related_drugs: []
+
+entity_keywords:
+  - kinase
+  - pathway
+  - receptor
+  - mutation
+  - oncogene
+  - tumor suppressor
+  - apoptosis
+  - phosphorylation
+  - immunotherapy
+  - biomarker
+  - monoclonal antibody
+  - pharmacokinetics
+
+chemical:
+  smiles_patterns:
+    - pattern: "\\[[A-Z][a-z]?@?\\]"
+      description: "bracketed atom tokens"
+    - pattern: "C\\(=O\\)"
+      description: "carbonyl"
+    - pattern: "InChI="
+      description: "InChI prefix"
+  keywords:
+    - SMILES
+    - InChI
+    - molfile
+    - compound
+    - ligand
+    - inhibitor
+  name_aliases:
+    ethanol: "CCO"
+    aspirin: "CC(=O)Oc1ccccc1C(=O)O"
+    caffeine: "CN1C=NC2=C1C(=O)N(C(=O)N2C)C"
+    imatinib: "Cc1ccc(NC(=O)c2ccc(CN3CCN(C)CC3)cc2)cc1Nc1nccc(-c2cccnc2)n1"
+
+radiology:
+  keywords:
+    - CT scan
+    - computed tomography
+    - MRI
+    - magnetic resonance
+    - ultrasound
+    - radiograph
+    - chest x-ray
+    - lesion
+    - nodule
+    - contrast enhancement
+    - DICOM
+
+pathology:
+  keywords:
+    - H&E
+    - hematoxylin
+    - histopathology
+    - biopsy
+    - dysplasia
+    - carcinoma in situ
+    - mitosis
+    - stroma
+    - immunohistochemistry
+    - FFPE

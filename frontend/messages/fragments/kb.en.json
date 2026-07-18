@@ -3,7 +3,7 @@
     "management": {
       "breadcrumb": "Knowledge Bases",
       "title": "Knowledge Bases",
-      "subtitle": "Manage every industry knowledge base instance and routing rule in Eagle-RAG.",
+      "subtitle": "Manage knowledge bases and routing rules within the current deployment domain.",
       "searchPlaceholder": "Search display name or kb_name...",
       "sort": "Sort by recently updated",
       "sortRecent": "Sort by recently updated",
@@ -15,7 +15,7 @@
         "kbCount": "KB instances",
         "kbCountSub": "{count} active ingestions",
         "docs": "Total documents",
-        "docsSub": "across all namespaces",
+        "docsSub": "across all knowledge bases",
         "nodes": "Graph nodes (Knowhere)",
         "nodesSub": "entities + relations",
         "vectors": "Vector entities (Milvus)",
@@ -23,7 +23,7 @@
       },
       "ghost": {
         "title": "New knowledge base",
-        "sub": "Create an isolated retrieval namespace"
+        "sub": "Create an isolated knowledge base"
       }
     },
     "card": {
@@ -67,13 +67,13 @@
     "create": {
       "title": "New knowledge base",
       "subtitle": "Create Knowledge Base",
-      "desc": "Create an isolated retrieval namespace. Data and tasks are strictly scoped to this dimension.",
+      "desc": "Create an isolated knowledge base. Data and tasks are scoped by kb_name within the current deployment domain.",
       "sectionBasic": "BASIC INFO",
       "sectionAdvanced": "ADVANCED SETTINGS",
       "themeLabel": "Theme color & icon",
       "kbNameLabel": "Identifier (kb_name)",
       "kbNamePlaceholder": "letters, digits and underscore only, e.g. kb_medicine",
-      "kbNameHint": "Immutable after creation; used as the Milvus scalar filter key.",
+      "kbNameHint": "Immutable after creation; used as the kb_name scalar filter inside this domain's Milvus Database.",
       "kbNameError": "lowercase letters, digits and underscore only",
       "displayLabel": "Display Name",
       "displayPlaceholder": "e.g. Medicine KB",
@@ -88,7 +88,7 @@
       "probeHigh": "above {value}% → Knowhere",
       "collectionsTitle": "Underlying collection binding",
       "collectionsSub": "eagle_text · eagle_visual",
-      "collectionsHint": "The new KB reuses the shared dual collections, isolated by the kb_name scalar.",
+      "collectionsHint": "The new KB reuses the base dual collections (eagle_text / eagle_visual) in this domain's Database, isolated by the kb_name scalar.",
       "cancel": "Cancel",
       "submit": "Create now",
       "required": "required",
@@ -209,12 +209,12 @@
       "logsDocument": "Document",
       "logsUpdated": "Updated",
       "logsView": "View logs",
-      "purgeConfirm": "Purge knowledge base \"{name}\"? All vectors, graph data and registry entries under this namespace will be removed.",
+      "purgeConfirm": "Purge knowledge base \"{name}\"? All vectors, graph data and registry entries for this KB will be removed.",
       "purgeError": "Purge failed",
       "rebuildStarted": "Rebuild job submitted",
       "maintenance": {
         "title": "Danger zone",
-        "desc": "Rebuilding re-parses and re-vectorizes all documents; purging deletes all vectors and graph data under this namespace.",
+        "desc": "Rebuilding re-parses and re-vectorizes all documents; purging deletes all vectors and graph data for this knowledge base.",
         "rebuild": "Rebuild index",
         "purge": "Purge knowledge base"
       },
@@ -230,7 +230,7 @@
       "purgeModal": {
         "title": "Purge Knowledge Base",
         "subtitle": "kb_name: {name}",
-        "desc": "This will permanently delete all vectors, graph data, and registry entries under this namespace. This action cannot be undone.",
+        "desc": "This will permanently delete all vectors, graph data, and registry entries for this knowledge base. This action cannot be undone.",
         "hint": "Original document files are preserved, but all index data will be permanently cleared. You will need to re-ingest or rebuild the index to restore search.",
         "confirm": "Confirm Purge",
         "cancel": "Cancel",

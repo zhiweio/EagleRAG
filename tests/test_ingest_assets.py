@@ -233,6 +233,7 @@ def _mock_tiles(n: int = 2) -> list[dict]:
     """Build the mock return value for render_to_tiles (n tiles, no vectors)."""
     return [
         {
+            "image_bytes": b"\x89PNG\r\n\x1a\n mock",
             "png_bytes": b"\x89PNG\r\n\x1a\n mock",
             "page": 1,
             "position": f"strip_{i}",

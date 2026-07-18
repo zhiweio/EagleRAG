@@ -135,10 +135,12 @@ _COLUMNS = (
     "created_at",
     "updated_at",
     "kb_name",
+    "plugin_namespace",
 )
 _SELECT_SQL = (
     "SELECT job_id, document_id, name, source_uri, pipeline, status, progress, "
-    "current, total, error, logs, created_at, updated_at, kb_name FROM task_audit"
+    "current, total, error, logs, created_at, updated_at, kb_name, plugin_namespace "
+    "FROM task_audit"
 )
 
 
@@ -173,14 +175,19 @@ def create_audit(
     kb_name: str | None = None,
     name: str | None = None,
     source_uri: str | None = None,
+    plugin_namespace: str | None = None,
 ) -> None:
     """Insert a PENDING audit record (called when a task is enqueued)."""
+    from eagle_rag.db.repositories.base import instance_namespace
+
     kb = _resolve_kb(kb_name)
+    ns = instance_namespace(plugin_namespace)
     sync_execute(
         "INSERT INTO task_audit "
-        "(job_id, document_id, name, source_uri, pipeline, status, progress, logs, kb_name) "
-        "VALUES (%s, %s, %s, %s, %s, %s, 0, '[]', %s)",
-        (job_id, document_id, name, source_uri, pipeline, TaskState.PENDING.value, kb),
+        "(job_id, document_id, name, source_uri, pipeline, status, progress, logs, kb_name, "
+        "plugin_namespace) "
+        "VALUES (%s, %s, %s, %s, %s, %s, 0, '[]', %s, %s)",
+        (job_id, document_id, name, source_uri, pipeline, TaskState.PENDING.value, kb, ns),
     )
 
 
@@ -252,6 +259,7 @@ def _maybe_notify(job_id: str, state: TaskState, *, error: str | None = None) ->
         if audit is None:
             return
         kb = audit.get("kb_name")
+        ns = audit.get("plugin_namespace")
         pipeline = (audit.get("pipeline") or "ingest").lower()
         if pipeline == "rebuild":
             if state == TaskState.SUCCESS:
@@ -261,6 +269,7 @@ def _maybe_notify(job_id: str, state: TaskState, *, error: str | None = None) ->
                     body=f"Knowledge base {kb or ''} reindex job {job_id[:8]}… finished",
                     kb_name=kb,
                     job_id=job_id,
+                    plugin_namespace=ns,
                 )
             else:
                 create_notification_sync(
@@ -269,6 +278,7 @@ def _maybe_notify(job_id: str, state: TaskState, *, error: str | None = None) ->
                     body=error or f"Knowledge base {kb or ''} reindex job {job_id[:8]}… failed",
                     kb_name=kb,
                     job_id=job_id,
+                    plugin_namespace=ns,
                 )
         elif state == TaskState.SUCCESS:
             create_notification_sync(
@@ -277,6 +287,7 @@ def _maybe_notify(job_id: str, state: TaskState, *, error: str | None = None) ->
                 body=f"Job {job_id[:8]}… ({pipeline}) succeeded",
                 kb_name=kb,
                 job_id=job_id,
+                plugin_namespace=ns,
             )
         else:
             create_notification_sync(
@@ -285,6 +296,7 @@ def _maybe_notify(job_id: str, state: TaskState, *, error: str | None = None) ->
                 body=error or f"Job {job_id[:8]}… failed",
                 kb_name=kb,
                 job_id=job_id,
+                plugin_namespace=ns,
             )
     except Exception as exc:  # noqa: BLE001
         logger.debug("notification write failed (non-fatal): %s", exc)
@@ -313,10 +325,14 @@ def list_audits(
     kb_name: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    plugin_namespace: str | None = None,
 ) -> list[dict[str, Any]]:
     """List audit records matching the filters (newest first, paginated)."""
-    where: list[str] = []
-    params: list[Any] = []
+    from eagle_rag.db.repositories.base import instance_namespace
+
+    ns = instance_namespace(plugin_namespace)
+    where: list[str] = ["plugin_namespace = %s"]
+    params: list[Any] = [ns]
     if status is not None:
         where.append("status = %s")
         params.append(status.value if isinstance(status, TaskState) else status)
@@ -329,7 +345,7 @@ def list_audits(
     if kb_name is not None:
         where.append("kb_name = %s")
         params.append(kb_name)
-    where_clause = (" WHERE " + " AND ".join(where)) if where else ""
+    where_clause = " WHERE " + " AND ".join(where)
     sql = f"{_SELECT_SQL}{where_clause} ORDER BY created_at DESC LIMIT %s OFFSET %s"
     params.extend([limit, offset])
     rows = sync_fetchall(sql, tuple(params))

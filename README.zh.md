@@ -39,6 +39,8 @@
 > 按文档「所说」与「所见」检索知识——而非二选一。  
 > 将 Knowhere 语义分块与 PixelRAG 像素原生感知织入同一多租户数据层，点亮 Agent 智能。
 
+Eagle-RAG 采用 **微内核 + 同仓插件**：Core（`namespace=core`）提供入库、多模态检索与 MCP（`core_*`）；领域插件（`plugins/biomed`、`plugins/lakehouse_bi`）经 `EAGLE_RAG_PROFILE` / `settings.plugins.enabled` + `default_namespace` 扩展 hooks、编码器与 MCP。**内置前端 = Core knowhere+pixelrag 橱窗**；垂类为 **后端 + MCP**，供下游 Agent 消费。见 [插件架构](docs/zh/architecture/plugin-architecture.md)、[ADR-008](docs/zh/architecture/adr/008-rag-only-plugin-platform.md)、[二开指南](docs/zh/guides/authoring-industry-plugin.md)。
+
 上传 PDF、Office、扫描件或网页即可——Eagle-RAG 同时理解正文与图表版式。回答流式返回、附可核对出处；多个团队可各建知识库，数据彼此隔离。
 
 ## 工作原理
@@ -59,10 +61,10 @@
 ## 核心能力
 
 - **双摄取管线** —— [Knowhere](https://github.com/Ontos-AI/knowhere)（外部 HTTP 服务 `:5005`，经官方 `knowhere-python-sdk` 调用）负责文本 / 结构化文档（PDF 文本版 / Word / Excel / CSV / PPTX / Markdown / txt / json）；**PixelRAG**（进程内库 `pixelrag_render` + `pixelrag_embed`）负责扫描版 PDF / 图片 / 网页。
-- **多租户** —— 每一份文档、向量、会话与任务都以 `kb_name` 划定作用域；去重使用复合 PK `(sha256, kb_name)`，同一文件可在不同知识库各存一份。
-- **混合检索** —— 在双 Collection Milvus 集群上进行向量 ANN 与标量过滤（`expr="kb_name == 'pharma' and year in [2025,2026]"`），文本节点做图扩展，视觉检索支持 `kb_name` / `document_id` / `year` / `source_type` 等标量过滤。
+- **双层隔离** —— 部署将 `plugin_namespace` 绑定到独立 Milvus **Database**（+ PG repository 过滤）；域内再用 `kb_name` 标量过滤知识库。去重 PK 为 `(sha256, kb_name, plugin_namespace)`。多行业 = 多实例（`EAGLE_RAG_PROFILE`），不做运行时领域切换。
+- **混合检索** —— 在领域 Database 内做多 collection ANN（基础 `eagle_text` / `eagle_visual`，以及可选专用 collection），跨编码器 RRF 合并，文本节点图扩展，并支持 `kb_name` / `document_id` / `year` / `source_type` 等标量过滤。
 - **多模态生成** —— DeepSeek-V4-Pro 负责路由与文本生成；Qwen-VL-Max 在文本分块与图像切片之上生成回答，并由 qwen3-rerank 重排。
-- **MCP 工具服务器** —— 默认通过 streamable HTTP（`/mcp`）暴露 `ingest` / `query` / `retrieve_text` / `retrieve_visual` 四项工具，可降级 stdio，使任意 LlamaIndex `FunctionAgent` + `llama-index-tools-mcp` 都能消费该知识库。
+- **MCP 工具服务器** —— 默认通过 streamable HTTP（`/mcp`）暴露 `core_ingest` / `core_query` / `core_retrieve_text` / `core_retrieve_visual`，可降级 stdio；领域 profile 追加 `{namespace}_*` RAG 工具。
 - **可观测运维** —— 并发依赖探测（`/admin/probes`）、实时 SSE 日志流、队列指标时间序列，以及各服务管理面板。
 
 ## 系统架构
@@ -78,8 +80,8 @@
                                   ▼
               ┌───────────────────────────────────────────┐
               │  FastAPI :8000  —  REST · SSE · MCP       │
-              │  Router Engine (DeepSeek) → Multimodal    │
-              │  Engine (Qwen-VL-Max)                     │
+              │  PluginManager · HookBus · Orchestrators  │
+              │  Router Engine → Multimodal Engine        │
               └───────┬───────────────────────┬───────────┘
                       │ query / retrieve      │ ingest
                       │                       ▼
@@ -101,15 +103,16 @@
                       │                 └──────┬─────┘
                       ▼                        ▼
               ┌───────────────────────────────────────────┐
-              │  STORAGE                                  │
-              │  Milvus 2.6   eagle_text + eagle_visual   │
-              │  PostgreSQL   sessions · dedup · audit    │
-              │  MinIO        originals · visual tiles    │
+              │  STORAGE（按 plugin_namespace）           │
+              │  Milvus DB    eagle_text + eagle_visual   │
+              │               [+ 专用 collections]        │
+              │  PostgreSQL   namespace 注入的 repositories │
+              │  MinIO        原件 · 视觉切片             │
               │  Redis 7      Celery broker · task logs   │
               └───────────────────────────────────────────┘
 ```
 
-基础设施：Milvus（etcd + MinIO）+ PostgreSQL（会话 / 去重 / 审计）+ Redis（Celery broker / result）+ MinIO（对象存储）。Knowhere 后端由 `KNOWHERE_MODE` 选择（`api` = `knowhere-python-sdk` → HTTP `:5005`；`parser` = 进程内 `knowhere-parse-sdk`）。
+基础设施：Milvus（每个 `plugin_namespace` 一个 **Database**）+ PostgreSQL（namespace 作用域 repositories）+ Redis + MinIO。Knowhere 后端由 `KNOWHERE_MODE` 选择（`api` = `knowhere-python-sdk` → HTTP `:5005`；`parser` = 进程内 `knowhere-parse-sdk`）。
 
 ## 技术栈
 
@@ -118,7 +121,7 @@
 | **后端** | Python ≥ 3.12, FastAPI, Celery 5, LlamaIndex, Pydantic v2, SQLModel, Alembic |
 | **前端** | Next.js 16 (App Router), React 19, TypeScript 5, HeroUI v3, Tailwind v4, TanStack Query, Zustand 5, next-intl（zh / en，light-only） |
 | **AI 模型** | DeepSeek-V4-Pro（文本 LLM / 路由）、Qwen-VL-Max（VLM）、`text-embedding-v4`（文本 1536 维）、Qwen3-VL-Embedding-2B（视觉 2048 维，自实现 `_Qwen3VLVisualEncoder` 单例编码器）、`qwen3-rerank`（rerank）。仅 DeepSeek + Qwen 系列，无 OpenAI / Cohere。 |
-| **基础设施** | Milvus 2.6（双 Collection `eagle_text` + `eagle_visual`）, PostgreSQL 16, Redis 7, MinIO, Docker Compose |
+| **基础设施** | Milvus 2.6（按 `plugin_namespace` 分 Database；基础 `eagle_text` + `eagle_visual`）, PostgreSQL 16, Redis 7, MinIO, Docker Compose |
 | **集成** | MCP（Model Context Protocol）over HTTP（默认 `/mcp`）+ stdio 降级, OpenAPI 生成的 TypeScript SDK |
 
 > **多模态融合架构**：视觉切片经 Milvus 内置 HNSW / DiskANN 引擎（替代 PixelRAG 原生 FAISS）存储于 `eagle_visual`，并以语义树锚定四字段（`chunk_type` / `parent_section` / `content_summary` / `source_chunk_id`）回挂 Knowhere 语义树——详见 [多模态融合架构](docs/zh/architecture/multimodal-fusion.md)。
@@ -132,7 +135,7 @@
 | Python ≥ 3.12 | 后端运行时，包管理用 [`uv`](https://docs.astral.sh/uv/) |
 | Node.js + Bun | 前端运行时与包管理（`bun install`） |
 | Docker + Docker Compose | 一键启动全栈（含基础设施） |
-| Milvus 2.6+ | 向量库，双 Collection `eagle_text`（1536 维）/ `eagle_visual`（2048 维） |
+| Milvus 2.6+ | 向量库；按领域一个 Database；基础 `eagle_text`（1536 维）/ `eagle_visual`（2048 维） |
 | PostgreSQL 16 | 会话 / 去重 / 任务审计 |
 | Redis 7 | Celery broker / result backend |
 | MinIO | Tile PNG 与原始文件对象存储 |
@@ -159,11 +162,12 @@
 
 ### 关键环境变量
 
-> 以 `eagle_rag/settings.yaml` 为准（支持 `${VAR:-default}` 占位）。`KB_NAME` 与 `KNOWHERE_BASE_URL` 分别用于多租户隔离与 Knowhere 服务寻址；**不再依赖 `LIBREOFFICE_PATH` 与 `PIXELRAG_SERVE_URL`**。
+> 以 `eagle_rag/settings.yaml` 为准（支持 `${VAR:-default}` 占位）。`EAGLE_RAG_PROFILE` 绑定领域（`plugin_namespace` / Milvus Database）；`KB_NAME` 在该领域内选择知识库；`KNOWHERE_MODE` / `KNOWHERE_BASE_URL` 选择 Knowhere 后端。**不再依赖 `LIBREOFFICE_PATH` 与 `PIXELRAG_SERVE_URL`**。
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `KB_NAME` | `default` | 知识库标识（多租户隔离），如 `finance` / `patent` / `pharma` |
+| `EAGLE_RAG_PROFILE` | `core` | 部署 profile：`core` / `biomed` / `lakehouse-bi`（设定 `default_namespace` + Milvus `db_name`） |
+| `KB_NAME` | `default` | 绑定领域**内**的默认知识库 id，如 `finance` / `patent` / `pharma` |
 | `KNOWHERE_BASE_URL` | `http://localhost:5005` | Knowhere HTTP 解析服务地址 |
 | `LLM_API_KEY` / `LLM_BASE_URL` | — | DeepSeek |
 | `VLM_API_KEY` / `VLM_BASE_URL` | — | Qwen-VL-Max（DashScope） |
@@ -212,16 +216,20 @@ task health             # curl http://localhost:8000/health
 
 ## MCP 工具
 
-MCP Server（FastMCP，默认 streamable HTTP transport，挂载于 `/mcp`，可降级 stdio）暴露四项能力，供 LlamaIndex `FunctionAgent` + `llama-index-tools-mcp` 拉取。随 FastAPI 主应用挂载于 `/mcp`，亦可独立启动：`python -m eagle_rag.api.mcp_server`。
+MCP Server（FastMCP，默认 streamable HTTP，挂载于 `/mcp`，可降级 stdio）暴露 **命名空间** 工具（`{namespace}_{name}`）。Core 工具始终注册；领域工具仅在 `EAGLE_RAG_PROFILE` / `default_namespace` 匹配时出现（G3）。见 [MCP 工具文档](docs/zh/api/mcp-tools.md) 与 ADR-008。
 
 | 工具 | 参数 | 返回 |
 | --- | --- | --- |
-| `ingest` | `source_uri`, `source_type?`, `kb_name?` | `{job_id, status, document_id, dedup_hit}` |
-| `query` | `query`, `mode?`, `scope?`, `kb_name?` | `{answer, sources, route, steps}` |
-| `retrieve_text` | `query`, `scope?`, `top_k=5`, `kb_name?` | `[{node_id, text, score, metadata}]` |
-| `retrieve_visual` | `query`, `scope?`, `top_k=5`, `kb_name?` | `[{image_id, document_id, page, position, score}]` |
+| `core_ingest` | `source_uri`, `source_type?`, `kb_name?` | `{job_id, status, document_id, dedup_hit}` |
+| `core_query` | `query`, `mode?`, `scope?`, `kb_name?`, `scope_filter?` | `{answer, sources, route, steps}` |
+| `core_retrieve_text` | `query`, `scope?`, `top_k=5`, `kb_name?` | `[{node_id, text, score, metadata}]` |
+| `core_retrieve_visual` | `query`, `scope?`, `top_k=5`, `kb_name?` | `[{image_id, document_id, page, position, score}]` |
+| `biomed_query_entities` | `entity`, `kb_name?` | 实体别名 / 通路（biomed profile） |
+| `biomed_retrieve_compounds` | `smiles_or_name`, `top_k?`, `kb_name?` | 化学 ANN 命中（biomed profile） |
+| `lakehouse_bi_query_semantic_context` | `question`, `kb_name?` | 语义上下文包（lakehouse-bi profile） |
+| `lakehouse_bi_retrieve_historical_analysis` | `topic`, `kb_name?` | 历史分析分块 |
 
-`kb_name` 缺省时回退 `settings.kb_name`。工具内部 lazy import service 层，外部依赖不可用时返回带 `error` 字段的降级响应，不中断 MCP 会话。
+`kb_name` 缺省时回退 `settings.kb_name`。用 `EAGLE_RAG_PROFILE=biomed` 或 `lakehouse-bi` 启用领域（见 `eagle_rag/settings.yaml` 的 `profiles:`）。
 
 ## 目录结构
 
@@ -238,6 +246,7 @@ eagle-rag/
 │  ├─ ingest/            # 摄入管道（router / selectors / knowhere_adapter / pixelrag_adapter / runner / preprocess）
 │  ├─ kb/                # 知识库生命周期与健康
 │  ├─ notifications/     # 通知
+│  ├─ plugins/           # 微内核（PluginManager / HookBus / orchestrators / core_defaults）
 │  ├─ retrievers/        # 检索器（knowhere_graph_retriever / pixelrag_visual_retriever）
 │  ├─ router/            # 路由引擎（router_engine / llm_factory / models / selectors）
 │  ├─ sessions/          # 会话存储
@@ -245,7 +254,8 @@ eagle-rag/
 │  ├─ tasks/             # Celery（celery_app / dead_letter / state）
 │  ├─ telemetry/         # 结构化日志 + OpenTelemetry
 │  └─ config.py  settings.yaml
-├─ frontend/             # Next.js + Bun + HeroUI v3
+├─ plugins/              # 同仓垂类插件（biomed / lakehouse_bi / _template）
+├─ frontend/             # Next.js + Bun + HeroUI v3（仅 Core 橱窗）
 ├─ docker/               # Dockerfile（api / worker / frontend / docs / mcp）+ knowhere-self-hosted
 ├─ tests/  examples/  design/
 ├─ docs/                 # MkDocs Material 双语（zh / en）
@@ -258,7 +268,7 @@ eagle-rag/
 - **English docs** → [docs/en/index.md](docs/en/index.md)
 - **中文文档** → [docs/zh/index.md](docs/zh/index.md)
 - **学习路径** → [docs/zh/learning-path.md](docs/zh/learning-path.md)（RAG 推荐阅读顺序）
-- **架构设计** → [docs/zh/architecture/index.md](docs/zh/architecture/index.md) · [多模态融合](docs/zh/architecture/multimodal-fusion.md)
+- **架构设计** → [docs/zh/architecture/index.md](docs/zh/architecture/index.md) · [插件架构](docs/zh/architecture/plugin-architecture.md) · [多模态融合](docs/zh/architecture/multimodal-fusion.md)
 - **API 参考** → [docs/zh/api/index.md](docs/zh/api/index.md)
 - **MCP 工具** → [docs/zh/api/mcp-tools.md](docs/zh/api/mcp-tools.md)
 

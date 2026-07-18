@@ -27,7 +27,10 @@ flowchart LR
 ### 范围与设计
 
 - [ ] 变更符合 [`AGENTS.md`](https://github.com/fintax-ai/eagle-rag/blob/master/AGENTS.md) 模块边界（无 pixelrag-serve、FAISS、OpenAI、Cohere、LibreOffice）。
-- [ ] 多租户路径传播 `kb_name`（API、MCP、Celery kwargs、Milvus 过滤）。
+- [ ] 多租户路径传播 `kb_name` 并尊重 `plugin_namespace`（仓库、Milvus `db_name`、API 不匹配时 403）。
+- [ ] 新 MCP 工具经 `mcp_registry` 使用 `core_*` 或 `{namespace}_*`；仅 RAG 命名 — 无副作用工具（[ADR-008](../architecture/adr/008-rag-only-plugin-platform.md)）。
+- [ ] `frontend/` 中无垂直插件域 UI（仅后端 + MCP）。
+- [ ] 插件或租户行为变更时更新 `README.md`、`AGENTS.md` 和/或 `docs/en/architecture/plugin-architecture.md`（及 zh 镜像）。
 - [ ] 新 HTTP 端点使用 `eagle_rag/api/schemas/` 中 Pydantic schema 与 `response_model=`。
 - [ ] DB schema 变更含 Alembic revision（store 中无 DDL）。
 - [ ] 配置变更在 `settings.yaml` 添加 `${VAR:-default}` + `config.py` 中 pydantic 字段。
@@ -103,7 +106,7 @@ celery down when workers were healthy. Lower inspect timeout to 1.0s.
 | Celery | 任务是否在 `include=` 与 `task_routes` 注册？`@with_retry` 或显式死信？ |
 | Scope | `scope_filter` OR 语义是否保留？ |
 | 流式 | SSE 事件类型变更是否无迁移说明？ |
-| MCP | `TOOL_DEFINITIONS` 是否更新？新工具是否 `@with_metrics`？ |
+| MCP | `TOOL_DEFINITIONS` + `mcp_registry`；`core_*` 命名；RAG-only 守卫；新工具 `@with_metrics` |
 
 ## 本地开发命令
 

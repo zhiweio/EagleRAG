@@ -19,7 +19,8 @@ from eagle_rag.api.app import app
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    with TestClient(app) as c:
+        yield c
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +145,10 @@ def test_post_query_with_existing_session(client: TestClient) -> None:
         patch("eagle_rag.api.query._get_engine", return_value=engine),
         patch(
             "eagle_rag.api.query.get_session",
+            AsyncMock(return_value=_session_row("s1", "t")),
+        ),
+        patch(
+            "eagle_rag.api.query.set_session_scope_filter",
             AsyncMock(return_value=_session_row("s1", "t")),
         ),
         patch(
@@ -591,9 +596,12 @@ def test_post_ingest_file_dedup_hit(client: TestClient) -> None:
 def test_post_ingest_url(client: TestClient) -> None:
     """POST /ingest with a form url returns the same response shape."""
     result = {"job_id": "j2", "status": "pending", "dedup_hit": False, "document_id": "d2"}
-    with patch(
-        "eagle_rag.api.ingest.ingest_url", MagicMock(return_value=result)
-    ) as mock_ingest_url:
+    with (
+        patch("eagle_rag.api.ingest.validate_url_format"),
+        patch("eagle_rag.api.ingest.assert_not_ssrf_target"),
+        patch("eagle_rag.api.ingest.prefetch_url"),
+        patch("eagle_rag.api.ingest.ingest_url", MagicMock(return_value=result)) as mock_ingest_url,
+    ):
         response = client.post(
             "/ingest",
             data={"url": "https://example.com/page", "kb_name": "default"},

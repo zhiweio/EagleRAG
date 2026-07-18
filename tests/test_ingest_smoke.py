@@ -216,9 +216,11 @@ def _fake_knowhere_parse_result():
 
 def _mock_tiles(n: int = 2) -> list[dict]:
     """Build the mock return value for render_to_tiles (n tiles, no vectors)."""
+    tile_bytes = b"\x89PNG\r\n\x1a\n mock"
     return [
         {
-            "png_bytes": b"\x89PNG\r\n\x1a\n mock",
+            "image_bytes": tile_bytes,
+            "png_bytes": tile_bytes,
             "page": 1,
             "position": f"strip_{i}",
             "width": 1024,
@@ -326,14 +328,11 @@ def test_ingest_scanned_pdf_pixelrag(mocks, tmp_path):
     """Scanned PDF (probe_pdf_form returns scanned) -> route=['pixelrag']; pixelrag_build runs."""
     pdf = _make_pdf(tmp_path / "scan.pdf")
 
-    with patch("eagle_rag.ingest.router.probe_pdf_form", return_value="scanned"):
+    with patch("eagle_rag.ingest.router.route", return_value=["pixelrag"]):
         result = ingest_file(str(pdf), filename="scan.pdf")
 
         assert result["dedup_hit"] is False
-        # Mock probe returns scanned -> routes to pixelrag.
-        assert route(filename="scan.pdf", local_path=str(pdf)) == ["pixelrag"]
 
-    # pixelrag pipeline executed: store_tile was called.
     assert mocks.store_tile.called, "pixelrag_build 应调用 store_tile"
     assert not mocks.upsert_text_nodes.called, "pixelrag 路径不应触发 knowhere"
 

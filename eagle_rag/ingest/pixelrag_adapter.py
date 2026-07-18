@@ -61,8 +61,8 @@ import pixelrag_render
 
 from eagle_rag.config import get_settings
 from eagle_rag.images.store import store_tile
-from eagle_rag.index.milvus_visual_store import upsert_visual
 from eagle_rag.index.registry import update_chunk_count, update_status
+from eagle_rag.plugins.pipeline import ParseContext, ParseResult
 from eagle_rag.storage.minio_client import download_file
 from eagle_rag.tasks.celery_app import app  # noqa: F401  -- ensure the Celery app is loaded
 from eagle_rag.tasks.dead_letter import retry_on_failure, with_retry
@@ -72,9 +72,11 @@ from eagle_rag.telemetry import get_ai_logger, get_logger, trace_span, truncate
 __all__ = [
     "pixelrag_build",
     "knowhere_visual_chunks",
+    "PixelragPipeline",
     "render_to_tiles",
     "embed_tiles",
     "embed_query",
+    "upsert_visual",
 ]
 
 logger = get_logger(__name__)
@@ -83,6 +85,50 @@ ai_logger = get_ai_logger(__name__)
 # Qwen3-VL patch alignment and render viewport width (aligned with pixelrag_embed / pixelrag_render)
 _RESIZE_FACTOR = 28
 _MAX_CHUNK_WIDTH = 875
+
+
+def upsert_visual(
+    *,
+    image_id: str,
+    vector: list[float],
+    image_path: str,
+    document_id: str,
+    page: int = 0,
+    position: str = "",
+    kb_name: str | None = None,
+    year: int | None = None,
+    source_type: str | None = None,
+    chunk_type: str = "tile",
+    parent_section: str | None = None,
+    content_summary: str | None = None,
+    source_chunk_id: str | None = None,
+    plugin_namespace: str | None = None,
+) -> str:
+    """Write one visual vector via IngestOrchestrator (test-compatible entry point)."""
+    from eagle_rag.plugins.ingest_helpers import ingest_visual_record
+
+    settings = get_settings()
+    resolved_kb = kb_name if kb_name is not None else settings.kb_name
+    return ingest_visual_record(
+        {
+            "image_id": image_id,
+            "vector": vector,
+            "image_path": image_path,
+            "document_id": document_id,
+            "page": page,
+            "position": position,
+            "kb_name": resolved_kb,
+            "year": year,
+            "source_type": source_type,
+            "chunk_type": chunk_type,
+            "parent_section": parent_section,
+            "content_summary": content_summary,
+            "source_chunk_id": source_chunk_id,
+        },
+        plugin_namespace=plugin_namespace or settings.plugins.default_namespace,
+        kb_name=resolved_kb,
+        document_id=document_id,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -436,6 +482,31 @@ def embed_image_bytes(image_bytes: bytes) -> list[float]:
 
 
 # ---------------------------------------------------------------------------
+# Ingest pipeline wrapper
+# ---------------------------------------------------------------------------
+
+
+class PixelragPipeline:
+    """Registered pixelrag ingest pipeline (minimal Celery dispatch wrapper)."""
+
+    name = "pixelrag"
+
+    def celery_task_name(self) -> str:
+        return "eagle_rag.tasks.pixelrag_build"
+
+    def queue(self) -> str:
+        return "pixelrag_queue"
+
+    def parse(self, ctx: ParseContext) -> ParseResult:
+        source = ctx.source_uri if ctx.source_uri else ctx.file_path
+        tiles = render_to_tiles(source)
+        return ParseResult(raw=tiles, pipeline=self.name, chunk_count=len(tiles))
+
+    def to_nodes(self, parse_result: ParseResult, ctx: ParseContext) -> list[dict[str, Any]]:
+        return embed_tiles(parse_result.raw)
+
+
+# ---------------------------------------------------------------------------
 # Celery tasks
 # ---------------------------------------------------------------------------
 
@@ -497,6 +568,13 @@ def pixelrag_build(
             # 3. Encode a visual vector per tile
             tiles_with_vec = embed_tiles(tiles)
 
+            from eagle_rag.plugins.ingest_tracker import (
+                clear_ingest_collections,
+                snapshot_ingest_collections,
+            )
+
+            clear_ingest_collections()
+
             # 4. Per tile: write image store + write Milvus visual index
             for i, tile in enumerate(tiles_with_vec):
                 update_state(
@@ -533,6 +611,8 @@ def pixelrag_build(
                     kb_name=resolved_kb,
                     year=year,
                     source_type=source_type,
+                    chunk_type="tile",
+                    plugin_namespace=settings.plugins.default_namespace,
                 )
 
             # 5. INDEXING
@@ -543,6 +623,18 @@ def pixelrag_build(
 
             # 7. Document status -> ready
             update_status(document_id, "ready")
+
+            from eagle_rag.plugins.ingest_catalog import commit_ingest_catalog
+
+            collections = snapshot_ingest_collections()
+            if not collections:
+                collections = [settings.milvus.visual_collection]
+            commit_ingest_catalog(
+                document_id,
+                resolved_kb,
+                collections,
+                plugin_namespace=settings.plugins.default_namespace,
+            )
 
             # 8. SUCCESS
             update_state(
@@ -639,6 +731,13 @@ def knowhere_visual_chunks(
                 log_entry=f"Processing {len(chunks)} Knowhere visual chunks",
             )
 
+            from eagle_rag.plugins.ingest_tracker import (
+                clear_ingest_collections,
+                snapshot_ingest_collections,
+            )
+
+            clear_ingest_collections()
+
             for i, chunk in enumerate(chunks):
                 # Download the chunk's raw bytes to a temp file
                 if chunk["type"] == "table":
@@ -693,6 +792,7 @@ def knowhere_visual_chunks(
                         parent_section=chunk.get("parent_section"),
                         content_summary=chunk.get("summary"),
                         source_chunk_id=chunk.get("chunk_id"),
+                        plugin_namespace=settings.plugins.default_namespace,
                     )
 
                 # Clean up the temp file
@@ -704,6 +804,18 @@ def knowhere_visual_chunks(
                 TaskState.SUCCESS,
                 progress=100,
                 log_entry=(f"Knowhere visual chunks complete, {len(chunks)} chunks"),
+            )
+
+            from eagle_rag.plugins.ingest_catalog import commit_ingest_catalog
+
+            collections = snapshot_ingest_collections()
+            if not collections:
+                collections = [settings.milvus.visual_collection]
+            commit_ingest_catalog(
+                document_id,
+                resolved_kb,
+                collections,
+                plugin_namespace=settings.plugins.default_namespace,
             )
 
             try:

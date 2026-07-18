@@ -1,0 +1,442 @@
+"""Multi-collection retrieval orchestration (M3.5)."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+from llama_index.core.schema import ImageNode, NodeWithScore, TextNode
+
+from eagle_rag.config import get_settings
+from eagle_rag.index.milvus_pool import get_milvus_pool
+from eagle_rag.plugins.hookbus import HookContext
+from eagle_rag.plugins.hooks import Hook
+from eagle_rag.plugins.milvus_ns import milvus_db_name
+from eagle_rag.plugins.routing import CollectionQueryPlan, QueryRouteDecision
+from eagle_rag.retrievers.knowhere_graph_retriever import KnowhereGraphRetriever
+from eagle_rag.retrievers.pixelrag_visual_retriever import PixelRAGVisualRetriever
+from eagle_rag.router.rerank_fusion import dedupe_cross_collection, merge_rrf
+from eagle_rag.telemetry import get_logger, trace_span
+
+if TYPE_CHECKING:
+    from eagle_rag.plugins.manager import PluginManager
+
+__all__ = ["RetrieverOrchestrator"]
+
+logger = get_logger(__name__)
+
+_TEXT_OUTPUT_FIELDS = [
+    "text",
+    "path",
+    "document_id",
+    "kb_name",
+    "source_type",
+    "year",
+    "type",
+    "source_chunk_id",
+    "chunk_type",
+    "parent_section",
+]
+_VISUAL_OUTPUT_FIELDS = [
+    "image_id",
+    "image_path",
+    "document_id",
+    "page",
+    "position",
+    "kb_name",
+    "year",
+    "source_type",
+    "chunk_type",
+    "parent_section",
+    "content_summary",
+    "source_chunk_id",
+]
+
+
+class RetrieverOrchestrator:
+    """Execute multi-collection ANN per ``QueryRouteDecision``."""
+
+    def __init__(
+        self,
+        *,
+        plugin_manager: PluginManager | None = None,
+        text_retriever: Any = None,
+        visual_retriever: Any = None,
+    ) -> None:
+        if plugin_manager is None:
+            from eagle_rag.plugins import get_plugin_manager
+
+            plugin_manager = get_plugin_manager()
+        self._manager = plugin_manager
+        self._text_retriever = text_retriever
+        self._visual_retriever = visual_retriever
+
+    def retrieve(
+        self,
+        query: str,
+        *,
+        plugin_namespace: str,
+        route_decision: QueryRouteDecision,
+        kb_name: str | None = None,
+        scope_filter: dict[str, Any] | None = None,
+        query_image_bytes: bytes | None = None,
+        top_k: int = 5,
+        filters: dict[str, Any] | None = None,
+        scope_kb_names: list[str] | None = None,
+        scope_doc_ids: list[str] | None = None,
+        use_scope_filter: bool = False,
+        visual_query: str | None = None,
+    ) -> list[NodeWithScore]:
+        settings = get_settings()
+        source_type = filters.get("source_type") if filters else None
+        year = filters.get("year") if filters else None
+        plan_results: list[list[NodeWithScore]] = []
+        visual_query_text = visual_query if visual_query is not None else query
+
+        for plan in route_decision.plans:
+            plan_top_k = plan.top_k or top_k
+            try:
+                with trace_span(f"retrieve.{plan.collection}"):
+                    nodes = self._retrieve_plan(
+                        plan,
+                        query,
+                        kb_name=kb_name,
+                        source_type=source_type,
+                        year=year,
+                        scope_kb_names=scope_kb_names,
+                        scope_doc_ids=scope_doc_ids,
+                        use_scope_filter=use_scope_filter,
+                        query_image_bytes=query_image_bytes,
+                        visual_query=visual_query_text,
+                        top_k=plan_top_k,
+                        plugin_namespace=plugin_namespace,
+                    )
+                    nodes = self._apply_rerank(
+                        nodes,
+                        query=query,
+                        plan=plan,
+                        plugin_namespace=plugin_namespace,
+                    )
+                    plan_results.append(nodes)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "collection retrieval failed; skipping plan (G14): %s",
+                    exc,
+                    extra={"collection": plan.collection, "encoder": plan.encoder},
+                )
+                self._manager.audit.log_decision(
+                    category="retrieve_plan",
+                    target_collection=plan.collection,
+                    plugin_namespace=plugin_namespace,
+                    error=str(exc),
+                    reason="plan_failed",
+                )
+                continue
+
+        merged = merge_rrf(plan_results, k=settings.router.rrf_k)
+        successful_plans = sum(1 for lst in plan_results if lst)
+        if successful_plans > 1:
+            merged = dedupe_cross_collection(merged, audit=self._manager.audit)
+        return merged
+
+    def _apply_rerank(
+        self,
+        nodes: list[NodeWithScore],
+        *,
+        query: str,
+        plan: CollectionQueryPlan,
+        plugin_namespace: str,
+    ) -> list[NodeWithScore]:
+        if not nodes:
+            return nodes
+        hook_ctx = HookContext(
+            plugin_namespace=plugin_namespace,
+            extra={"collection": plan.collection, "encoder": plan.encoder},
+        )
+        reranked = self._manager.bus.invoke_first(
+            Hook.RERANK,
+            hook_ctx,
+            nodes,
+            query=query,
+            collection=plan.collection,
+            encoder=plan.encoder,
+        )
+        return nodes if reranked is None else reranked
+
+    def _retrieve_plan(
+        self,
+        plan: CollectionQueryPlan,
+        query: str,
+        *,
+        kb_name: str | None,
+        source_type: str | None,
+        year: int | None,
+        scope_kb_names: list[str] | None,
+        scope_doc_ids: list[str] | None,
+        use_scope_filter: bool,
+        query_image_bytes: bytes | None,
+        visual_query: str,
+        top_k: int,
+        plugin_namespace: str,
+    ) -> list[NodeWithScore]:
+        settings = get_settings()
+        self._manager.encoder_registry.validate_plan(plan.collection, plan.encoder)
+
+        if plan.collection == settings.milvus.text_collection:
+            return self._retrieve_core_text(
+                query,
+                kb_name=kb_name,
+                source_type=source_type,
+                year=year,
+                scope_kb_names=scope_kb_names,
+                scope_doc_ids=scope_doc_ids,
+                use_scope_filter=use_scope_filter,
+                top_k=top_k,
+            )
+
+        if plan.collection == settings.milvus.visual_collection:
+            return self._retrieve_core_visual(
+                visual_query,
+                kb_name=kb_name,
+                source_type=source_type,
+                year=year,
+                scope_kb_names=scope_kb_names,
+                scope_doc_ids=scope_doc_ids,
+                use_scope_filter=use_scope_filter,
+                query_image_bytes=query_image_bytes,
+                top_k=top_k,
+            )
+
+        db_name = milvus_db_name(plugin_namespace)
+        if self._manager.collection_registry.has(db_name, plan.collection):
+            store = self._manager.collection_registry.get(db_name, plan.collection)
+            if hasattr(store, "retrieve"):
+                return list(store.retrieve(query) or [])
+            if hasattr(store, "as_retriever"):
+                retriever = store.as_retriever(similarity_top_k=top_k)
+                return list(retriever.retrieve(query) or [])
+
+        return self._retrieve_generic_milvus(
+            plan,
+            query,
+            plugin_namespace=plugin_namespace,
+            kb_name=kb_name,
+            source_type=source_type,
+            year=year,
+            scope_kb_names=scope_kb_names,
+            scope_doc_ids=scope_doc_ids,
+            use_scope_filter=use_scope_filter,
+            query_image_bytes=query_image_bytes,
+            top_k=top_k,
+        )
+
+    def _retrieve_core_text(
+        self,
+        query: str,
+        *,
+        kb_name: str | None,
+        source_type: str | None,
+        year: int | None,
+        scope_kb_names: list[str] | None,
+        scope_doc_ids: list[str] | None,
+        use_scope_filter: bool,
+        top_k: int,
+    ) -> list[NodeWithScore]:
+        if use_scope_filter:
+            retriever = KnowhereGraphRetriever(
+                top_k=top_k,
+                kb_names=scope_kb_names,
+                document_ids=scope_doc_ids,
+                source_type=source_type,
+                year=year,
+            )
+        elif kb_name or source_type is not None or year is not None:
+            retriever = KnowhereGraphRetriever(
+                top_k=top_k,
+                kb_name=kb_name,
+                source_type=source_type,
+                year=year,
+            )
+        elif self._text_retriever is not None:
+            retriever = self._text_retriever
+        else:
+            retriever = KnowhereGraphRetriever(top_k=top_k, kb_name=kb_name)
+
+        return list(retriever.retrieve(query) or [])
+
+    def _retrieve_core_visual(
+        self,
+        query: str,
+        *,
+        kb_name: str | None,
+        source_type: str | None,
+        year: int | None,
+        scope_kb_names: list[str] | None,
+        scope_doc_ids: list[str] | None,
+        use_scope_filter: bool,
+        query_image_bytes: bytes | None,
+        top_k: int,
+    ) -> list[NodeWithScore]:
+        if use_scope_filter:
+            retriever = PixelRAGVisualRetriever(
+                top_k=top_k,
+                kb_names=scope_kb_names,
+                document_ids=scope_doc_ids,
+                source_type=source_type,
+                year=year,
+            )
+        elif kb_name or source_type is not None or year is not None:
+            retriever = PixelRAGVisualRetriever(
+                top_k=top_k,
+                kb_name=kb_name,
+                source_type=source_type,
+                year=year,
+            )
+        elif self._visual_retriever is not None:
+            retriever = self._visual_retriever
+        else:
+            retriever = PixelRAGVisualRetriever(top_k=top_k, kb_name=kb_name)
+
+        return list(
+            retriever.retrieve(
+                query,
+                query_image_bytes=query_image_bytes,
+            )
+            or []
+        )
+
+    def _retrieve_generic_milvus(
+        self,
+        plan: CollectionQueryPlan,
+        query: str,
+        *,
+        plugin_namespace: str,
+        kb_name: str | None,
+        source_type: str | None,
+        year: int | None,
+        scope_kb_names: list[str] | None,
+        scope_doc_ids: list[str] | None,
+        use_scope_filter: bool,
+        query_image_bytes: bytes | None,
+        top_k: int,
+    ) -> list[NodeWithScore]:
+        enc_info = self._manager.encoder_registry.get(plan.encoder)
+        query_vector = self._encode_query(
+            plan.encoder,
+            query,
+            query_image_bytes=query_image_bytes,
+        )
+        if not query_vector:
+            return []
+
+        expr = self._build_milvus_expr(
+            kb_name=kb_name,
+            source_type=source_type,
+            year=year,
+            scope_kb_names=scope_kb_names,
+            scope_doc_ids=scope_doc_ids,
+            use_scope_filter=use_scope_filter,
+        )
+        db_name = milvus_db_name(plugin_namespace)
+        client = get_milvus_pool().get(db_name)
+        output_fields = (
+            _VISUAL_OUTPUT_FIELDS if enc_info.modality == "visual" else _TEXT_OUTPUT_FIELDS
+        )
+        raw = client.search(
+            collection_name=plan.collection,
+            data=[query_vector],
+            anns_field="vector",
+            limit=top_k,
+            filter=expr or "",
+            output_fields=output_fields,
+        )
+        return self._hits_to_nodes(raw, modality=enc_info.modality)
+
+    def _encode_query(
+        self,
+        encoder_name: str,
+        query: str,
+        *,
+        query_image_bytes: bytes | None,
+    ) -> list[float]:
+        if encoder_name == "text-embedding-v4":
+            from eagle_rag.index.milvus_text_store import _build_embed_model
+
+            return _build_embed_model().get_query_embedding(query)
+        if encoder_name == "qwen3-vl":
+            from eagle_rag.ingest.pixelrag_adapter import embed_image_bytes, embed_query
+
+            if query_image_bytes and not query.strip():
+                return embed_image_bytes(query_image_bytes)
+            return embed_query(query)
+
+        enc_info = self._manager.encoder_registry.get(encoder_name)
+        encoder = enc_info.encoder
+        if hasattr(encoder, "encode_text"):
+            return encoder.encode_text(query)
+        if hasattr(encoder, "get_query_embedding"):
+            return encoder.get_query_embedding(query)
+        msg = f"encoder {encoder_name} cannot encode queries"
+        raise TypeError(msg)
+
+    @staticmethod
+    def _build_milvus_expr(
+        *,
+        kb_name: str | None,
+        source_type: str | None,
+        year: int | None,
+        scope_kb_names: list[str] | None,
+        scope_doc_ids: list[str] | None,
+        use_scope_filter: bool,
+    ) -> str | None:
+        conditions: list[str] = []
+        if use_scope_filter and (scope_kb_names or scope_doc_ids):
+            scope_parts: list[str] = []
+            if scope_kb_names:
+                quoted = ", ".join(f'"{name}"' for name in scope_kb_names)
+                scope_parts.append(f"kb_name in [{quoted}]")
+            if scope_doc_ids:
+                quoted = ", ".join(f'"{doc_id}"' for doc_id in scope_doc_ids)
+                scope_parts.append(f"document_id in [{quoted}]")
+            if len(scope_parts) == 1:
+                conditions.append(scope_parts[0])
+            else:
+                conditions.append(f"({' or '.join(scope_parts)})")
+        elif kb_name is not None:
+            conditions.append(f'kb_name == "{kb_name}"')
+        if source_type is not None:
+            conditions.append(f'source_type == "{source_type}"')
+        if year is not None:
+            conditions.append(f"year == {year}")
+        if not conditions:
+            return None
+        return " and ".join(conditions)
+
+    @staticmethod
+    def _hits_to_nodes(raw: Any, *, modality: str) -> list[NodeWithScore]:
+        if not raw:
+            return []
+        hits = raw[0] if isinstance(raw, list) and raw else []
+        nodes: list[NodeWithScore] = []
+        for hit in hits:
+            entity = hit.get("entity") or {}
+            score = hit.get("distance")
+            if score is None:
+                score = hit.get("score", 1.0)
+            try:
+                score = float(score)
+            except (TypeError, ValueError):
+                score = 1.0
+
+            metadata = {k: entity.get(k) for k in entity if k != "text"}
+            if modality == "visual":
+                image_path = entity.get("image_path")
+                node = ImageNode(
+                    image_url=image_path,
+                    image_path=image_path,
+                    metadata=metadata,
+                )
+            else:
+                text = entity.get("text") or ""
+                node = TextNode(text=text, metadata=metadata)
+            nodes.append(NodeWithScore(node=node, score=score))
+        return nodes

@@ -2,6 +2,12 @@
 
 **语义树锚定像素融合**在单一 Milvus 集群内将 Knowhere 文档结构与 PixelRAG 视觉切片链接。本文说明理论、实际代码路径（`extract_visual_chunks` → `upsert_visual`），以及 ANN 数学、权衡、配置与故障模式。
 
+## 插件架构边界（已交付）
+
+PixelRAG 视觉模态（render + Qwen3-VL + `eagle_visual`）是 **Core 一等公民**；域插件不能禁用它。四锚点桥接（`chunk_type` / `parent_section` / `content_summary` / `source_chunk_id`）默认经 `INGEST_VISUAL_EXTRACT` hook 实现；域插件可覆盖锚定赋值。跨集合文档树使用 `reconstruct_document` 与 `GET /documents/{id}/structure`。
+
+**检索 vs 生成融合：** 在 Core 内，文本（`eagle_text`）与视觉（`eagle_visual`）命中在 `EagleMultimodalQueryEngine` 中合并以供 VLM prompt。域插件可在同一 Milvus Database 增加**专用集合**；`RetrieverOrchestrator` 按 plan 运行 ANN 并以 **RRF** 合并（[ADR-004](adr/004-multi-encoder-rrf-fusion.md)）— 不同于生成时的 text+visual 合并。参见 [插件架构](plugin-architecture.md)。
+
 ---
 
 ## 理论与基础

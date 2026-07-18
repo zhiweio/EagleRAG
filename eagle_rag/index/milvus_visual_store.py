@@ -45,6 +45,8 @@ from typing import Any
 from pymilvus import DataType, MilvusClient
 
 from eagle_rag.config import get_settings
+from eagle_rag.index.milvus_pool import get_milvus_pool
+from eagle_rag.plugins.milvus_ns import milvus_db_name
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +63,8 @@ __all__ = [
     "fetch_visual_by_document",
 ]
 
-# MilvusClient singleton (lazy).
-_client: MilvusClient | None = None
+# Legacy singleton removed (G24): use MilvusClientPool per db_name.
+_client_db: str | None = None
 
 
 def _uri() -> str:
@@ -74,12 +76,14 @@ def _collection_name() -> str:
     return get_settings().milvus.visual_collection
 
 
-def get_visual_client() -> MilvusClient:
-    """Return the MilvusClient singleton (calls ensure_collection first)."""
-    global _client  # noqa: PLW0603
-    if _client is None:
-        ensure_collection()
-    return _client  # type: ignore[return-value]
+def get_visual_client(plugin_namespace: str | None = None) -> MilvusClient:
+    """Return a pooled MilvusClient bound to the namespace database."""
+    global _client_db  # noqa: PLW0603
+    db_name = milvus_db_name(plugin_namespace)
+    if _client_db != db_name:
+        ensure_collection(plugin_namespace=plugin_namespace)
+        _client_db = db_name
+    return get_milvus_pool().get(db_name)
 
 
 def _vector_index_params(index_type: str) -> dict[str, Any]:
@@ -107,7 +111,7 @@ def _search_params(index_type: str) -> dict[str, Any]:
     return {"metric_type": "IP", "params": {"ef": 64}}
 
 
-def ensure_collection() -> None:
+def ensure_collection(plugin_namespace: str | None = None) -> None:
     """Idempotently create the collection + indexes and load it. Reads ``settings.milvus``.
 
     - Index type follows ``visual_index_type``: HNSW (default) or DiskANN.
@@ -116,9 +120,10 @@ def ensure_collection() -> None:
     - Migration: if an existing legacy collection lacks the ``kb_name`` field
       (Milvus does not support ALTER ADD FIELD), drop and recreate it.
     """
-    global _client  # noqa: PLW0603
-    client = MilvusClient(uri=_uri())
-    _client = client
+    global _client_db  # noqa: PLW0603
+    db_name = milvus_db_name(plugin_namespace)
+    client = get_milvus_pool().get(db_name)
+    _client_db = db_name
 
     cfg = get_settings().milvus
     coll_name = cfg.visual_collection
@@ -289,6 +294,7 @@ def upsert_visual(
     parent_section: str | None = None,
     content_summary: str | None = None,
     source_chunk_id: str | None = None,
+    plugin_namespace: str | None = None,
 ) -> None:
     """Upsert one visual vector record (overwrites by PK ``id``).
 
@@ -311,11 +317,16 @@ def upsert_visual(
                 "content_summary": content_summary,
                 "source_chunk_id": source_chunk_id,
             }
-        ]
+        ],
+        plugin_namespace=plugin_namespace,
     )
 
 
-def upsert_visual_batch(items: list[dict[str, Any]]) -> None:
+def upsert_visual_batch(
+    items: list[dict[str, Any]],
+    *,
+    plugin_namespace: str | None = None,
+) -> None:
     """Batch upsert.
 
     Each item contains image_id/vector/image_path/document_id/page/position
@@ -323,7 +334,7 @@ def upsert_visual_batch(items: list[dict[str, Any]]) -> None:
     """
     if not items:
         return
-    client = get_visual_client()
+    client = get_visual_client(plugin_namespace)
     rows = [_build_row(it) for it in items]
     client.upsert(collection_name=_collection_name(), data=rows)
 

@@ -102,7 +102,7 @@ build-backend = "hatchling.build"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["eagle_rag"]
+packages = ["eagle_rag", "plugins"]
 
 # cef-capi-py is a hard dependency declared by pixelrag, but pixelrag_render /
 # pixelrag_embed never import it (CDP backend uses Chrome DevTools Protocol over WebSocket, not CEF).

@@ -94,6 +94,8 @@ task db:migrate    # uv run alembic upgrade head
 
 Schema 定义于 `eagle_rag/db/models/` —— **store 模块中无 DDL**。迁移在 `alembic/versions/`。
 
+近期插件命名空间迁移：`0007_plugin_namespace`、`0008_namespace_unique_constraints` — `plugin_namespace` 列与命名空间范围唯一性所需。
+
 ---
 
 ## 模型 API 密钥 {#model-api-keys}
@@ -182,7 +184,8 @@ sequenceDiagram
 | 分区 | 关键变量 | 备注 |
 | --- | --- | --- |
 | App | `APP_ENV`、`APP_HOST`、`APP_PORT`、`LOG_LEVEL` | |
-| KB | `KB_NAME` | 默认租户 |
+| KB | `KB_NAME` | 绑定域内默认租户 |
+| Profile | `EAGLE_RAG_PROFILE` | 可选 — `core`（默认）、`biomed`、`lakehouse-bi`；合并 `profiles:` 覆盖层 |
 | Knowhere | `KNOWHERE_BASE_URL`、`KNOWHERE_API_KEY` | 解析服务 |
 | LLM | `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` | DeepSeek |
 | VLM | `VLM_API_KEY`、`VLM_BASE_URL`、`VLM_MODEL` | Qwen-VL |

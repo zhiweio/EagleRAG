@@ -128,6 +128,7 @@ export function Composer({
   const addDocument = useScopeStore((s) => s.addDocument);
   const removeItem = useScopeStore((s) => s.removeItem);
   const scopeTotal = kbNames.length + documents.length + tags.length;
+  const deployDomain = process.env.NEXT_PUBLIC_PLUGIN_NAMESPACE ?? "core";
   const [value, setValue] = useState("");
   const [uploading, setUploading] = useState(false);
   const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
@@ -457,6 +458,12 @@ export function Composer({
                   : t("scopeDrawer.all")}
               </span>
             </Button>
+
+            {deployDomain === "biomed" && scopeTotal === 0 ? (
+              <span className="hidden max-w-xs truncate text-[11px] text-foreground-tertiary lg:inline">
+                {t("scope.exploratoryHint")}
+              </span>
+            ) : null}
 
             {hasMessages && onNewChat ? (
               <>

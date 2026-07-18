@@ -10,7 +10,9 @@
     "manageAccount": "Account & preferences",
     "history": "History",
     "collapseSidebar": "Collapse sidebar",
-    "expandSidebar": "Expand sidebar"
+    "expandSidebar": "Expand sidebar",
+    "domain": "Domain: {domain}",
+    "domainHint": "Deployment domain (plugin_namespace, read-only). Select knowledge bases (kb_name) within this domain — not a domain switcher."
   },
   "nav": {
     "qa": "Q&A",
@@ -96,7 +98,7 @@
       "totalDocs": "Total docs",
       "activeTenants": "KB instances",
       "storageAlerts": "Storage alerts",
-      "colTenant": "Tenant name",
+      "colTenant": "Knowledge base",
       "colStorage": "Storage",
       "colDocuments": "Documents",
       "colStatus": "Status",
@@ -104,7 +106,7 @@
       "statusSyncing": "Syncing",
       "statusDegraded": "Degraded",
       "empty": "No knowledge bases yet",
-      "alertHint": "{count} tenant(s) need attention"
+      "alertHint": "{count} knowledge base(s) need attention"
     },
     "healthCard": {
       "title": "Service health",

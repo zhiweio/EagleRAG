@@ -1,8 +1,10 @@
 # Ingest pipeline
 
-The ingest pipeline transforms raw documents (local files, byte streams, MinIO objects, or URLs) into searchable Milvus vectors and PostgreSQL registry records. Eagle-RAG uses a **dual-pipeline** design: structured text parsing via [Knowhere](https://github.com/Ontos-AI/knowhere) and visual tile encoding via PixelRAG (`pixelrag_render` + local Qwen3-VL embedding). A Celery router task decides which pipeline(s) run for each document.
+The ingest pipeline transforms raw documents (local files, byte streams, MinIO objects, or URLs) into searchable Milvus vectors and PostgreSQL registry records. Eagle-RAG uses a **dual-pipeline** design: structured text parsing via [Knowhere](https://github.com/Ontos-AI/knowhere) and visual tile encoding via PixelRAG (`pixelrag_render` + local Qwen3-VL embedding). A Celery router task decides which pipeline(s) run for each document. After parse/chunk, the **plugin microkernel** runs `IngestOrchestrator` with `CLASSIFY_*` / `EMBED_*` / `UPSERT_VECTORS` hooks for domain encoders and specialized collections.
 
-**Source modules:** `eagle_rag/ingest/runner.py`, `eagle_rag/ingest/router.py`, `eagle_rag/ingest/knowhere_adapter.py`, `eagle_rag/ingest/pixelrag_adapter.py`, `eagle_rag/ingest/selectors.py`
+**Source modules:** `eagle_rag/ingest/runner.py`, `eagle_rag/ingest/router.py`, `eagle_rag/ingest/knowhere_adapter.py`, `eagle_rag/ingest/pixelrag_adapter.py`, `eagle_rag/ingest/selectors.py`, `eagle_rag/plugins/ingest_orchestrator.py`, `eagle_rag/plugins/hotpath_hooks.py`
+
+See [Plugin architecture](../architecture/plugin-architecture.md) for hook catalog and `collections_used` contract.
 
 ---
 
@@ -60,8 +62,9 @@ sequenceDiagram
         Router->>Router: route() → pipelines
         alt knowhere
             Router->>KH: knowhere_queue
-            KH->>KH: SDK parse → TextNodes
-            KH->>MV: upsert eagle_text
+            KH->>KH: SDK parse → PARSE/CHUNK hooks
+            KH->>KH: IngestOrchestrator classify → embed → upsert
+            KH->>MV: upsert eagle_text (+ specialized)
             KH->>PR: knowhere_visual_chunks (optional)
         end
         alt pixelrag
@@ -69,6 +72,7 @@ sequenceDiagram
             PR->>PR: render → embed → store_tile
             PR->>MV: upsert eagle_visual
         end
+        KH->>PG: collections_used catalog (on success)
     end
 ```
 
@@ -78,7 +82,7 @@ sequenceDiagram
 
 ### 3.1 Unified entry: `runner.py`
 
-`ingest()` is the single synchronous entry called by FastAPI (`POST /ingest`) and MCP (`ingest` tool).
+`ingest()` is the single synchronous entry called by FastAPI (`POST /ingest`) and MCP (`core_ingest` tool).
 
 **Four input sources:**
 
@@ -91,10 +95,11 @@ sequenceDiagram
 
 **Key design decisions:**
 
-1. **`kb_name` validation** — raises if KB not registered (`kb_exists_sync`).
-2. **Dedup deferred** — `dedup.register()` runs only after successful `knowhere_parse`, so failed jobs don't block re-upload.
+1. **`kb_name` validation** — raises if KB not registered (`kb_exists_sync` via repositories).
+2. **Dedup deferred** — `dedup.register()` runs only after successful `knowhere_parse`, so failed jobs don't block re-upload. PK: `(sha256, kb_name, plugin_namespace)`.
 3. **`local_path` not dispatched** — API container temp files are unreachable from worker containers; workers fetch via `object_key`.
 4. **Graceful PG degradation** — audit/registry failures are logged but don't block Celery dispatch.
+5. **Namespace binding** — repositories inject `plugin_namespace` from `settings.plugins.default_namespace`.
 
 ```python
 # runner.py — dispatch after registration
@@ -197,9 +202,30 @@ All nodes carry `document_id`, `source_type`, `kb_name`. `document_top_summary` 
 | Tags | (non-blocking) | `upsert_document_keywords()` |
 | Visual | (non-blocking) | dispatch to pixelrag_queue |
 | doc_nav | (non-blocking) | `update_extra({"doc_nav": ...})` |
-| Done | SUCCESS | registry ready + dedup.register |
+| Done | SUCCESS | registry ready + dedup.register + collections_used catalog |
 
-### 3.4 PixelRAG adapter: `pixelrag_adapter.py`
+### 3.4 Plugin ingest path
+
+After Knowhere parse, hot-path hooks wire domain customization:
+
+| Stage | Hook | Module |
+|-------|------|--------|
+| Parse enrich | `PARSE` | `eagle_rag/plugins/hotpath_hooks.py` |
+| Domain chunking | `CHUNK` | `eagle_rag/plugins/hotpath_hooks.py` |
+| Visual extract | `INGEST_VISUAL_EXTRACT` | HookBus |
+| Classify | `CLASSIFY_CHUNK` / `CLASSIFY_VISUAL` | `IngestOrchestrator.classify()` |
+| Embed + upsert | `EMBED_*` → `UPSERT_VECTORS` | `IngestOrchestrator.embed_and_upsert()` |
+
+Fixed order (G26): `PARSE → CHUNK → INGEST_VISUAL_EXTRACT → CLASSIFY_* → IngestOrchestrator`.
+
+On **successful** ingest only (`documents.status=success`, all chunks written):
+
+- `documents.extra["collections_used"]` — per document
+- `knowledge_bases.collections_used` — KB-level union
+
+Failed or partial ingests do not update the catalog. Query scope uses this catalog for specialized collection plans ([ADR-006](../architecture/adr/006-ingest-query-routing-contract.md)).
+
+### 3.5 PixelRAG adapter: `pixelrag_adapter.py`
 
 PixelRAG is a **library only** — no `pixelrag serve`, no FAISS, no `pixelrag.build()`.
 
@@ -305,7 +331,7 @@ Visual vectors bypass LlamaIndex vector store — managed directly by `pymilvus.
 
 | Tension | Stage | Symptom | Mitigation |
 | --- | --- | --- | --- |
-| **Dedup vs re-parse** | `check_duplicate(sha256, kb_name)` short-circuit | Parser upgrade does not re-index unchanged bytes | Delete registry row or change `kb_name` to force re-ingest |
+| **Dedup vs re-parse** | `check_duplicate(sha256, kb_name, plugin_namespace)` short-circuit | Parser upgrade does not re-index unchanged bytes | Delete registry row or change `kb_name` to force re-ingest |
 | **PDF probe errors** | `probe_pdf_form` fail-open → `text` | Scanned deck indexed as garbage text | Lower per-KB `pdf_text_page_ratio`; use `pixelrag:` prefix |
 | **Knowhere fail-closed** | `KnowhereError` → task `FAILED` | No partial text index on SDK timeout | Increase `knowhere.poll_timeout`; scale Knowhere workers |
 | **Visual dispatch best-effort** | `dispatch_visual_chunks` logs-only failure | `ready` doc with empty `eagle_visual` | Monitor `pixelrag_queue` + dead letter; re-run visual subtask |
@@ -400,7 +426,9 @@ celery:
 | `tests/test_knowhere_sections.py` | `sections_to_text_nodes` parent-document IDs and metadata |
 | `tests/test_knowhere_visual_chunks.py` | Visual chunk extraction + dispatch to pixelrag_queue |
 | `tests/test_ingest_url_validation.py` | URL source validation |
-| `tests/test_mcp_resilience.py` | MCP ingest tool with circuit breaker |
+| `tests/test_mcp_resilience.py` | MCP `core_ingest` tool with circuit breaker |
+| `tests/plugins/test_hotpath_hooks.py` | PARSE / CHUNK hook wiring |
+| `tests/plugins/test_core_defaults.py` | Core classify / embed defaults |
 
 **Behavioral contracts:**
 
@@ -416,11 +444,11 @@ celery:
 
 ### 8.1 Multi-tenancy
 
-Every ingest path propagates `kb_name`:
+Every ingest path propagates `kb_name` and `plugin_namespace`:
 
-- Dedup PK: `(sha256, kb_name)`
-- Milvus scalar: `kb_name == '{kb}'`
-- Document registry: `documents.kb_name`
+- Dedup PK: `(sha256, kb_name, plugin_namespace)`
+- Milvus scalar: `kb_name == '{kb}'` (inside domain Database)
+- Document registry: `documents.kb_name` + repository-injected `plugin_namespace`
 
 ### 8.2 Idempotency
 

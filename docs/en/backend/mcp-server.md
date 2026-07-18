@@ -1,8 +1,11 @@
 # MCP server
 
-Eagle-RAG exposes four MCP (Model Context Protocol) tools for LLM agent integration: `ingest`, `query`, `retrieve_text`, and `retrieve_visual`. The server reuses the same service layer as REST endpoints — no HTTP self-calls.
+Eagle-RAG exposes **RAG-only** MCP tools for LLM agents: Core tools `core_ingest`, `core_query`, `core_retrieve_text`, `core_retrieve_visual`, plus `{namespace}_*` tools from the active profile. The server reuses the same service layer as REST — no HTTP self-calls.
 
-**Source modules:** `eagle_rag/api/mcp_server.py`, `eagle_rag/api/mcp_http.py`, `eagle_rag/mcp_resilience.py`, `eagle_rag/mcp_cache.py`
+**Source modules:** `eagle_rag/api/mcp_server.py`, `eagle_rag/plugins/mcp_registry.py`, `eagle_rag/api/mcp_http.py`, `eagle_rag/mcp_resilience.py`, `eagle_rag/mcp_cache.py`
+
+!!! note "Product boundary"
+    MCP is for ingest and retrieval context only — no side-effect tools such as SQL execution. See [ADR-008](../architecture/adr/008-rag-only-plugin-platform.md).
 
 ---
 
@@ -18,9 +21,9 @@ Agent frameworks use tools for retrieval-augmented reasoning (Schick et al., *To
 
 | Tool | RAG stage |
 |------|----------|
-| `ingest` | Indexing |
-| `retrieve_text` / `retrieve_visual` | Retrieval |
-| `query` | Retrieval + Generation |
+| `core_ingest` | Indexing |
+| `core_retrieve_text` / `core_retrieve_visual` | Retrieval |
+| `core_query` | Retrieval + Generation |
 
 Separating retrieval from generation tools allows agents to inspect evidence before synthesizing answers.
 
@@ -32,44 +35,50 @@ MCP tools wrap service calls with **circuit breaker**, **timeout**, and **retry*
 
 ## 2. Tool definitions
 
-Registered via FastMCP `@mcp.tool()` decorator. Metadata mirrored in `TOOL_DEFINITIONS` for REST discovery at `GET /mcp/tools`.
+Core tools are registered via `@register_mcp_tool` in `eagle_rag/plugins/mcp_registry.py` and exposed through FastMCP. Domain plugins register `{namespace}_{name}` tools; the instance exposes only `core_*` plus tools from `settings.plugins.default_namespace` (G3 filter). `assert_rag_only_tool_name` rejects side-effect fragments (`execute_sql`, `send_email`, …). Pre-plugin bare names (`ingest`, `query`) are **not** aliased.
 
-### 2.1 `ingest`
+Metadata mirrored in `TOOL_DEFINITIONS` for REST discovery at `GET /mcp/tools`.
+
+### 2.1 `core_ingest`
 
 ```python
-ingest(source_uri: str, source_type: str | None, kb_name: str | None)
+core_ingest(source_uri: str, source_type: str | None, kb_name: str | None)
 → {"job_id", "status", "document_id", "dedup_hit"}
 ```
 
 Dispatches to Celery via `runner.ingest()`. Accepts file path or URL.
 
-### 2.2 `query`
+### 2.2 `core_query`
 
 ```python
-query(query: str, mode: str | None, scope: list[str] | None,
-      kb_name: str | None, scope_filter: dict | None)
+core_query(query: str, mode: str | None, scope: list[str] | None,
+           kb_name: str | None, scope_filter: dict | None)
 → {"answer", "sources", "route", "steps"}
 ```
 
-Full multimodal Q&A via `EagleRouterQueryEngine.query()`.
+Full multimodal Q&A via `EagleRouterQueryEngine.query()`. Retrieval may fan out to multiple Milvus collections via `RetrieverOrchestrator` + RRF merge when domain plugins are active.
 
-### 2.3 `retrieve_text`
+### 2.3 `core_retrieve_text`
 
 ```python
-retrieve_text(query: str, scope: list[str] | None, top_k: int, kb_name: str | None)
+core_retrieve_text(query: str, scope: list[str] | None, top_k: int, kb_name: str | None)
 → [{"node_id", "text", "score", "metadata": {path, level, summary, document_id, source_type}}]
 ```
 
-Pure text retrieval via `KnowhereGraphRetriever` — no LLM generation.
+Pure text retrieval via `KnowhereGraphRetriever` (Core) or `RetrieverOrchestrator` (multi-collection) — no LLM generation.
 
-### 2.4 `retrieve_visual`
+### 2.4 `core_retrieve_visual`
 
 ```python
-retrieve_visual(query: str, scope: list[str] | None, top_k: int, kb_name: str | None)
+core_retrieve_visual(query: str, scope: list[str] | None, top_k: int, kb_name: str | None)
 → [{"image_id", "document_id", "page", "position", "score"}]
 ```
 
 Pure visual retrieval via `PixelRAGVisualRetriever`.
+
+### 2.5 Domain plugin tools
+
+Domain plugins register additional tools at load time (e.g. `biomed_query_entities`, `lakehouse_bi_query_semantic_context`). Only tools from the bound `default_namespace` are exposed alongside `core_*`. See [Plugin architecture](../architecture/plugin-architecture.md) § MCP surface.
 
 ---
 
@@ -107,7 +116,7 @@ For local agent subprocess integration (LlamaIndex `BasicMCPClient`).
 **Module:** `eagle_rag/mcp_resilience.py`
 
 ```python
-resilient_call("query", _do_query)
+resilient_call("core_query", _do_query)
 ```
 
 | Feature | Config | Behavior |
@@ -127,9 +136,11 @@ Errors returned as `{"error": "..."}` — MCP session continues.
 Retrieval tools cache results in Redis:
 
 ```python
-ckey = cache_key("retrieve_text", query, scope=..., top_k=..., kb_name=...)
+ckey = cache_key("core_retrieve_text", query, scope=..., top_k=..., kb_name=...)
 cached = get_cached(ckey)  # TTL from mcp.cache_ttl (300s)
 ```
+
+Cache keys include `plugin_namespace` for multi-instance MinIO/Redis isolation.
 
 Only non-empty results cached. Cache hits logged in MCP call log.
 
@@ -155,11 +166,11 @@ REST API has no auth; MCP HTTP can be secured independently for cloud deployment
 Tools accept `kb_name` and `scope` parameters that translate to Milvus filters:
 
 ```python
-# retrieve_text with kb_name="finance"
+# core_retrieve_text with kb_name="finance"
 MetadataFilter(key="kb_name", value="finance", operator=EQ)
 # → kb_name == "finance"
 
-# query with scope_filter
+# core_query with scope_filter
 {"kb_names": ["finance"], "tags": ["增值税"]}
 # → (kb_name in ["finance"] or document_id in [resolved...])
 ```
@@ -173,7 +184,7 @@ Agents using `llama-index-tools-mcp` connect via stdio or HTTP:
 ```python
 from llama_index.tools.mcp import BasicMCPClient
 client = BasicMCPClient("python -m eagle_rag.api.mcp_server")
-tools = client.list_tools()  # ingest, query, retrieve_text, retrieve_visual
+tools = client.list_tools()  # core_ingest, core_query, core_retrieve_text, core_retrieve_visual, …
 ```
 
 Tool outputs are JSON dicts/lists — compatible with LlamaIndex `FunctionAgent` tool calling.
@@ -185,9 +196,11 @@ Tool outputs are JSON dicts/lists — compatible with LlamaIndex `FunctionAgent`
 | Tension | MCP layer | Effect | Mitigation |
 | --- | --- | --- | --- |
 | **Circuit breaker open** | `mcp_resilience` after N failures | Tools return `{error: ...}` not HTTP 503 — agents may misparse | Teach agents to read `error` field |
-| **Tool timeout vs ingest** | `mcp.tool_timeout` 30s default | `ingest` returns before Celery finishes — poll task separately | Document async ingest pattern |
+| **Tool timeout vs ingest** | `mcp.tool_timeout` 30s default | `core_ingest` returns before Celery finishes — poll task separately | Document async ingest pattern |
 | **Cache staleness** | `mcp_cache` on identical retrieve | KB updated but agent sees old nodes until TTL | Lower TTL after bulk ingest |
-| **Scope omitted by agent** | `query` tool optional `scope_filter` | Full-KB search cost + cross-doc noise | Pass `kb_name` + scope in agent prompts |
+| **Scope omitted by agent** | `core_query` optional `scope_filter` | Full-KB search cost + cross-doc noise | Pass `kb_name` + scope in agent prompts |
+| **G3 tool filter** | `PluginManager` at load | Domain tools from other namespaces not listed | Match `default_namespace` to profile |
+| **RAG-only guard** | `assert_rag_only_tool_name` | Registration fails for side-effect tool names | Keep domain tools retrieve/ingest only |
 | **stdio vs HTTP transport** | Different connection lifecycle | Long-running stdio agents hold API connections | Prefer streamable HTTP for poolers |
 | **OAuth optional** | `auth` on `/mcp` when enabled | Token expiry mid-session | Refresh before long agent runs |
 
@@ -222,6 +235,7 @@ auth:
 | `tests/test_mcp_metrics.py` | Call logging |
 | `tests/test_mcp_auth.py` | Static token verification |
 | `tests/test_mcp_config.py` | Transport config |
+| `tests/plugins/test_manager.py` | G3 MCP tool filter |
 
 ---
 

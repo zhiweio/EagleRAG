@@ -15,13 +15,17 @@ class Session(SQLModel, table=True):
     """``sessions`` table: Q&A conversations."""
 
     __tablename__ = "sessions"
-    __table_args__ = (Index("idx_sessions_kb", "kb_name"),)
+    __table_args__ = (
+        Index("idx_sessions_kb", "kb_name"),
+        Index("idx_sessions_namespace", "plugin_namespace"),
+    )
 
     session_id: str = Field(primary_key=True, sa_type=Text())
     title: str | None = Field(default=None, sa_type=Text())
     created_at: datetime = Field(sa_column=timestamptz())
     updated_at: datetime = Field(sa_column=timestamptz())
     kb_name: str = Field(default="default", sa_type=Text())
+    plugin_namespace: str = Field(default="core", sa_type=Text())
     scope_filter: dict | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
 
 
@@ -32,6 +36,7 @@ class Message(SQLModel, table=True):
     __table_args__ = (
         Index("idx_messages_session", "session_id", "created_at"),
         Index("idx_messages_kb", "kb_name"),
+        Index("idx_messages_namespace", "plugin_namespace"),
     )
 
     message_id: str = Field(primary_key=True, sa_type=Text())
@@ -49,3 +54,4 @@ class Message(SQLModel, table=True):
     attachments: dict | list | None = Field(default=None, sa_column=Column(JSONB))
     created_at: datetime = Field(sa_column=timestamptz())
     kb_name: str = Field(default="default", sa_type=Text())
+    plugin_namespace: str = Field(default="core", sa_type=Text())

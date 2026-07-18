@@ -60,6 +60,15 @@
 | **检索器空列表** | `_fetch_nodes()` | 降级答案，非 500 |
 | **MCP `resilient_call`** | `mcp_server.py` | `{"error": ...}` 保持会话 |
 | **标签解析失败** | `_resolve_scope_filter()` | 忽略标签；继续 |
+| **QUERY_ASSEMBLE hook 失败** | `hotpath_hooks.apply_query_assemble` | 每订阅者 try/except；失败 hook 跳过；查询继续 |
+| **命名空间不匹配** | `eagle_rag/db/namespace.py` | 显式 `plugin_namespace` ≠ `default_namespace` → **403**（除非 `allow_namespace_override`） |
+| **编码器模式不可用** | `EncoderRegistry` / `plugins.options` 中 `encoder_mode` | 按插件契约回退；入库可能跳过专用集合 |
+| **专用 plan 尽力** | `RetrieverOrchestrator` | 单集合 plan 失败 → 记录日志 + 继续其他 plan |
+| **插件加载探测** | `GET /health/plugins` | 已加载清单 + Celery 模块列表；导入失败体现在响应中 |
+
+### 插件运维
+
+`GET /health/plugins` 返回 `default_namespace`、`enabled_modules`、每插件 `manifests`（含 `milvus_db_name`、`provides_specialized_collections`、`provides_mcp_tools`）及 `celery_modules` 供 worker 一致性检查。在 profile 变更或插件部署后使用。
 
 ### `knowhere_parse` 故障分类
 
@@ -253,6 +262,10 @@ Redis pub/sub 不可用于 `/admin/logs` 时：
 | 文本优先 UX vs 视觉保真 | `knowhere_parse` 在 `knowhere_visual_chunks` 前标 `ready` | 视觉队列排空前用户可能只得文本答案 |
 | 探测失败开放 vs 误路由 | PDF 探测异常 → 当作文本 PDF | 扫描表单多的 KB 降低 `text_page_ratio` |
 | 健康信号 vs 探测延迟 | Celery `inspect.ping` 超时 1.0s | `down` ≠ `unknown` — 见 [排障](../ops/troubleshooting.md) 探测矩阵 |
+| QUERY_ASSEMBLE 降级 | `apply_query_assemble` 中每订阅者 try/except | 检查 `GET /health/plugins`；插件日志 |
+| 命名空间 403 | `resolve_namespace()` | 对齐客户端与 `EAGLE_RAG_PROFILE` / `default_namespace` |
+| 编码器模式回退 | `plugins.options.<ns>.encoder_mode` | 验证编码器依赖；见插件清单 |
+| 专用 plan 部分成功 | `RetrieverOrchestrator` 每 plan 尽力 | 范围/目录并集；检查文档上 `collections_used` |
 
 ---
 
@@ -291,7 +304,7 @@ KNOWHERE_POLL_TIMEOUT=3600
 
 ### 运维清单
 
-- [ ] 监控 `/health` 与 `/admin/probes`
+- [ ] 监控 `/health`、`/health/plugins` 与 `/admin/probes`
 - [ ] 关注 `pixelrag_queue` LLEN — 积压信号渲染瓶颈
 - [ ] 修复 Knowhere 或 API 密钥后重放 `FAILED` 任务
 - [ ] 根因修复后排空死信

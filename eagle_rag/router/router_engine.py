@@ -185,6 +185,8 @@ class EagleRouterQueryEngine:
     @staticmethod
     def _resolve_scope_filter(
         scope_filter: dict[str, Any] | None,
+        *,
+        plugin_namespace: str | None = None,
     ) -> tuple[list[str], list[str], bool]:
         if not scope_filter:
             return [], [], False
@@ -199,11 +201,111 @@ class EagleRouterQueryEngine:
                 from eagle_rag.index.tag_catalog import resolve_tags_to_document_ids
 
                 cap = get_settings().router.max_scope_documents
-                for doc_id in resolve_tags_to_document_ids(tags, cap=cap):
+                for doc_id in resolve_tags_to_document_ids(
+                    tags,
+                    kb_names=kb_names or None,
+                    cap=cap,
+                    plugin_namespace=plugin_namespace,
+                ):
                     doc_set.setdefault(doc_id, None)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("tag resolution failed; ignoring tag dimension: %s", exc)
         return kb_names, list(doc_set), True
+
+    def _plan_query_route(
+        self,
+        route_query_text: str,
+        *,
+        route_mode: str,
+        plugin_namespace: str,
+        scope_kb_names: list[str],
+        scope_doc_ids: list[str],
+        scope_tags: tuple[str, ...],
+        has_image: bool,
+    ) -> tuple[Any, bool]:
+        from eagle_rag.plugins import get_plugin_manager
+        from eagle_rag.plugins.core_defaults import _default_classify_query
+        from eagle_rag.plugins.hookbus import HookContext
+        from eagle_rag.plugins.hooks import Hook
+        from eagle_rag.plugins.scope_routing import apply_scope_aware_union
+
+        manager = get_plugin_manager()
+        hook_ctx = HookContext(
+            plugin_namespace=plugin_namespace,
+            extra={"route_mode": route_mode},
+        )
+        query_decision = manager.bus.invoke_first(
+            Hook.CLASSIFY_QUERY,
+            hook_ctx,
+            route_query_text,
+            has_image=has_image,
+            route_mode=route_mode,
+            scope_document_ids=tuple(scope_doc_ids) if scope_doc_ids else None,
+            scope_kb_names=tuple(scope_kb_names) if scope_kb_names else None,
+            scope_tags=scope_tags or None,
+        )
+        if query_decision is None:
+            query_decision = _default_classify_query(
+                hook_ctx,
+                route_query_text,
+                has_image=has_image,
+                route_mode=route_mode,
+            )
+        return apply_scope_aware_union(
+            query_decision,
+            plugin_namespace=plugin_namespace,
+            encoder_registry=manager.encoder_registry,
+            top_k=self.top_k,
+            scope_document_ids=tuple(scope_doc_ids) if scope_doc_ids else None,
+            scope_kb_names=tuple(scope_kb_names) if scope_kb_names else None,
+            scope_tags=scope_tags or None,
+            audit=manager.audit,
+        )
+
+    def _route_step_payload(
+        self,
+        decision: RouteDecision,
+        *,
+        scope_filter: dict[str, Any] | None,
+        user_query: str,
+        has_image: bool,
+    ) -> dict[str, Any]:
+        from eagle_rag.plugins import get_plugin_manager
+
+        manager = get_plugin_manager()
+        plugin_namespace = manager.default_namespace
+        route_mode = decision.mode
+        if route_mode == "auto":
+            if "text" in decision.selected and "visual" in decision.selected:
+                route_mode = "hybrid"
+            elif "visual" in decision.selected:
+                route_mode = "visual"
+            else:
+                route_mode = "text"
+        scope_kb_names, scope_doc_ids, _ = self._resolve_scope_filter(
+            scope_filter,
+            plugin_namespace=plugin_namespace,
+        )
+        scope_tags = tuple(scope_filter.get("tags") or []) if scope_filter else ()
+        query_decision, scope_aware = self._plan_query_route(
+            user_query,
+            route_mode=route_mode,
+            plugin_namespace=plugin_namespace,
+            scope_kb_names=scope_kb_names,
+            scope_doc_ids=scope_doc_ids,
+            scope_tags=scope_tags,
+            has_image=has_image,
+        )
+        collection_plans = [
+            {"collection": p.collection, "encoder": p.encoder, "top_k": p.top_k}
+            for p in query_decision.plans
+        ]
+        return {
+            "name": "route",
+            **decision.to_dict(),
+            "collection_plans": collection_plans,
+            "scope_aware_union": scope_aware,
+        }
 
     def _route_decision(
         self,
@@ -239,66 +341,71 @@ class EagleRouterQueryEngine:
         query_image_bytes: bytes | None = None,
         user_query: str | None = None,
     ) -> list[NodeWithScore]:
-        selected = decision.selected
-        source_type = filters.get("source_type") if filters else None
-        year = filters.get("year") if filters else None
-        route_query_text = (user_query if user_query is not None else query) or ""
-        visual_query_text = route_query_text if route_query_text.strip() else ""
+        from eagle_rag.plugins import get_plugin_manager
+        from eagle_rag.plugins.retriever_orchestrator import RetrieverOrchestrator
 
-        scope_kb_names, scope_doc_ids, use_scope_filter = self._resolve_scope_filter(scope_filter)
-        has_facet_filters = bool(filters and any(v is not None for v in filters.values()))
+        manager = get_plugin_manager()
+        plugin_namespace = manager.default_namespace
 
-        if use_scope_filter:
-            text_retriever = KnowhereGraphRetriever(
-                top_k=self.top_k,
-                kb_names=scope_kb_names,
-                document_ids=scope_doc_ids,
-                source_type=source_type,
-                year=year,
-            )
-            visual_retriever = PixelRAGVisualRetriever(
-                top_k=self.top_k,
-                kb_names=scope_kb_names,
-                document_ids=scope_doc_ids,
-                source_type=source_type,
-                year=year,
-            )
-        elif has_facet_filters or kb_name:
-            text_retriever = KnowhereGraphRetriever(
-                top_k=self.top_k,
-                kb_name=kb_name,
-                source_type=source_type,
-                year=year,
-            )
-            visual_retriever = PixelRAGVisualRetriever(
-                top_k=self.top_k,
-                kb_name=kb_name,
-                source_type=source_type,
-                year=year,
-            )
+        from eagle_rag.plugins.hotpath_hooks import apply_query_assemble
+
+        base_query = (user_query if user_query is not None else query) or ""
+        route_query_text = apply_query_assemble(
+            base_query,
+            plugin_namespace=plugin_namespace,
+            kb_name=kb_name,
+        )
+        # Keep ANN aligned with assembled user intent unless query is an explicit
+        # distinct embed string (rare); empty query falls back to assembled text.
+        if user_query is None or query == user_query or not (query or "").strip():
+            ann_query = route_query_text
         else:
-            text_retriever = self.text_retriever
-            visual_retriever = self.visual_retriever
+            ann_query = query
+        visual_query_text = route_query_text if route_query_text.strip() else ""
+        scope_kb_names, scope_doc_ids, use_scope_filter = self._resolve_scope_filter(
+            scope_filter,
+            plugin_namespace=plugin_namespace,
+        )
+        scope_tags = tuple(scope_filter.get("tags") or []) if scope_filter else ()
 
-        nodes: list[NodeWithScore] = []
-        if "text" in selected:
-            try:
-                with trace_span("retrieve.text"):
-                    nodes.extend(text_retriever.retrieve(query) or [])
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("text retriever call failed; skipping: %s", exc)
-        if "visual" in selected:
-            try:
-                with trace_span("retrieve.visual"):
-                    nodes.extend(
-                        visual_retriever.retrieve(
-                            visual_query_text,
-                            query_image_bytes=query_image_bytes,
-                        )
-                        or []
-                    )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("visual retriever call failed; skipping: %s", exc)
+        route_mode = decision.mode
+        if route_mode == "auto":
+            if "text" in decision.selected and "visual" in decision.selected:
+                route_mode = "hybrid"
+            elif "visual" in decision.selected:
+                route_mode = "visual"
+            else:
+                route_mode = "text"
+
+        query_decision, _scope_aware = self._plan_query_route(
+            route_query_text,
+            route_mode=route_mode,
+            plugin_namespace=plugin_namespace,
+            scope_kb_names=scope_kb_names,
+            scope_doc_ids=scope_doc_ids,
+            scope_tags=scope_tags,
+            has_image=bool(query_image_bytes),
+        )
+
+        orchestrator = RetrieverOrchestrator(
+            plugin_manager=manager,
+            text_retriever=self.text_retriever,
+            visual_retriever=self.visual_retriever,
+        )
+        nodes = orchestrator.retrieve(
+            ann_query,
+            plugin_namespace=plugin_namespace,
+            route_decision=query_decision,
+            kb_name=kb_name,
+            scope_filter=scope_filter,
+            query_image_bytes=query_image_bytes,
+            top_k=self.top_k,
+            filters=filters,
+            scope_kb_names=scope_kb_names,
+            scope_doc_ids=scope_doc_ids,
+            use_scope_filter=use_scope_filter,
+            visual_query=visual_query_text,
+        )
 
         if scope and not use_scope_filter:
             nodes = self._filter_by_scope(nodes, scope)
@@ -427,7 +534,15 @@ class EagleRouterQueryEngine:
             filters=filters,
             has_image_attachment=ctx.has_image_attachment,
         )
-        yield {"event": "step", "data": {"name": "route", **decision.to_dict()}}
+        yield {
+            "event": "step",
+            "data": self._route_step_payload(
+                decision,
+                scope_filter=scope_filter,
+                user_query=ctx.user_query,
+                has_image=ctx.has_image_attachment,
+            ),
+        }
         if ctx.attach_step:
             yield {"event": "step", "data": ctx.attach_step}
         nodes = self._fetch_nodes(
@@ -531,7 +646,15 @@ class EagleRouterQueryEngine:
             filters=filters,
             has_image_attachment=ctx.has_image_attachment,
         )
-        yield {"event": "step", "data": {"name": "route", **decision.to_dict()}}
+        yield {
+            "event": "step",
+            "data": self._route_step_payload(
+                decision,
+                scope_filter=scope_filter,
+                user_query=ctx.user_query,
+                has_image=ctx.has_image_attachment,
+            ),
+        }
         nodes = self._fetch_nodes(
             ctx.effective_query,
             decision,

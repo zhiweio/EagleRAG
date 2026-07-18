@@ -2,6 +2,12 @@
 
 **Semantic-tree anchored pixel fusion** links Knowhere's document structure to PixelRAG's visual tiles inside one Milvus cluster. This page explains the theory, walks the actual code path (`extract_visual_chunks` → `upsert_visual`), and documents ANN math, tuning tensions, configuration, and failure modes.
 
+## Plugin architecture boundary (shipped)
+
+The PixelRAG visual modality (render + Qwen3-VL + `eagle_visual`) is a **Core first-class citizen**; domain plugins cannot disable it. Four-anchor bridging (`chunk_type` / `parent_section` / `content_summary` / `source_chunk_id`) is implemented by default via the `INGEST_VISUAL_EXTRACT` hook; domain plugins may override anchor assignment. Cross-collection document trees use `reconstruct_document` and `GET /documents/{id}/structure`.
+
+**Retrieval vs generation fusion:** Within Core, text (`eagle_text`) and visual (`eagle_visual`) hits merge in `EagleMultimodalQueryEngine` for VLM prompting. Domain plugins may add **specialized collections** in the same Milvus Database; `RetrieverOrchestrator` runs per-plan ANN and merges with **RRF** ([ADR-004](adr/004-multi-encoder-rrf-fusion.md)) — distinct from the text+visual merge at generation time. See [Plugin architecture](plugin-architecture.md).
+
 ---
 
 ## Theory and foundations
@@ -29,7 +35,7 @@ Text and images live in different embedding manifolds:
 | Text | Qwen `text-embedding-v4` | 1536 | Cosine (LlamaIndex default) |
 | Visual | Qwen3-VL-Embedding-2B | 2048 | IP on L2-normalized vectors |
 
-[Gao et al., 2023](https://arxiv.org/abs/2312.10997) discusses multi-vector retrieval — Eagle-RAG runs two ANN queries at query time and fuses in the generation engine.
+[Gao et al., 2023](https://arxiv.org/abs/2312.10997) discusses multi-vector retrieval — Eagle-RAG runs ANN on `eagle_text` and `eagle_visual` at query time and fuses in the generation engine; domain deployments may add more collections merged via RRF before generation ([ADR-004](adr/004-multi-encoder-rrf-fusion.md)).
 
 ### ANN: HNSW intuition
 

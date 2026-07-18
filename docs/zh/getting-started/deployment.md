@@ -160,7 +160,7 @@ task db:migrate     # uv run alembic upgrade head
 首次使用前及拉取触及 `eagle_rag/db/models/` 的变更后执行。
 
 !!! note "说明"
-    store 中无 DDL。所有 schema 变更经 Alembic revision —— 切勿在 `eagle_rag/db/stores/` 中写原始 DDL。
+    repository 中无 DDL。所有 schema 变更经 Alembic revision —— 切勿在 `eagle_rag/db/repositories/` 中写原始 DDL。
 
 Milvus schema：`milvus_visual_store.py` 中的 `ensure_collection()` —— 幂等创建 + `add_collection_field` 迁移新标量字段。
 
@@ -202,11 +202,17 @@ Beat 任务（若启用）：每 30s 采样队列 `LLEN` → `metric_sample` 表
 | 环境变量 | Dev 典型 | Prod 典型 |
 | --- | --- | --- |
 | `APP_ENV` | `dev` | `prod` |
+| `EAGLE_RAG_PROFILE` | `core`（默认） | `core`、`biomed` 或 `lakehouse-bi` — 每实例一域 |
+| `PLUGIN_NAMESPACE` | 与 profile 一致 | 与活动 profile 中 `plugins.default_namespace` 相同 |
 | `MILVUS_HOST` | `milvus` | `milvus` |
 | `MILVUS_VISUAL_INDEX_TYPE` | `hnsw` | 语料大时用 `diskann` |
 | `TELEMETRY_ENABLED` | `true` | `true` |
 | `OTEL_TRACING_ENABLED` | `false` | `true` 且设 `OTEL_EXPORTER_OTLP_ENDPOINT` |
 | `AUTH_ENABLED` | `false` | 边缘暴露时 `true` |
+
+### 单域部署
+
+每个 API + worker 集群绑定**一个** `plugin_namespace`（= Milvus Database）。多行业生产意味着不同 `EAGLE_RAG_PROFILE` 的**多个实例** — 非 Core 运行时域切换。参见 [ADR-002](../architecture/adr/002-single-domain-deployment.md)。
 
 完整 schema 见[配置](configuration.md)。
 

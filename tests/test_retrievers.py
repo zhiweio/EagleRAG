@@ -109,10 +109,14 @@ def test_knowhere_graph_retriever():
     mock_index.as_retriever.return_value = inner_retriever
     mock_index.docstore = mock_docstore
 
-    with patch(
-        "eagle_rag.retrievers.knowhere_graph_retriever.get_text_index",
-        return_value=mock_index,
+    with (
+        patch(
+            "eagle_rag.retrievers.knowhere_graph_retriever.get_text_index",
+            return_value=mock_index,
+        ),
+        patch("eagle_rag.retrievers.knowhere_graph_retriever.get_settings") as mock_settings,
     ):
+        mock_settings.return_value.router.parent_doc_retrieval = False
         retriever = KnowhereGraphRetriever(top_k=5)
         results = retriever.retrieve("个税起征点")
 
@@ -148,10 +152,14 @@ def test_knowhere_graph_retriever_with_kb_name():
     mock_index.as_retriever.return_value = inner_retriever
     mock_index.docstore = MagicMock()
 
-    with patch(
-        "eagle_rag.retrievers.knowhere_graph_retriever.get_text_index",
-        return_value=mock_index,
+    with (
+        patch(
+            "eagle_rag.retrievers.knowhere_graph_retriever.get_text_index",
+            return_value=mock_index,
+        ),
+        patch("eagle_rag.retrievers.knowhere_graph_retriever.get_settings") as mock_settings,
     ):
+        mock_settings.return_value.router.parent_doc_retrieval = False
         retriever = KnowhereGraphRetriever(top_k=5, kb_name="pharma")
         retriever.retrieve("药品增值税")
 
@@ -169,6 +177,53 @@ def test_knowhere_graph_retriever_with_kb_name():
     assert f.key == "kb_name"
     assert f.value == "pharma"
     assert f.operator == FilterOperator.EQ
+
+
+def test_knowhere_graph_retriever_parent_doc_two_stage():
+    """parent_doc_retrieval=True recalls section_summary then drills down by path prefix."""
+    section_node = _make_text_node(
+        "sec1",
+        "Model architecture overview",
+        path="doc/3 Model Architecture",
+        summary="Architecture section",
+    )
+    section_node.metadata["type"] = "section_summary"
+    drill_node = _make_text_node(
+        "chunk1",
+        "Attention block details",
+        path="doc/3 Model Architecture/3.2 Attention",
+    )
+
+    stage1_retriever = MagicMock()
+    stage1_retriever.retrieve.return_value = [NodeWithScore(node=section_node, score=0.9)]
+
+    stage2_retriever = MagicMock()
+    stage2_retriever.retrieve.return_value = [NodeWithScore(node=drill_node, score=0.8)]
+
+    mock_index = MagicMock()
+    mock_index.as_retriever.side_effect = [stage1_retriever, stage2_retriever]
+    mock_index.docstore = MagicMock()
+
+    with (
+        patch(
+            "eagle_rag.retrievers.knowhere_graph_retriever.get_text_index",
+            return_value=mock_index,
+        ),
+        patch("eagle_rag.retrievers.knowhere_graph_retriever.get_settings") as mock_settings,
+    ):
+        mock_settings.return_value.router.parent_doc_retrieval = True
+        retriever = KnowhereGraphRetriever(top_k=5)
+        results = retriever.retrieve("attention mechanism")
+
+    assert len(results) == 2
+    ids = {r.node.node_id for r in results}
+    assert ids == {"sec1", "chunk1"}
+    assert mock_index.as_retriever.call_count == 2
+    stage2_kwargs = mock_index.as_retriever.call_args_list[1].kwargs
+    path_filter = stage2_kwargs["filters"].filters[0]
+    assert path_filter.key == "path"
+    assert path_filter.value == "doc/3 Model Architecture"
+    assert path_filter.operator == FilterOperator.TEXT_MATCH
 
 
 # ---------------------------------------------------------------------------

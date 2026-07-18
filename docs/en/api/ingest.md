@@ -73,11 +73,11 @@ Override: filename prefix `knowhere:` / `pixelrag:`, or `settings.router.mode`.
 
 `kb_name` flows into:
 
-- PostgreSQL `documents.kb_name`
+- PostgreSQL `documents.kb_name` (namespace-scoped via repositories)
 - Celery kwargs on all downstream tasks
-- Milvus scalar field on indexed chunks
+- Milvus scalar field on indexed chunks (inside the bound Milvus Database)
 
-Dedup key: `(sha256, kb_name)` — identical file bytes may coexist in `finance` and `pharma`.
+Dedup key: `(sha256, kb_name, plugin_namespace)` — identical file bytes may coexist in `finance` and `pharma`, or across domains on separate instances.
 
 ### Idempotency
 
@@ -137,7 +137,7 @@ flowchart LR
 
 ## MCP parity
 
-The MCP `ingest` tool accepts `source_uri` (file path or URL) and calls `runner.ingest` directly. Returns `{ job_id, status, document_id, dedup_hit }` or `{ error: "…" }`. See [MCP tools](mcp-tools.md).
+The MCP `core_ingest` tool accepts `source_uri` (file path or URL) and calls `runner.ingest` directly. Returns `{ job_id, status, document_id, dedup_hit }` or `{ error: "…" }`. See [MCP tools](mcp-tools.md).
 
 ---
 

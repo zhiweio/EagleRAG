@@ -1,6 +1,8 @@
 # System design
 
-Eagle-RAG is an industry-agnostic, multi-tenant multimodal RAG knowledge base. Four design principles recur in every module; this page explains the theory behind each, walks the actual code paths, and documents tuning tensions, configuration, and failure behavior.
+Eagle-RAG is an industry-agnostic, multimodal RAG **data layer** for Agents and LLMs. A **microkernel** hosts in-process industry plugins; **two-layer isolation** separates domain deploy binding (`plugin_namespace` = Milvus Database) from knowledge-base tenancy (`kb_name` = Milvus scalar filter within that Database). Five design principles recur in every module; this page explains the theory behind each, walks the actual code paths, and documents tuning tensions, configuration, and failure behavior.
+
+For the full plugin contract, hook catalog, and deployment model, see [Plugin architecture](plugin-architecture.md).
 
 ---
 
@@ -12,11 +14,12 @@ Eagle-RAG is an industry-agnostic, multi-tenant multimodal RAG knowledge base. F
 
 | Layer | Function | Eagle-RAG primary modules |
 | --- | --- | --- |
-| **Indexing** | Parse → chunk → embed → store | `ingest/`, `index/`, Celery tasks |
-| **Retrieval** | Query embed → ANN → filter → expand | `retrievers/`, `router_engine.py` |
+| **Plugins** | Domain classify / embed / route / assemble | `eagle_rag/plugins/`, in-repo `plugins/` |
+| **Indexing** | Parse → chunk → embed → store | `ingest/`, `index/`, `IngestOrchestrator`, Celery tasks |
+| **Retrieval** | Query embed → ANN → filter → expand | `retrievers/`, `RetrieverOrchestrator`, `router_engine.py` |
 | **Generation** | Rerank → prompt → LLM/VLM | `generation/multimodal_engine.py` |
 
-[Lewis et al., 2020](https://arxiv.org/abs/2005.11401) established that retrieval conditioning reduces hallucination on knowledge-intensive tasks. Eagle-RAG adds **multimodal** indexing (dual vector spaces) and **multi-tenant** scalar filtering ([Milvus hybrid search](https://milvus.io/docs/multi-vector-search.md)).
+[Lewis et al., 2020](https://arxiv.org/abs/2005.11401) established that retrieval conditioning reduces hallucination on knowledge-intensive tasks. Eagle-RAG adds **multimodal** indexing (dual vector spaces), **plugin-namespace** Milvus Database isolation, and **multi-tenant** `kb_name` scalar filtering ([Milvus hybrid search](https://milvus.io/docs/multi-vector-search.md)).
 
 ### ANN index choice
 
@@ -43,39 +46,39 @@ Import-time connections cause:
 
 ### How — code walkthrough
 
-**Settings singleton:**
+**Settings singleton (with profile overlay):**
 
 ```python
 # eagle_rag/config.py
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     path_str = os.environ.get("EAGLE_RAG_SETTINGS_PATH", str(_DEFAULT_SETTINGS_PATH))
-    data = _load_yaml(Path(path_str))
+    data = _apply_profile(_load_yaml(Path(path_str)))  # EAGLE_RAG_PROFILE → profiles.<name>
     return Settings(**data)
 ```
 
-Loaded once per process. Tests call `get_settings.cache_clear()` between cases.
+`_apply_profile()` deep-merges `profiles.<name>` when `EAGLE_RAG_PROFILE` (or YAML `active_profile`) is set. Env `EAGLE_RAG_PROFILE` wins over YAML. Loaded once per process; tests call `get_settings.cache_clear()` between cases.
 
 **Milvus text store:**
 
 `get_text_vector_store()` / `get_text_index()` in `eagle_rag/index/milvus_text_store.py` — construct `MilvusVectorStore` on first retrieval or ingest upsert, not at `import eagle_rag`.
 
-**Milvus visual client:**
+**Milvus client pool (per Database):**
 
 ```python
-# eagle_rag/index/milvus_visual_store.py
-_client: MilvusClient | None = None
-
-def get_visual_client() -> MilvusClient:
-    global _client
-    if _client is None:
-        ensure_collection()  # idempotent create + load
-    return _client
+# eagle_rag/index/milvus_pool.py
+class MilvusClientPool:
+    def get(self, db_name: str | None = None, *, plugin_namespace: str | None = None) -> MilvusClient:
+        if db_name is None:
+            db_name = milvus_db_name(plugin_namespace)
+        # ... pooled MilvusClient(uri=..., db_name=db_name) — never switch DB per request
 ```
+
+`MilvusClientPool` binds `db_name` at client creation time (one pooled client per Milvus Database). Legacy module-level `_client` in `milvus_visual_store.py` still lazy-inits for backward compatibility; new paths use `get_milvus_pool()`.
 
 **Visual encoder singleton:**
 
-`_Qwen3VLVisualEncoder` in `eagle_rag/ingest/pixelrag_adapter.py` — loads Qwen3-VL-Embedding-2B on first `embed()` call. Keeps API process free of GPU memory unless it handles visual tasks directly.
+`_Qwen3VLVisualEncoder` in `eagle_rag/ingest/pixelrag_adapter.py` — loads Qwen3-VL-Embedding-2B on first `embed()` call. Keeps API process free of GPU memory unless it handles visual tasks directly. Domain encoders (PubMedBERT, MedImageInsight, UNI 2) lazy-load via `EncoderRegistry` in plugin `on_load`.
 
 **FastAPI app:**
 
@@ -85,7 +88,7 @@ settings = get_settings()  # config only — no DB connect
 app = FastAPI(..., lifespan=get_combined_lifespan(mcp_app))
 ```
 
-Routers imported after `app` creation; no Milvus at import.
+Routers imported after `app` creation; no Milvus at import. `PluginManager.load_all()` runs during lifespan startup.
 
 ### Trade-off
 
@@ -100,7 +103,7 @@ Routers imported after `app` creation; no Milvus at import.
 
 ### Why
 
-RAG systems depend on parsers, vector DBs, model APIs, and workers. Total failure on one outage is unacceptable for an intranet data layer.
+RAG systems depend on parsers, vector DBs, model APIs, workers, and optional domain plugins. Total failure on one outage is unacceptable for an intranet data layer.
 
 ### Degradation matrix
 
@@ -116,6 +119,10 @@ RAG systems depend on parsers, vector DBs, model APIs, and workers. Total failur
 | `doc_nav` persistence fails | `knowhere_parse` step 5.7 | Non-blocking warning |
 | Text retriever exception | `_fetch_nodes()` | `logger.warning`; skip text modality |
 | Visual retriever exception | `_fetch_nodes()` | `logger.warning`; skip visual modality |
+| `QUERY_ASSEMBLE` hook subscriber fails | `hookbus.invoke_all()` | Log warning; skip failed plugin hint; continue query |
+| Specialized-collection retrieval plan fails | `RetrieverOrchestrator.retrieve()` | Log warning; skip plan; RRF merge remaining hits (best-effort) |
+| Wrong `plugin_namespace` in request | `api/deps.py`, `db/namespace.py` | HTTP **403** (unless `plugins.allow_namespace_override`) |
+| Domain encoder load / encode fails | `plugins/*/encoders.py`, `encoder_runtime` | `EncoderLoadError` on affected chunk/plan; no OpenAI/Cohere fallback |
 | Redis down for SSE logs | notifications router | In-memory `asyncio.Queue` + 5s heartbeats |
 | MCP tool exception | `resilient_call()` in `mcp_server.py` | `{"error": ...}` without breaking session |
 
@@ -126,6 +133,8 @@ RAG systems depend on parsers, vector DBs, model APIs, and workers. Total failur
 - **`up`** — probe succeeded
 - **`down`** — probed and failed
 - **`unknown`** — not configured (e.g. PixelRAG when visual provider inactive)
+
+`GET /health/plugins` — loaded plugin manifests, Celery task modules, and namespace binding (worker consistency probe).
 
 This distinguishes *misconfiguration* from *outage*.
 
@@ -139,7 +148,7 @@ FastAPI handlers are **async**; Celery workers are **sync**. A single async-only
 
 ### How
 
-Stores in `eagle_rag/db/stores/` expose paired APIs:
+Repositories in `eagle_rag/db/repositories/` expose paired APIs and **force `plugin_namespace`** on every read/write via `instance_namespace()`:
 
 | Pattern | Async (API) | Sync (Celery) |
 | --- | --- | --- |
@@ -147,13 +156,15 @@ Stores in `eagle_rag/db/stores/` expose paired APIs:
 | Document register | `register_document()` | `register_document_sync()` |
 | Dedup check | `check_duplicate()` | `check_duplicate_sync()` |
 
+`eagle_rag/db/namespace.py` resolves the instance-bound namespace from `settings.plugins.default_namespace` and rejects explicit mismatches (403 in production).
+
 JSONB columns: `json.dumps` + `::jsonb` cast on write; defensive `_loads` on read for legacy string values.
 
 Connection pools: separate async (`asyncpg`) and sync (`psycopg`) engines from `POSTGRES_DSN`.
 
 ### Trade-off
 
-Duplicated store methods increase maintenance but avoid worker/event-loop coupling — standard pattern for FastAPI + Celery codebases.
+Duplicated repository methods increase maintenance but avoid worker/event-loop coupling — standard pattern for FastAPI + Celery codebases.
 
 ---
 
@@ -197,7 +208,40 @@ flowchart LR
 | `_Qwen3VLVisualEncoder.embed()` | 2048-d L2-normalized vector |
 
 !!! note "Single Knowhere document → dual index"
-    After `knowhere_parse`, text chunks and section summaries land in `eagle_text`. Image/table chunks dispatch to `knowhere_visual_chunks` on `pixelrag_queue` with four anchor fields into `eagle_visual`. See [Multimodal fusion](multimodal-fusion.md).
+    After `knowhere_parse`, text chunks and section summaries land in `eagle_text`. Image/table chunks dispatch to `knowhere_visual_chunks` on `pixelrag_queue` with four anchor fields into `eagle_visual`. Domain plugins may add specialized collections via `IngestOrchestrator`. See [Multimodal fusion](multimodal-fusion.md).
+
+---
+
+## Principle 5: Microkernel + plugins
+
+### Why
+
+Industry-specific recall (biomedical encoders, lakehouse metadata, entity expansion) must extend Core without forking the platform or reintroducing finance-specific hardcoding.
+
+### How
+
+| Component | Role |
+| --- | --- |
+| `PluginManager` | Loads from `settings.plugins.enabled` (in-repo modules); `core_defaults` always first |
+| `HookBus` | `invoke_first` / `invoke_all` / `invoke_transform` with namespace filter |
+| Hot-path hooks | `PARSE` / `CHUNK` / `QUERY_ASSEMBLE` via `hotpath_hooks.py` |
+| `IngestOrchestrator` | `CLASSIFY_*` → `EMBED_*` → `UPSERT_VECTORS` per chunk |
+| `RetrieverOrchestrator` | Multi-collection ANN plans → per-plan rerank → RRF merge (`rerank_fusion.py`) |
+| `EncoderRegistry` | Domain encoders registered at plugin `on_load` |
+| `mcp_registry` | `@register_mcp_tool` with RAG-only name guard |
+
+**Single-domain deployment:** each process binds one `settings.plugins.default_namespace` (= Milvus Database + PG filter). Cross-industry retrieval is **multiple instances**, not runtime domain switching ([ADR-002](adr/002-single-domain-deployment.md)).
+
+**G4 routing rule:** Core default never auto-queries specialized collections; only a domain `QueryRouteClassifier` or scope-aware catalog union may add them.
+
+**Surface split:**
+
+| Surface | Scope |
+| --- | --- |
+| Built-in Next.js UI | **Core only** — Knowhere + PixelRAG hybrid |
+| Domain plugins (biomed, lakehouse-bi, …) | **Backend + MCP only** — no domain UI in this repo |
+
+Full hook catalog, manifest fields, and authoring guide: [Plugin architecture](plugin-architecture.md) · [ADR-008](adr/008-rag-only-plugin-platform.md).
 
 ---
 
@@ -207,13 +251,14 @@ flowchart LR
 flowchart TB
     subgraph eagle["Eagle-RAG deployment"]
         API["FastAPI :8000"]
+        PLG["eagle_rag/plugins + plugins/*"]
         W1["worker-router<br/>router_queue c=4"]
         W2["worker-knowhere<br/>knowhere_queue c=8"]
         W3["worker-pixelrag<br/>pixelrag_queue c=1"]
-        PG[("PostgreSQL 16")]
+        PG[("PostgreSQL 16<br/>plugin_namespace filter")]
         REDIS[("Redis 7")]
         MINIO[("MinIO")]
-        MILVUS[("Milvus 2.6<br/>eagle_text + eagle_visual")]
+        MILVUS[("Milvus DB per plugin_namespace<br/>eagle_text + eagle_visual [+ specialized])"]
     end
 
     subgraph external["External"]
@@ -222,8 +267,10 @@ flowchart TB
         QW["DashScope Qwen APIs"]
     end
 
-    FE["Next.js :3000"] -->|REST/SSE| API
+    FE["Next.js :3000<br/>Core UI only"] -->|REST/SSE| API
     AGENT["Agent MCP"] -->|HTTP /mcp| API
+    API --> PLG
+    PLG --> PG & MILVUS
     API --> PG & REDIS & MILVUS
     API --> W1
     W1 --> W2 & W3
@@ -237,7 +284,7 @@ Deployment layers: infrastructure → Knowhere sub-stack → application. Detail
 
 ---
 
-## Model stack (DeepSeek + Qwen only)
+## Model stack (Core: DeepSeek + Qwen)
 
 | Role | Model | Dimension | Config path |
 | --- | --- | --- | --- |
@@ -247,9 +294,11 @@ Deployment layers: infrastructure → Knowhere sub-stack → application. Detail
 | Visual embedding | Qwen3-VL-Embedding-2B | 2048 | `settings.embedding.visual` |
 | Rerank | `qwen3-rerank` | — | `settings.rerank.text` |
 
-No OpenAI / Cohere adapters. New models via LlamaIndex integration packages.
+**Core only** — no OpenAI / Cohere adapters. New Core models via LlamaIndex integration packages.
 
-**Routing LLM:** `route_query()` uses DeepSeek with `router.llm.prompt_template` when `router.llm.enabled=true`. Heuristic fallback: `router.heuristic.rules` in YAML.
+**Domain plugins** may register additional encoders via `EncoderRegistry` (e.g. PubMedBERT 768-d, MedImageInsight 1024-d, UNI 2 1536-d in `plugins/biomed`). Medical imaging encoders never fall back to Qwen3-VL; load failures raise `EncoderLoadError` unless test-mode deterministic is explicitly enabled.
+
+**Routing LLM:** `route_query()` uses DeepSeek with `router.llm.prompt_template` when `router.llm.enabled=true`. Heuristic fallback: `router.heuristic.rules` in YAML. Domain plugins may supply `QueryRouteClassifier` for specialized collection plans.
 
 ---
 
@@ -266,10 +315,10 @@ app.mount(settings.mcp.streamable_http_path, mcp_app)
 
 `get_combined_lifespan` chains:
 
-1. Application startup (DB pools, telemetry)
+1. Application startup (DB pools, `PluginManager.load_all()`, telemetry)
 2. `StreamableHTTPSessionManager` task group — prevents "Task group is not initialized" on MCP requests
 
-Tools registered in `eagle_rag/api/mcp_server.py` + `TOOL_DEFINITIONS`: `ingest`, `query`, `retrieve_text`, `retrieve_visual`.
+**Exposed tools (G3):** Core tools `core_ingest`, `core_query`, `core_retrieve_text`, `core_retrieve_visual`, plus `{namespace}_*` tools from the `default_namespace` plugin only. Names are registered via `eagle_rag/plugins/mcp_registry.py` (`@register_mcp_tool`); bare `ingest` / `query` names are rejected (RAG-only platform boundary).
 
 `resilient_call()` wraps tool execution with timeout, circuit breaker (`circuit_fail_threshold`), and optional Redis cache (`cache_ttl`).
 
@@ -279,7 +328,10 @@ Tools registered in `eagle_rag/api/mcp_server.py` + `TOOL_DEFINITIONS`: `ingest`
 
 | Setting | Design impact |
 | --- | --- |
-| `get_settings()` cache | Restart after `.env` change |
+| `EAGLE_RAG_PROFILE` | Overlay `profiles.<name>` in `settings.yaml` (plugins, `default_namespace`, encoders) |
+| `get_settings()` cache | Restart after `.env` / profile change |
+| `plugins.default_namespace` | Milvus Database + PG repository filter for this instance |
+| `plugins.options[<namespace>]` | Per-plugin knobs via `plugin_options()` — not Core-typed industry settings |
 | `milvus.visual_index_type` | HNSW vs DiskANN |
 | `embedding.visual.provider` | Must be `pixelrag` — fail-fast otherwise |
 | `router.llm.enabled` | LLM vs heuristic query routing |
@@ -297,28 +349,36 @@ Full reference: [configuration](../getting-started/configuration.md).
 
 | Symptom | Cause | Action |
 | --- | --- | --- |
-| API starts, Milvus errors on first query | Lazy init — Milvus not ready | Wait for Milvus healthy |
+| API crash on boot | Unknown `EAGLE_RAG_PROFILE` | Use `core`, `biomed`, or `lakehouse-bi`; check `profiles:` in YAML |
+| API starts, Milvus errors on first query | Lazy init — Milvus not ready | Wait for Milvus healthy; verify `default_namespace` Database exists |
 | MCP 500 on first tool call | Lifespan not initialized | Ensure `get_combined_lifespan` used |
 | Worker import error on PixelRAG | Missing GPU drivers / package | Check `pixelrag` install; use CPU `embed_device` |
+| Plugin load error on boot | `enabled` plugin ≠ `default_namespace` (G3) | Align profile `plugins.enabled` with `default_namespace` |
 
 ### Runtime degradation paths
 
 ```mermaid
 flowchart TD
-    Q[Query] --> R[route_query]
-    R --> T{text retriever}
-    T -->|ok| TN[text nodes]
-    T -->|exception| TE[empty — warn]
-    R --> V{visual retriever}
-    V -->|ok| VN[visual nodes]
-    V -->|exception| VE[empty — warn]
-    TN & TE & VN & VE --> G[multimodal_engine]
+    Q[Query] --> QA[QUERY_ASSEMBLE hooks]
+    QA -->|ok| RQ[enriched query]
+    QA -->|subscriber fail| RQ
+    RQ --> RO[RetrieverOrchestrator]
+    RO --> P1{plan 1}
+    P1 -->|ok| N1[nodes]
+    P1 -->|fail| SKIP1[skip — warn]
+    RO --> P2{plan N}
+    P2 -->|ok| N2[nodes]
+    P2 -->|fail| SKIP2[skip — warn]
+    N1 & N2 & SKIP1 & SKIP2 --> RRF[RRF merge]
+    RRF --> G[multimodal_engine]
     G -->|VLM fail| ERR[error string in answer]
     G -->|ok| ANS[answer + sources]
 ```
 
 ### Operator checklist
 
+- [ ] Verify `EAGLE_RAG_PROFILE` matches intended domain before deploy
+- [ ] Check `/health/plugins` — loaded namespace, manifests, Celery modules match workers
 - [ ] Verify lazy singletons not holding stale connections after Milvus restart
 - [ ] Restart workers after `settings.yaml` change (`get_settings` cached)
 - [ ] Monitor `/health` — distinguish `unknown` vs `down`
@@ -330,11 +390,12 @@ flowchart TD
 
 | Tension | Where | Tuning |
 | --- | --- | --- |
-| Cold start vs fast import | `get_settings()`, `get_text_index()`, `_Qwen3VLVisualEncoder` | First query after deploy pays connection + model load; warm workers with smoke retrieve |
-| Config immutability per process | `@lru_cache` on settings | Restart API + workers after `settings.yaml` / `.env` change |
-| Degradation vs silent wrong answers | Retriever `[]`, VLM `None` | Prefer explicit error strings in generation over hallucinating without context |
+| Cold start vs fast import | `get_settings()`, `get_text_index()`, `_Qwen3VLVisualEncoder`, domain encoders | First query after deploy pays connection + model load; warm workers with smoke retrieve |
+| Config immutability per process | `@lru_cache` on settings | Restart API + workers after `settings.yaml` / `.env` / profile change |
+| Degradation vs silent wrong answers | Retriever `[]`, VLM `None`, skipped RRF plans | Prefer explicit error strings in generation over hallucinating without context |
 | Adapter normalization cost | Knowhere `ParseResult` → many `TextNode`s | Large docs = high embed API cost linear in chunk count |
 | Index write strictness | `knowhere_parse` fails on text upsert error | Visual path still best-effort — asymmetry is intentional |
+| Single-domain vs multi-collection | `RetrieverOrchestrator` within one Milvus DB | Specialized plans are best-effort; Core never auto-fans out to domain collections |
 
 ---
 
@@ -347,4 +408,6 @@ flowchart TD
 - [Milvus docs](https://milvus.io/docs)
 - [LlamaIndex](https://docs.llamaindex.ai/)
 - [MCP specification](https://modelcontextprotocol.io/)
+- [Plugin architecture](plugin-architecture.md) · [Multi-tenancy](multi-tenancy.md)
+- [ADR-001 Milvus database isolation](adr/001-milvus-database-isolation.md) · [ADR-002 Single-domain deployment](adr/002-single-domain-deployment.md) · [ADR-008 RAG-only plugin platform](adr/008-rag-only-plugin-platform.md)
 - [Data flow](data-flow.md) · [Reliability](reliability.md) · [Multimodal fusion](multimodal-fusion.md)

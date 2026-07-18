@@ -24,7 +24,7 @@
       "dropHint": "Supports PDF · Word · Excel/CSV · Images · URL · up to 50MB per file",
       "submit": "Submit to queue",
       "submitting": "Submitting…",
-      "systemDefault": "System default namespace",
+      "systemDefault": "System default knowledge base",
       "filesSelected": "{count} files selected"
     },
     "url": {

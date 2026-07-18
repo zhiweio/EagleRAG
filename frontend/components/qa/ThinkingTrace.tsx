@@ -104,6 +104,59 @@ function formatValue(v: unknown): string {
   }
 }
 
+function parseCollectionPlans(route: RouteInfo | null | undefined): Array<{
+  collection: string;
+  encoder: string;
+  top_k: string;
+}> {
+  const raw = route?.collection_plans;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as Record<string, unknown>;
+      const collection = str(row.collection);
+      if (!collection) return null;
+      return {
+        collection,
+        encoder: str(row.encoder),
+        top_k: str(row.top_k),
+      };
+    })
+    .filter((x): x is { collection: string; encoder: string; top_k: string } => x != null);
+}
+
+function RouteCollectionPlans({ route }: { route: RouteInfo }) {
+  const t = useTranslations("qa.steps");
+  const plans = parseCollectionPlans(route);
+  if (plans.length === 0) return null;
+  return (
+    <ChainOfThoughtStepGroup label={t("collectionPlans")}>
+      <ChainOfThoughtSearchResults>
+        {plans.map((plan) => (
+          <ChainOfThoughtSearchResult
+            key={`${plan.collection}:${plan.encoder}:${plan.top_k}`}
+            title={plan.collection}
+            tone="text"
+          >
+            <span className="truncate font-mono text-[11px]">{plan.collection}</span>
+            {plan.encoder ? (
+              <span className="text-muted-foreground text-[10.5px]">
+                {t("planEncoder", { encoder: plan.encoder })}
+              </span>
+            ) : null}
+            {plan.top_k ? (
+              <span className="text-muted-foreground text-[10.5px]">
+                {t("planTopK", { topK: plan.top_k })}
+              </span>
+            ) : null}
+          </ChainOfThoughtSearchResult>
+        ))}
+      </ChainOfThoughtSearchResults>
+    </ChainOfThoughtStepGroup>
+  );
+}
+
 function stepExtras(step: Step, bucket: string): [string, unknown][] {
   const skip =
     bucket === "rerank" ? RERANK_KEYS : bucket === "recall" ? RECALL_KEYS : new Set<string>();
@@ -280,7 +333,9 @@ export function ThinkingTrace({
 }: ThinkingTraceProps) {
   const t = useTranslations("qa.steps");
   const items = steps ?? [];
-  const hasRoute = Boolean(route && (route.mode || route.selected || route.reason));
+  const hasRoute = Boolean(
+    route && (route.mode || route.selected || route.reason || route.collection_plans),
+  );
 
   // Open while streaming; let the user re-toggle afterwards.
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
@@ -289,7 +344,13 @@ export function ThinkingTrace({
   if (items.length === 0 && !hasRoute) return null;
 
   const routeMode = str(route?.mode);
-  const routeSelected = str(route?.selected);
+  const routeSelectedRaw = route?.selected;
+  const routeSelected = Array.isArray(routeSelectedRaw)
+    ? routeSelectedRaw
+        .map((x) => str(x))
+        .filter(Boolean)
+        .join("+")
+    : str(routeSelectedRaw);
   const routeReason = str(route?.reason);
 
   return (
@@ -314,7 +375,9 @@ export function ThinkingTrace({
               </span>
             }
             status="complete"
-          />
+          >
+            {route ? <RouteCollectionPlans route={route} /> : null}
+          </ChainOfThoughtStep>
         ) : null}
 
         {items.map((step, i) => {

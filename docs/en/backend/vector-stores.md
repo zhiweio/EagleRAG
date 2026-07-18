@@ -1,8 +1,10 @@
 # Vector stores
 
-Eagle-RAG persists embeddings in two Milvus collections on a single cluster: **`eagle_text`** (1536-d text, LlamaIndex-managed) and **`eagle_visual`** (2048-d visual tiles, pymilvus-managed). PostgreSQL holds the document registry, dedup index, and tag catalog.
+Eagle-RAG persists embeddings in Milvus collections inside a **per-domain Database**. Base collections in every domain: **`eagle_text`** (1536-d text, LlamaIndex-managed) and **`eagle_visual`** (2048-d visual tiles, pymilvus-managed). Domain plugins may add specialized collections (e.g. `eagle_text_biomed`). PostgreSQL holds the document registry, dedup index, and tag catalog via repositories.
 
-**Source modules:** `eagle_rag/index/milvus_text_store.py`, `eagle_rag/index/milvus_visual_store.py`, `eagle_rag/index/registry.py`, `eagle_rag/index/tag_catalog.py`
+**Source modules:** `eagle_rag/index/milvus_pool.py`, `eagle_rag/index/milvus_text_store.py`, `eagle_rag/index/milvus_visual_store.py`, `eagle_rag/index/registry.py`, `eagle_rag/index/tag_catalog.py`, `eagle_rag/db/repositories/`
+
+See [Plugin architecture](../architecture/plugin-architecture.md) for domain isolation and specialized collections.
 
 ---
 
@@ -26,7 +28,7 @@ Milvus supports **filtered ANN**: scalar predicates (e.g., `kb_name == "finance"
 
 ### 1.5 Multi-tenancy via scalar partitioning
 
-`kb_name` as a scalar filter field implements logical multi-tenancy without separate collections per tenant — the pattern recommended by Milvus multi-tenancy guides.
+`kb_name` as a scalar filter field implements logical multi-tenancy **within** one Milvus Database — the pattern recommended by Milvus multi-tenancy guides. **Domain** isolation is physical: one Milvus Database per `plugin_namespace`, bound at client construction via `MilvusClientPool` (no per-request `using_database`).
 
 ---
 
@@ -34,26 +36,47 @@ Milvus supports **filtered ANN**: scalar predicates (e.g., `kb_name == "finance"
 
 ```mermaid
 flowchart TB
-    subgraph Text["eagle_text (1536-d COSINE)"]
-        TN[TextNode from Knowhere]
-        TE[DashScope text-embedding-v4]
-        LVS[MilvusVectorStore via LlamaIndex]
-    end
-    subgraph Visual["eagle_visual (2048-d IP)"]
-        TT[Visual tiles from PixelRAG]
-        VE[Qwen3-VL-Embedding-2B]
-        PM[pymilvus MilvusClient]
+    subgraph Pool["MilvusClientPool (db_name per domain)"]
+        subgraph Text["eagle_text (1536-d COSINE)"]
+            TN[TextNode from Knowhere]
+            TE[DashScope text-embedding-v4]
+            LVS[MilvusVectorStore via LlamaIndex]
+        end
+        subgraph Visual["eagle_visual (2048-d IP)"]
+            TT[Visual tiles from PixelRAG]
+            VE[Qwen3-VL-Embedding-2B]
+            PM[pymilvus MilvusClient]
+        end
+        subgraph Plugin["Specialized collections (domain plugins)"]
+            SPEC[e.g. eagle_text_biomed]
+        end
     end
     TN --> TE --> LVS
     TT --> VE --> PM
     LVS --> MILVUS[(Milvus cluster)]
     PM --> MILVUS
+    SPEC --> MILVUS
 ```
 
 | Collection | Dim | Metric | Index | Managed by |
 |------------|-----|--------|-------|-----------|
 | `eagle_text` | 1536 | COSINE | HNSW (LlamaIndex default) | `llama-index-vector-stores-milvus` |
 | `eagle_visual` | 2048 | IP | HNSW M=16, efConstruction=256 | `pymilvus.MilvusClient` |
+| Plugin collections | varies | per manifest | per plugin | `EncoderRegistry` + `UPSERT_VECTORS` hook |
+
+### 2.1 MilvusClientPool
+
+**Module:** `eagle_rag/index/milvus_pool.py`
+
+Process-wide cache of `MilvusClient(uri, db_name=)` instances:
+
+| Method | Purpose |
+|--------|---------|
+| `get(db_name=..., plugin_namespace=...)` | Pooled client for domain Database |
+| `ensure_database(db_name)` | Create DB when `milvus.auto_create_db` |
+| `admin_client()` | Default DB for database administration only |
+
+Clients are bound at construction — **never** call `close()` on pooled clients or switch DB per request. Namespace → DB mapping: `eagle_rag/plugins/milvus_ns.py`.
 
 ---
 
@@ -277,7 +300,7 @@ Visual vectors bypass LlamaIndex vector store. At retrieval, `PixelRAGVisualRetr
 
 ## 7. PostgreSQL document registry
 
-**Module:** `eagle_rag/index/registry.py`
+**Modules:** `eagle_rag/index/registry.py`, `eagle_rag/db/repositories/documents.py`, `eagle_rag/db/repositories/catalog.py`
 
 | Field | Purpose |
 |-------|---------|
@@ -286,18 +309,19 @@ Visual vectors bypass LlamaIndex vector store. At retrieval, `PixelRAGVisualRetr
 | `source_type` | policy/financial/... |
 | `pipeline` | knowhere/pixelrag/combined |
 | `kb_name` | Tenant key |
+| `plugin_namespace` | Domain binding (repository-injected) |
 | `status` | pending/indexing/ready |
 | `chunk_count` | Indexed node count |
-| `extra` | JSONB (doc_nav tree) |
+| `extra` | JSONB (doc_nav tree, `collections_used` catalog) |
 | `sha256` | Content hash |
 
-Registry is the **source of truth** for document lifecycle; Milvus holds searchable vectors.
+Registry is the **source of truth** for document lifecycle; Milvus holds searchable vectors. On successful ingest, `collections_used` is merged into `documents.extra` and `knowledge_bases.collections_used` (see [database](database.md) §5).
 
 ### Tag catalog
 
-**Module:** `eagle_rag/index/tag_catalog.py`
+**Module:** `eagle_rag/index/tag_catalog.py`, `eagle_rag/db/repositories/catalog.py`
 
-`document_keywords` table maps `(document_id, keyword, kb_name)` for scope tag resolution at query time.
+`document_keywords` table maps `(document_id, keyword, kb_name, plugin_namespace)` for scope tag resolution at query time.
 
 ---
 
@@ -329,11 +353,17 @@ Registry is the **source of truth** for document lifecycle; Milvus holds searcha
 milvus:
   host: localhost
   port: 19530
+  db_name: default              # overridden per profile (biomed, lakehouse_bi, …)
+  auto_create_db: true
   text_collection: eagle_text
   visual_collection: eagle_visual
   dim_text: 1536
   dim_visual: 2048
   visual_index_type: hnsw    # hnsw | diskann
+
+plugins:
+  default_namespace: core     # binds Milvus db_name via milvus_ns
+```
 
 embedding:
   text:
@@ -358,7 +388,8 @@ kb:
 | Faster visual build | Lower `efConstruction` (256 → 128) |
 | Model dimension change | **Must** drop and recreate collection |
 | KB rebuild | `reindex_kb_text(kb_name)` for text; visual requires re-ingest |
-| Multi-tenant isolation | Always filter `kb_name` — never rely on collection separation |
+| Multi-tenant isolation | Always filter `kb_name` — domain isolation is Milvus Database, not collection separation |
+| Multi-domain deployment | One instance per `plugin_namespace`; do not share pooled clients across domains |
 
 ---
 
@@ -370,6 +401,7 @@ kb:
 | `tests/test_milvus_structure_fetch.py` | `fetch_text_nodes_by_document_id` scalar + fallback |
 | `tests/test_knowhere_sections.py` | Section node metadata in Milvus |
 | `tests/test_api_admin_health.py` | Milvus connectivity in health check |
+| `tests/plugins/test_namespace_isolation.py` | Milvus DB isolation per namespace |
 
 ---
 

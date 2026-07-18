@@ -139,6 +139,21 @@ handleCite(messageId, index) {
 
 实现生成文本与解析文档骨架间的**双向 grounding** —— 可审计 RAG 的最佳实践（参见 Gao et al., 2023 RAG 综述中的「可引用分块」）。
 
+### 四锚点（视觉卡片）
+
+`VisualSourceCard` 显式展示 Core 多模态融合的四锚点字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `chunk_type` | `tile` / `image` / `table` |
+| `parent_section` | 最近文本 chunk 的 `path` |
+| `content_summary` | Knowhere 视觉摘要 |
+| `source_chunk_id` | Knowhere chunk 锚点 |
+
+### 路由 `collection_plans`
+
+SSE `step` 名 `route` 的 payload 含 `collection_plans`（collection / encoder / top_k）。`ThinkingTrace` 在路由步骤下渲染，便于调试 Core 多 collection 混合检索（**非**垂类专用 UI）。
+
 ---
 
 ## 证据栏（`SourcesPanel`）

@@ -20,6 +20,8 @@ class Document(SQLModel, table=True):
         Index("idx_documents_status", "status"),
         Index("idx_documents_sha256", "sha256"),
         Index("idx_documents_kb", "kb_name"),
+        Index("idx_documents_namespace", "plugin_namespace"),
+        Index("idx_documents_ns_kb", "plugin_namespace", "kb_name"),
     )
 
     document_id: str = Field(primary_key=True, sa_type=Text())
@@ -34,3 +36,4 @@ class Document(SQLModel, table=True):
     created_at: datetime = Field(sa_column=timestamptz())
     updated_at: datetime = Field(sa_column=timestamptz())
     kb_name: str = Field(default="default", sa_type=Text())
+    plugin_namespace: str = Field(default="core", sa_type=Text())

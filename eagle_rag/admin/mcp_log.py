@@ -25,19 +25,18 @@ def _record_mcp_call_sync(
     result_summary: str,
     caller: str = "",
     latency_ms: int = 0,
+    plugin_namespace: str | None = None,
 ) -> None:
-    """Synchronously write one MCP call log row (the actual DB write).
+    """Synchronously write one MCP call log row (the actual DB write)."""
+    from eagle_rag.db.repositories.base import instance_namespace
 
-    Uses ``sync_execute`` with psycopg2 ``%s`` placeholders; ``id`` is a uuid4(),
-    ``called_at`` is filled by the DB ``NOW()`` default (not passed manually);
-    ``arguments`` is serialized via ``json.dumps`` and passed to ``%s`` (JSONB
-    column).
-    """
+    ns = instance_namespace(plugin_namespace)
     log_id = str(uuid.uuid4())
     sync_execute(
         """
-        INSERT INTO mcp_call_log (id, tool_name, arguments, result_summary, caller, latency_ms)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO mcp_call_log
+        (id, tool_name, arguments, result_summary, caller, latency_ms, plugin_namespace)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         """,
         (
             log_id,
@@ -46,6 +45,7 @@ def _record_mcp_call_sync(
             result_summary,
             caller,
             latency_ms,
+            ns,
         ),
     )
     try:
@@ -98,24 +98,24 @@ def record_mcp_call(
     thread.start()
 
 
-async def list_recent_mcp_calls(limit: int = 50) -> list[dict[str, Any]]:
-    """Query the most recent MCP call log rows.
+async def list_recent_mcp_calls(
+    limit: int = 50,
+    *,
+    plugin_namespace: str | None = None,
+) -> list[dict[str, Any]]:
+    """Query the most recent MCP call log rows for this instance namespace."""
+    from eagle_rag.db.repositories.base import instance_namespace
 
-    Called by the ``/admin/mcp`` handler. Returns ``list[dict]`` where each entry
-    contains ``{tool_name, arguments, result_summary, caller, latency_ms,
-    called_at}``. ``called_at`` is converted to an isoformat string; rows are
-    ordered by ``called_at`` DESC.
-
-    Uses ``async_fetch`` with ``$1`` placeholders; ``arguments`` is already a
-    dict (asyncpg parses JSONB automatically).
-    """
+    ns = instance_namespace(plugin_namespace)
     rows = await async_fetch(
         """
         SELECT tool_name, arguments, result_summary, caller, latency_ms, called_at
         FROM mcp_call_log
+        WHERE plugin_namespace = $1
         ORDER BY called_at DESC
-        LIMIT $1
+        LIMIT $2
         """,
+        ns,
         limit,
     )
     out: list[dict[str, Any]] = []

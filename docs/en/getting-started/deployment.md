@@ -159,8 +159,8 @@ task db:migrate     # uv run alembic upgrade head
 
 Run before first use and after pulls touching `eagle_rag/db/models/`.
 
-!!! note "No DDL in stores"
-    All schema changes go through Alembic revisions — never raw DDL in `eagle_rag/db/stores/`.
+!!! note "No DDL in repositories"
+    All schema changes go through Alembic revisions — never raw DDL in `eagle_rag/db/repositories/`.
 
 Milvus schema: `ensure_collection()` in `milvus_visual_store.py` — idempotent create + `add_collection_field` migrations for new scalar fields.
 
@@ -202,11 +202,17 @@ Beat job (if enabled): samples queue `LLEN` every 30s → `metric_sample` table.
 | Env var | Dev typical | Prod typical |
 | --- | --- | --- |
 | `APP_ENV` | `dev` | `prod` |
+| `EAGLE_RAG_PROFILE` | `core` (default) | `core`, `biomed`, or `lakehouse-bi` — one domain per instance |
+| `PLUGIN_NAMESPACE` | matches profile | Same as `plugins.default_namespace` in active profile |
 | `MILVUS_HOST` | `milvus` | `milvus` |
 | `MILVUS_VISUAL_INDEX_TYPE` | `hnsw` | `diskann` if corpus large |
 | `TELEMETRY_ENABLED` | `true` | `true` |
 | `OTEL_TRACING_ENABLED` | `false` | `true` with `OTEL_EXPORTER_OTLP_ENDPOINT` |
 | `AUTH_ENABLED` | `false` | `true` if edge-exposed |
+
+### Single-domain deployment
+
+Each API + worker fleet binds **one** `plugin_namespace` (= Milvus Database). Multi-industry production means **multiple instances** with different `EAGLE_RAG_PROFILE` values — not runtime domain switching in Core. See [ADR-002](../architecture/adr/002-single-domain-deployment.md).
 
 See [configuration](configuration.md) for full schema.
 

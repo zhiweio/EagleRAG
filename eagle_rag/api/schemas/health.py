@@ -86,6 +86,22 @@ class McpToolsResponse(BaseModel):
     error: str | None = None
 
 
+class PluginManifestOut(BaseModel):
+    namespace: str
+    version: str
+    milvus_db_name: str | None = None
+    provides_pipelines: list[str] = Field(default_factory=list)
+    provides_specialized_collections: list[str] = Field(default_factory=list)
+    provides_mcp_tools: list[str] = Field(default_factory=list)
+
+
+class PluginsHealthResponse(BaseModel):
+    default_namespace: str
+    enabled_modules: list[str] = Field(default_factory=list)
+    manifests: list[PluginManifestOut] = Field(default_factory=list)
+    celery_modules: list[str] = Field(default_factory=list)
+
+
 class AdminMcpResponse(BaseModel):
     registered: bool
     tools: list[McpToolDefinition] = Field(default_factory=list)

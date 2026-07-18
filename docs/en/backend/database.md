@@ -2,7 +2,9 @@
 
 Eagle-RAG uses **PostgreSQL** for metadata, audit trails, sessions, and operational data. Schema is managed by **Alembic** migrations over **SQLModel** table definitions. Vector data lives in Milvus — PostgreSQL is the system of record for document lifecycle and user-facing state.
 
-**Source modules:** `eagle_rag/db/models/`, `alembic/versions/`
+All domain tables are accessed through **repositories** (`eagle_rag/db/repositories/`) that inject `plugin_namespace` on every read/write. See [Plugin architecture](../architecture/plugin-architecture.md).
+
+**Source modules:** `eagle_rag/db/models/`, `eagle_rag/db/repositories/`, `eagle_rag/db/namespace.py`, `alembic/versions/`
 
 ---
 
@@ -21,7 +23,14 @@ This separation allows independent scaling: Milvus for billion-vector search, Po
 
 ### 1.2 Multi-tenancy via composite keys
 
-Dedup uses `(sha256, kb_name)` as composite primary key — the same file content can exist in multiple knowledge bases without collision. This follows the **shared database, shared schema, tenant discriminator** pattern.
+Eagle-RAG isolates on two axes ([multi-tenancy](../architecture/multi-tenancy.md)):
+
+| Axis | Key | Pattern |
+|------|-----|---------|
+| **Domain** | `plugin_namespace` | Repository filter on every PG row; fixed at deploy |
+| **Knowledge base** | `kb_name` | Scalar filter inside one Milvus Database |
+
+Dedup uses `(sha256, kb_name, plugin_namespace)` as composite primary key — the same file content can exist in multiple knowledge bases or domains without collision. `knowledge_bases` PK is `(kb_name, plugin_namespace)`.
 
 ### 1.3 Event sourcing for task audit
 
@@ -51,11 +60,15 @@ erDiagram
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `name` | VARCHAR PK | Tenant identifier (`finance`, `pharma`, …) |
+| `kb_name` | VARCHAR | Tenant identifier (`finance`, `pharma`, …) |
+| `plugin_namespace` | TEXT | Domain binding (PK part) |
 | `display_name` | VARCHAR | UI label |
 | `description` | TEXT | Optional |
 | `pdf_text_page_ratio` | FLOAT | Per-KB PDF probe override |
+| `collections_used` | JSONB | KB-level union of Milvus collections written by ingest |
 | `created_at` | TIMESTAMP | |
+
+**PK:** `(kb_name, plugin_namespace)`
 
 ### 3.2 `documents`
 
@@ -65,24 +78,26 @@ erDiagram
 | `name` | VARCHAR | Filename |
 | `source_type` | VARCHAR | policy/financial/… |
 | `pipeline` | VARCHAR | knowhere/pixelrag/pending |
-| `kb_name` | VARCHAR FK | Tenant key |
+| `kb_name` | VARCHAR | Tenant key |
+| `plugin_namespace` | TEXT | Domain binding (repository-injected) |
 | `source_uri` | VARCHAR | Original path/URL |
 | `sha256` | VARCHAR | Content hash |
 | `status` | VARCHAR | pending/indexing/ready |
 | `chunk_count` | INT | Indexed node count |
-| `extra` | JSONB | doc_nav tree, misc |
+| `extra` | JSONB | doc_nav tree, `collections_used` catalog, misc |
 | `created_at` | TIMESTAMP | |
 
-### 3.3 `dedup`
+### 3.3 `document_dedup`
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `sha256` | VARCHAR | Content hash |
 | `kb_name` | VARCHAR | Tenant key |
+| `plugin_namespace` | TEXT | Domain binding |
 | `document_id` | UUID FK | Points to existing doc |
-| PK | `(sha256, kb_name)` | Composite |
+| PK | `(sha256, kb_name, plugin_namespace)` | Composite |
 
-Registered only after successful parse — failed ingests don't block re-upload.
+Registered only after successful parse — failed ingests don't block re-upload. Repository: `eagle_rag/db/repositories/dedup.py`.
 
 ### 3.4 `document_keywords`
 
@@ -92,6 +107,7 @@ Tag catalog for scope filtering:
 |--------|------|-------|
 | `document_id` | UUID | |
 | `kb_name` | VARCHAR | |
+| `plugin_namespace` | TEXT | Domain binding |
 | `keyword` | VARCHAR | From Knowhere chunk keywords |
 | `count` | INT | Occurrence count |
 
@@ -105,6 +121,7 @@ Queried by `GET /tags` and `resolve_tags_to_document_ids()` at query time.
 | `document_id` | UUID | |
 | `pipeline` | VARCHAR | router/knowhere/pixelrag |
 | `kb_name` | VARCHAR | |
+| `plugin_namespace` | TEXT | Domain binding |
 | `state` | VARCHAR | PENDING/RENDERING/…/SUCCESS/FAILED |
 | `progress` | INT | 0-100 |
 | `current` / `total` | INT | Progress counters |
@@ -119,8 +136,8 @@ Chat session persistence:
 
 | Table | Key fields |
 |-------|-----------|
-| `sessions` | session_id, user_id, title, scope_filter (JSONB), kb_name |
-| `session_messages` | message_id, session_id, role, content, sources (JSONB), steps (JSONB) |
+| `sessions` | session_id, user_id, title, scope_filter (JSONB), kb_name, plugin_namespace |
+| `session_messages` | message_id, session_id, role, content, sources (JSONB), steps (JSONB), plugin_namespace |
 
 `scope_filter` persisted so follow-up queries inherit KB/doc/tag scope.
 
@@ -134,6 +151,7 @@ Visual tile metadata (complement to Milvus vectors):
 | `document_id` | UUID | |
 | `object_key` | VARCHAR | MinIO path |
 | `kb_name` | VARCHAR | |
+| `plugin_namespace` | TEXT | Domain binding |
 | `page`, `position` | INT/VARCHAR | Tile location |
 | `width`, `height` | INT | Dimensions |
 
@@ -154,7 +172,7 @@ Session-scoped temporary uploads:
 | Table | Purpose |
 |-------|---------|
 | `notifications` | User notifications (ingest complete, errors) |
-| `mcp_call_log` | MCP tool invocation audit |
+| `mcp_call_log` | MCP tool invocation audit (namespace-scoped) |
 | `metric_samples` | Queue depth time series |
 | `system_settings` | Runtime-configurable overrides |
 
@@ -174,14 +192,16 @@ task db:migrate
 **Convention:**
 
 - Models in `eagle_rag/db/models/` — one file per domain.
+- Repositories in `eagle_rag/db/repositories/` — force `plugin_namespace` via `instance_namespace()`.
+- Migration `0007_plugin_namespace` adds `plugin_namespace` columns and composite PKs.
 - `alembic/env.py` normalizes DSN: `postgresql+asyncpg://` → `postgresql+psycopg2://` for migrations.
-- No DDL in store modules — all schema changes via Alembic.
+- No DDL in repository modules — all schema changes via Alembic.
 
 ---
 
 ## 5. Milvus relationship
 
-PostgreSQL holds pointers; Milvus holds searchable vectors:
+PostgreSQL holds pointers; Milvus holds searchable vectors in a **per-domain Database** (`MilvusClientPool`, see [vector-stores](vector-stores.md)):
 
 | PostgreSQL | Milvus filter |
 |-----------|--------------|
@@ -189,8 +209,11 @@ PostgreSQL holds pointers; Milvus holds searchable vectors:
 | `documents.kb_name` | `kb_name == "..."` |
 | `documents.source_type` | `source_type == "..."` |
 | `document_keywords.keyword` | Resolved to `document_id in [...]` |
+| `documents.extra.collections_used` | Scope-aware specialized collection plans at query time |
 
-KB deletion (`kb/lifecycle.py`) cascades: PostgreSQL rows → Milvus `delete_*_by_kb()` → MinIO prefix cleanup.
+On successful ingest, `collections_used` is updated at document level (`documents.extra`) and KB level (`knowledge_bases.collections_used`) via `eagle_rag/db/repositories/catalog.py`. Failed or partial ingests do not update the catalog.
+
+KB deletion (`kb/lifecycle.py`) cascades: PostgreSQL rows (namespace-scoped) → Milvus `delete_*_by_kb()` → MinIO prefix cleanup.
 
 ---
 
@@ -211,8 +234,9 @@ LlamaIndex docstore may cache nodes locally, but authoritative metadata is in Mi
 
 ## 7. Design tensions and tuning
 
-| Tension | Schema / store | Consequence | Practice |
+| Tension | Schema / repository | Consequence | Practice |
 | --- | --- | --- | --- |
+| **Namespace mismatch** | `resolve_namespace()` in `eagle_rag/db/namespace.py` | Request `plugin_namespace` ≠ `default_namespace` → **403** | Use `plugins.allow_namespace_override` only in tests |
 | **JSONB scope without DB constraint** | `sessions.scope_filter` | Stale doc IDs after delete — queries return empty, not error | Refresh scope client-side after KB purge |
 | **Dual driver consistency** | asyncpg (API) vs psycopg2 (workers) | Same row updated from both paths — no distributed transaction with Milvus | Treat Postgres as source of truth for lifecycle; Milvus eventual |
 | **CASCADE vs vector purge** | FK `document_keywords` ON DELETE CASCADE | SQL clean; Milvus vectors need explicit `delete_*` in lifecycle | Always use KB purge API, not raw SQL delete |
@@ -246,6 +270,7 @@ Async routes use `postgresql+asyncpg://` variant internally.
 | `tests/test_api_query_sessions_documents_tasks.py` | Session CRUD |
 | `tests/test_api_kb_attachments_notifications_users.py` | KB registry, attachments |
 | `tests/test_api_admin_health.py` | DB connectivity in health |
+| `tests/plugins/test_namespace_isolation.py` | `plugin_namespace` repository isolation |
 
 ---
 

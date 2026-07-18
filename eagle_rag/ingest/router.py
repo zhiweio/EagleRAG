@@ -49,6 +49,7 @@ from eagle_rag.ingest.selectors import (
     HttpUriSelector,
     IngestRouteContext,
     PdfFormSelector,
+    PluginHookSelector,
     PrefixSelector,
 )
 from eagle_rag.tasks.celery_app import app
@@ -215,6 +216,7 @@ def _build_chain(cfg: Any, *, probe: Any) -> FallbackChain:
     """
     selectors: list[Any] = [
         PrefixSelector(prefix_force=cfg.prefix_force),
+        PluginHookSelector(),
         ForcedModeSelector(router_mode=_router_mode()),
         HttpUriSelector(),
         PdfFormSelector(probe=probe, pdf_exts=cfg.pdf_exts),
@@ -285,13 +287,13 @@ def infer_source_type(
 ) -> str:
     """Infer the source type.
 
-    Returns one of ``policy``/``financial``/``business``/``bidding``/``tax``/``other``.
+    Returns one of the configured ``source_type`` labels or a free-form hint.
     Prefers ``source_type_hint``; otherwise first-matches against
     ``settings.ingest.source_type.rules``. Metadata only — does not affect routing.
     """
     if source_type_hint:
         hint = source_type_hint.strip().lower()
-        if hint in {"policy", "financial", "business", "bidding", "tax", "other"}:
+        if hint:
             return hint
 
     text = filename or ""
@@ -310,13 +312,20 @@ def infer_source_type(
 # ---------------------------------------------------------------------------
 
 
-# Downstream task names (aligned with settings.celery.task_routes)
-_KNOWHERE_TASK = "eagle_rag.tasks.knowhere_parse"
-_PIXELRAG_TASK = "eagle_rag.tasks.pixelrag_build"
+# Downstream dispatch uses the plugin pipeline registry.
 
-# Downstream queues
-_KNOWHERE_QUEUE = "knowhere_queue"
-_PIXELRAG_QUEUE = "pixelrag_queue"
+
+def _dispatch_pipeline(pipeline: str, downstream_kwargs: dict[str, Any]) -> None:
+    from eagle_rag.plugins import get_plugin_manager
+
+    pipe = get_plugin_manager().get_pipeline(pipeline)
+    queue = pipe.queue()
+    app.send_task(
+        pipe.celery_task_name(),
+        kwargs=dict(downstream_kwargs),
+        queue=queue,
+        routing_key=queue,
+    )
 
 
 @with_retry(queue="router_queue")
@@ -331,6 +340,7 @@ def ingest_router(  # type: ignore[no-untyped-def]
     source_type_hint: str | None = None,
     kb_name: str | None = None,
     sha256: str | None = None,
+    plugin_namespace: str | None = None,
 ) -> dict[str, Any]:
     """Router task: decide pipeline(s) and dispatch to downstream queues.
 
@@ -357,7 +367,7 @@ def ingest_router(  # type: ignore[no-untyped-def]
     try:
         update_state(job_id, TaskState.RENDERING, log_entry="Routing decision in progress")
 
-        from eagle_rag.kb.registry import get_pdf_ratio_sync
+        from eagle_rag.db.repositories.kb import get_pdf_ratio_sync
 
         pdf_ratio = get_pdf_ratio_sync(kb_name)
 
@@ -384,6 +394,10 @@ def ingest_router(  # type: ignore[no-untyped-def]
             source_type_hint=source_type_hint,
         )
 
+        from eagle_rag.db.repositories.base import instance_namespace
+
+        plugin_ns = instance_namespace(plugin_namespace)
+
         register_document(
             document_id,
             name=name,
@@ -392,6 +406,7 @@ def ingest_router(  # type: ignore[no-untyped-def]
             kb_name=kb_name,
             source_uri=source_uri,
             status="indexing",
+            plugin_namespace=plugin_ns,
         )
 
         downstream_kwargs = {
@@ -404,25 +419,13 @@ def ingest_router(  # type: ignore[no-untyped-def]
             "source_uri": source_uri,
             "kb_name": kb_name,
             "sha256": sha256,
+            "plugin_namespace": plugin_ns,
         }
 
         for pipeline in pipelines:
-            if pipeline == "knowhere":
-                app.send_task(
-                    _KNOWHERE_TASK,
-                    kwargs=dict(downstream_kwargs),
-                    queue=_KNOWHERE_QUEUE,
-                    routing_key=_KNOWHERE_QUEUE,
-                )
-            elif pipeline == "pixelrag":
-                app.send_task(
-                    _PIXELRAG_TASK,
-                    kwargs=dict(downstream_kwargs),
-                    queue=_PIXELRAG_QUEUE,
-                    routing_key=_PIXELRAG_QUEUE,
-                )
-            else:
-                # Unknown pipeline: log and skip dispatch to avoid blocking the whole job.
+            try:
+                _dispatch_pipeline(pipeline, downstream_kwargs)
+            except KeyError:
                 update_state(
                     job_id,
                     TaskState.INDEXING,

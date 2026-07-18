@@ -22,8 +22,9 @@ from eagle_rag.api.schemas.documents import (
     DocumentStructureOut,
     ImageMetaOut,
 )
+from eagle_rag.documents.reconstruct import reconstruct_document
 from eagle_rag.images.store import get_image_bytes, get_image_meta
-from eagle_rag.index.document_structure import build_document_structure, load_chunk_html
+from eagle_rag.index.document_structure import load_chunk_html
 from eagle_rag.index.registry import count_documents, delete_document, get_document, list_documents
 from eagle_rag.storage.minio_client import get_object_bytes
 
@@ -82,7 +83,7 @@ async def get_document_structure_api(document_id: str) -> DocumentStructureOut:
     doc = await get_document(document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail=f"document not found: {document_id}")
-    result = await asyncio.to_thread(build_document_structure, document_id, doc)
+    result = await asyncio.to_thread(reconstruct_document, document_id, doc)
     return DocumentStructureOut.model_validate(result)
 
 

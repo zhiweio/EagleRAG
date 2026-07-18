@@ -23,6 +23,12 @@ class DocumentKeyword(SQLModel, table=True):
     __tablename__ = "document_keywords"
     __table_args__ = (
         Index("idx_document_keywords_kb_keyword", "kb_name", "keyword"),
+        Index(
+            "idx_document_keywords_namespace_kb_keyword",
+            "plugin_namespace",
+            "kb_name",
+            "keyword",
+        ),
         Index("idx_document_keywords_keyword", "keyword"),
     )
 
@@ -36,5 +42,6 @@ class DocumentKeyword(SQLModel, table=True):
     )
     keyword: str = Field(primary_key=True, sa_type=Text())
     kb_name: str = Field(default="default", sa_type=Text())
+    plugin_namespace: str = Field(default="core", sa_type=Text())
     node_count: int = Field(default=0, sa_type=Integer())
     created_at: datetime = Field(sa_column=timestamptz())

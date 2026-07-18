@@ -1,6 +1,15 @@
 # Multi-tenancy
 
-A single Eagle-RAG deployment can serve **finance**, **patent**, **pharma**, or any other knowledge base without separate Milvus clusters. Isolation is enforced by `kb_name` at every layer — from API request through Milvus scalar filters to dedup keys.
+Eagle-RAG isolates data on **two axes**:
+
+| Axis | Identifier | Mechanism |
+| --- | --- | --- |
+| **Domain** | `plugin_namespace` | Physical Milvus **Database** + PostgreSQL repository filter (deploy-time) |
+| **Knowledge base** | `kb_name` | Scalar filter **inside** one domain Database (request-time) |
+
+A single process binds one domain (`settings.plugins.default_namespace`). Within that domain, many KBs (`finance`, `patent`, `pharma`, …) share base collections and are separated by `kb_name`. Cross-domain retrieval uses **multiple instances**, not Core fan-out.
+
+Canonical detail: [Plugin architecture](plugin-architecture.md). Decisions: [ADR-001](adr/001-milvus-database-isolation.md), [ADR-002](adr/002-single-domain-deployment.md).
 
 ---
 
@@ -10,41 +19,50 @@ A single Eagle-RAG deployment can serve **finance**, **patent**, **pharma**, or 
 
 [Gao et al., 2023](https://arxiv.org/abs/2312.10997) identifies tenant isolation as a production concern: retrieval must never return another tenant's chunks.
 
-Common patterns:
-
 | Pattern | Isolation mechanism | Eagle-RAG |
 | --- | --- | --- |
-| Separate vector DB per tenant | Physical isolation | Not used — ops overhead |
-| Separate collection per tenant | Logical Milvus isolation | Not used — schema sprawl |
-| **Shared collection + metadata filter** | `kb_name` scalar filter on every query | **Chosen** |
-| Separate deployment per tenant | Full stack duplication | Optional at infra level |
+| Separate vector **Database** per **domain** | Physical Milvus DB | **Chosen** for `plugin_namespace` |
+| Separate collection per KB | Logical sprawl | Not used for KBs |
+| **Shared collection + metadata filter** | `kb_name` scalar on every ANN | **Chosen** for KBs inside a domain DB |
+| Separate deployment per domain | Full stack duplication | **Chosen** for multi-industry (one instance each) |
 
-Milvus supports efficient scalar filtering with inverted indexes ([Milvus filtering](https://milvus.io/docs/scalar_index.md)) — filter pushdown before or during ANN search reduces scanned vectors.
+Milvus scalar filtering with inverted indexes ([Milvus filtering](https://milvus.io/docs/scalar_index.md)) pushdown `kb_name` / `document_id` during ANN. Domain boundaries are stronger: clients are constructed with `db_name=` via `MilvusClientPool` — no per-request `using_database`.
 
 ### Why not global file dedup?
 
-The same physical file (SHA-256) may belong in **multiple** knowledge bases — e.g. a regulatory PDF relevant to both `tax_law` and `compliance`. Composite dedup key `(sha256, kb_name)` allows duplicate bytes across tenants while preventing re-upload within one tenant.
+The same physical file (SHA-256) may belong in **multiple** knowledge bases — e.g. a regulatory PDF in both `tax_law` and `compliance`. Dedup PK is `(sha256, kb_name, plugin_namespace)` so the same bytes can exist across KBs/domains while preventing re-upload within one KB of one domain.
 
 ---
 
-## The tenancy key
-
-`kb_name` matches `^[a-z0-9_]+$`, is the primary key of `knowledge_bases`, and is **immutable** after creation.
-
-Default: `default` (`KB_NAME` env / `settings.kb_name`).
+## Two-layer model
 
 ```mermaid
-flowchart LR
-    subgraph KBa["kb: tax_law"]
-        DA["documents"] --> MILA["filter kb_name=='tax_law'"]
-    end
-    subgraph KBb["kb: finance_2025"]
-        DB["documents"] --> MILB["filter kb_name=='finance_2025'"]
-    end
-    MILA & MILB --> MIL[("Shared collections<br/>eagle_text + eagle_visual")]
+flowchart TB
+  subgraph deploy [Deploy_instance]
+    NS["plugin_namespace = biomed<br/>default_namespace fixed"]
+  end
+  subgraph milvus [Milvus_Database_biomed]
+    ET[eagle_text]
+    EV[eagle_visual]
+    SPEC[specialized_collections]
+  end
+  subgraph kbs [kb_name_scalar_filter]
+    A[kb: clinical]
+    B[kb: chemistry]
+  end
+  NS --> milvus
+  A & B --> ET & EV & SPEC
 ```
 
-Vectors from all tenants live in **shared** Milvus collections; scalar filters enforce boundaries at query time.
+| Term | Meaning | Mutable at runtime? |
+| --- | --- | --- |
+| `plugin_namespace` | Domain binding (= Milvus DB name mapping) | **No** — deploy config / profile |
+| `kb_name` | KB id, `^[a-z0-9_]+$`, PK with namespace | Created/deleted via KB API; immutable rename |
+
+Do **not** call `kb_name` a “namespace” in UI/API copy — that word is reserved for `plugin_namespace`.
+
+Default KB: `default` (`KB_NAME` / `settings.kb_name`).  
+Default domain: `core` (`PLUGIN_NAMESPACE` / `settings.plugins.default_namespace`, or `EAGLE_RAG_PROFILE`).
 
 ---
 
@@ -54,70 +72,59 @@ Vectors from all tenants live in **shared** Milvus collections; scalar filters e
 
 | Layer | Mechanism | Code |
 | --- | --- | --- |
-| Dedup | PK `(sha256, kb_name)` | `eagle_rag/storage/dedup.py` |
-| Milvus text | `MetadataFilters` → `kb_name == "..."` | `eagle_rag/index/milvus_text_store.py` |
-| Milvus visual | `kb_name` field + inverted index in `_build_search_expr` | `eagle_rag/index/milvus_visual_store.py` |
-| PostgreSQL | `kb_name` column + index on tenant tables | `eagle_rag/db/models/` |
-| MinIO | Logical isolation via `document_id` registry | `eagle_rag/storage/minio_client.py` |
-| API | `kb_name` on write/query; fallback `settings.kb_name` | API routers |
-| MCP | All four tools accept `kb_name` | `eagle_rag/api/mcp_server.py` |
-| Celery | `kb_name` in task kwargs | `knowhere_parse`, `pixelrag_build`, `ingest_router` |
-| Sessions | `sessions.kb_name` | `eagle_rag/db/models/sessions.py` |
-| Tags | `document_keywords.kb_name` | `eagle_rag/index/tag_catalog.py` |
+| Domain resolve | Trust `default_namespace`; mismatch → **403** | `eagle_rag/db/namespace.py` |
+| Dedup | PK `(sha256, kb_name, plugin_namespace)` | `eagle_rag/storage/dedup.py` |
+| Milvus | `MilvusClientPool.get(db_name)` per domain | `eagle_rag/index/milvus_pool.py` |
+| Milvus text/visual | `kb_name` (+ scope) scalar filters | `milvus_text_store.py` / `milvus_visual_store.py` |
+| Specialized collections | Same DB; domain plugin schemas | e.g. `eagle_text_biomed` |
+| PostgreSQL | Repository injects `plugin_namespace` | `eagle_rag/db/repositories/` |
+| MinIO / MCP cache | Keys include `plugin_namespace` | storage + `mcp_cache` |
+| API / MCP | `kb_name` on write/query; domain from settings | routers + `core_*` tools |
+| Celery | `kb_name` (+ namespace from settings) in kwargs | ingest tasks |
+| Sessions / tags | Namespace-scoped rows | repositories + `tag_catalog` |
+
+### Domain binding (G19)
+
+```python
+# eagle_rag/db/namespace.py — conceptual
+def resolve_namespace(requested: str | None = None) -> str:
+    default = settings.plugins.default_namespace
+    if not requested:
+        return default
+    if settings.plugins.allow_namespace_override:  # tests only
+        return requested
+    if requested != default:
+        raise HTTPException(403, ...)  # production
+    return default
+```
 
 ### Dedup flow
 
 ```python
-# eagle_rag/storage/dedup.py — conceptual
-# PK: (sha256, kb_name)
-check_duplicate(sha256, kb_name)  # before upload
-register(sha256, document_id, kb_name=...)  # after successful parse only
+# PK: (sha256, kb_name, plugin_namespace)
+check_duplicate(sha256, kb_name, plugin_namespace=...)
+register(sha256, document_id, kb_name=..., plugin_namespace=...)
 ```
 
 Failed parse tasks do **not** register dedup — same file can be re-uploaded.
 
-### Milvus text filtering
-
-`KnowhereGraphRetriever` builds LlamaIndex `MetadataFilters`:
-
-```python
-# Pattern in milvus_text_store / retriever
-MetadataFilter(key="kb_name", value=kb_name, operator=FilterOperator.EQ)
-# Multi-KB scope:
-# kb_name in ["tax_law", "pharma"]
-```
-
-### Milvus visual filtering
-
-```python
-# eagle_rag/index/milvus_visual_store.py — _build_search_expr pattern
-expr_parts = [f'kb_name == "{kb_name}"']
-if document_ids:
-    expr_parts.append(f'document_id in [{quoted_ids}]')
-# Combined with ANN search_params
-```
-
-Inverted index on `kb_name` created in `ensure_collection()`.
-
-### Example Milvus expression
+### Milvus filtering (inside one DB)
 
 ```
 kb_name == 'pharma' and year in [2025, 2026] and document_id in ['doc_a', 'doc_b']
 ```
 
+`KnowhereGraphRetriever` uses LlamaIndex `MetadataFilters`; visual store builds `expr` in `_build_search_expr`. Inverted index on `kb_name` in `ensure_collection()`.
+
 ### Ingest propagation
 
+Every vector row carries `kb_name`. Domain is implicit from the process-bound Milvus Database (and PG `plugin_namespace` column). Effective KB:
+
 ```python
-# knowhere_parse — effective_kb resolution
 effective_kb = kb_name if kb_name is not None else get_settings().kb_name
-
-nodes = chunks_to_text_nodes(..., kb_name=effective_kb)
-upsert_text_nodes(nodes)
-
-upsert_visual(..., kb_name=effective_kb)
 ```
 
-Every vector row carries `kb_name` scalar — no post-hoc tenant assignment.
+On successful ingest, `collections_used` is recorded on the document and unioned into the KB catalog ([ADR-006](adr/006-ingest-query-routing-contract.md)).
 
 ---
 
@@ -133,57 +140,25 @@ Beyond a single `kb_name`, `QueryRequest.scope_filter` accepts:
 }
 ```
 
-### Resolution: `_resolve_scope_filter()`
+**Union (OR) semantics** — any matching KB, explicit document ID, or tag-resolved document includes chunks. Tags resolve via `resolve_tags_to_document_ids(plugin_namespace, tags, cap=...)`.
 
-```python
-# eagle_rag/router/router_engine.py:122-150
-def _resolve_scope_filter(scope_filter) -> tuple[list[str], list[str], bool]:
-    kb_names = list(scope_filter.get("kb_names") or [])
-    document_ids = list(scope_filter.get("document_ids") or [])
-    tags = list(scope_filter.get("tags") or [])
-    if not (kb_names or document_ids or tags):
-        return [], [], False  # inactive — use legacy kb_name path
+When scope is active, retrievers use `kb_names` + `document_ids` lists pushed to Milvus `in` predicates.
 
-    doc_set = dict.fromkeys(document_ids)
-    if tags:
-        cap = get_settings().router.max_scope_documents  # default 500
-        for doc_id in resolve_tags_to_document_ids(tags, cap=cap):
-            doc_set.setdefault(doc_id, None)
-    return kb_names, list(doc_set), True
-```
+**Scope-aware collection plans:** if scoped KBs/documents/tags catalog includes specialized collections, `RetrieverOrchestrator` forces those collection plans even when Core’s default classifier would only hit `eagle_text` / `eagle_visual` ([ADR-006](adr/006-ingest-query-routing-contract.md)).
 
-**Union (OR) semantics** — any matching KB, explicit document ID, or tag-resolved document includes chunks.
-
-When `active=True`, retrievers constructed with `kb_names` + `document_ids` lists — pushed to Milvus `in` predicates.
-
-### Tag catalog
-
-- Table: `document_keywords` — aggregated from Knowhere chunk `keywords` at ingest
-- API: `GET /tags` — facet listing
-- Resolution: `resolve_tags_to_document_ids(tags, cap=500)` — cross-KB tag union
-- Tag write failure during ingest is **non-blocking**
-
-Persisted in `sessions.scope_filter` for conversation continuity.
+Persisted in `sessions.scope_filter` for conversation continuity (sessions are namespace-scoped).
 
 ---
 
 ## Per-KB configuration
 
-A knowledge base is more than a partition:
-
 | Field | Purpose | Code |
 | --- | --- | --- |
 | `display_name`, `description`, `theme`, `icon` | Frontend KB module | `eagle_rag/kb/registry.py` |
-| `pdf_text_page_ratio` | Overrides global PDF probe | `get_pdf_ratio_sync(kb_name)` in ingest_router |
+| `collections_used` | Catalog of collections written by successful ingest | `knowledge_bases` + repositories |
+| `pdf_text_page_ratio` | Overrides global PDF probe | `get_pdf_ratio_sync(kb_name)` |
 
-```yaml
-# Global default
-pdf_probe:
-  text_page_ratio: 0.2
-
-# Per-KB override in knowledge_bases table
-# pdf_text_page_ratio: 0.15  → passed to route(text_page_ratio=...)
-```
+KB primary key is `(kb_name, plugin_namespace)`.
 
 ---
 
@@ -191,18 +166,10 @@ pdf_probe:
 
 | Operation | Module | Behavior |
 | --- | --- | --- |
-| Create / validate | `eagle_rag/kb/registry.py` | Regex validate `kb_name` |
-| Delete (cascade) | `eagle_rag/kb/lifecycle.py` | Milvus delete expr → documents → images → dedup → tasks → KB row |
-| Rebuild | Admin API | Re-ingest all `ready` documents from `source_uri` |
-| Health | `eagle_rag/kb/health.py` | `online` / `degraded` / `offline` |
-
-### Health rules
-
-| Status | Condition |
-| --- | --- |
-| **online** | Milvus reachable; no `failed` tasks in last hour for KB |
-| **degraded** | Milvus OK but recent failures |
-| **offline** | Milvus unreachable |
+| Create / validate | `eagle_rag/kb/registry.py` | Regex validate `kb_name`; bound to instance namespace |
+| Delete (cascade) | `eagle_rag/kb/lifecycle.py` | Milvus delete in **domain DB** → documents → images → dedup → tasks → KB row |
+| Rebuild | Admin API | Clears `collections_used`, re-ingests, recomputes catalog |
+| Health / stats | `kb/health.py`, `kb/stats.py` | Fan-out specialized collections from plugin manifest |
 
 API: [knowledge bases](../api/knowledge-bases.md). Internals: [kb management](../backend/kb-management.md).
 
@@ -210,17 +177,18 @@ API: [knowledge bases](../api/knowledge-bases.md). Internals: [kb management](..
 
 ## Design tensions and tuning
 
-| Tension | Code / config | Consequence |
-| --- | --- | --- |
-| Filter pushdown vs client scope | `scope_filter` OR union in `_build_filters` | Missing `kb_name` in one MCP tool path leaks cross-tenant hits — test all surfaces |
-| Storage duplication vs dedup key | `(sha256, kb_name)` composite PK | Same bytes in two KBs = two full index copies; expected for tenant isolation |
-| Tag union breadth | `resolve_tags_to_document_ids(..., cap=max_scope_documents)` | Hitting cap silently truncates tag expansion — narrow tags or raise cap consciously |
-| Immutable `kb_name` | KB registry | Renaming tenant requires re-ingest / Milvus metadata migration, not a SQL UPDATE |
-| Default tenant fallback | `get_settings().kb_name` when API omits value | Agents in multi-KB deployments should always pass explicit `kb_name` |
+| Tension | Consequence |
+| --- | --- |
+| Domain vs KB confusion | Wrong mental model → agents pass “namespace” as `kb_name` or expect runtime domain switch |
+| Filter pushdown vs client scope | Missing `kb_name` / scope on one MCP path can leak across KBs **inside** the domain DB |
+| Storage duplication vs dedup key | Same bytes in two KBs = two index copies; expected |
+| Tag union breadth | Cap `max_scope_documents` silently truncates |
+| Immutable `kb_name` | Rename requires re-ingest, not SQL UPDATE |
+| Multi-industry | Run one instance per `EAGLE_RAG_PROFILE`; do not fan-out across Milvus DBs in one query |
 
 ### Security note
 
-Eagle-RAG has **no auth by default** (`auth.enabled: false`). Multi-tenancy is a **data organization** layer, not cryptographic isolation. Expose only on trusted networks or add API key / reverse-proxy auth.
+Eagle-RAG has **no auth by default** (`auth.enabled: false`). Isolation is a **data organization** layer, not cryptographic multi-tenancy. Expose only on trusted networks or add API key / reverse-proxy auth. Domain 403 prevents accidental cross-namespace API override — it is not a substitute for network auth.
 
 ---
 
@@ -228,15 +196,15 @@ Eagle-RAG has **no auth by default** (`auth.enabled: false`). Multi-tenancy is a
 
 | Key | Effect |
 | --- | --- |
-| `KB_NAME` / `kb_name` | Default tenant when API omits value |
+| `EAGLE_RAG_PROFILE` | Overlay `profiles.<name>` → `default_namespace` + `milvus.db_name` |
+| `PLUGIN_NAMESPACE` / `plugins.default_namespace` | Instance domain binding |
+| `plugins.allow_namespace_override` | Tests only — allow request override |
+| `KB_NAME` / `kb_name` | Default KB when API omits value |
 | `router.max_scope_documents` | Cap tag → document_id resolution |
-| `kb.text_entity_limit` | Capacity warning threshold text |
-| `kb.visual_entity_limit` | Capacity warning threshold visual |
-| Per-KB `pdf_text_page_ratio` | Ingest routing sensitivity |
 
 ```bash
-KB_NAME=pharma task be:api
-EAGLE_RAG_ROUTER__MAX_SCOPE_DOCUMENTS=1000
+EAGLE_RAG_PROFILE=biomed task be:api   # domain = biomed Milvus DB
+KB_NAME=clinical                       # default KB inside that domain
 ```
 
 ---
@@ -245,35 +213,35 @@ EAGLE_RAG_ROUTER__MAX_SCOPE_DOCUMENTS=1000
 
 | Failure | Impact | Mitigation |
 | --- | --- | --- |
-| Missing `kb_name` on API call | Falls back to `settings.kb_name` | Always pass explicit `kb_name` in agents |
-| Tag resolution error | Tags ignored; other scope dims apply | Check `document_keywords` table |
-| Scope exceeds 500 docs | Tag resolution truncated | Increase `max_scope_documents` carefully |
-| KB delete partial failure | Orphan vectors possible | Re-run cascade delete; Milvus expr by `kb_name` |
-| Legacy vectors without `kb_name` | `ensure_collection` drops collection | Backup before migration |
-| Wrong KB in MCP tool args | Retrieves wrong tenant's data | Validate agent tool inputs |
+| Missing `kb_name` on API | Falls back to `settings.kb_name` | Agents should pass explicit `kb_name` |
+| Mismatched `plugin_namespace` | **403** | Align client with instance profile |
+| Wrong profile | Empty ANN / wrong specialized collections | Check `/health/plugins` `default_namespace` |
+| Tag resolution error | Tags ignored; other scope dims apply | Check `document_keywords` for namespace |
+| KB delete partial | Orphan vectors possible | Re-run cascade in the correct Milvus DB |
+| Wrong KB in MCP args | Cross-KB leak **within** domain | Validate agent tool inputs |
 
 ### Audit queries
 
 ```sql
--- Documents per KB
-SELECT kb_name, count(*) FROM documents GROUP BY kb_name;
+-- Documents per KB within a domain
+SELECT kb_name, count(*) FROM documents
+WHERE plugin_namespace = 'biomed' GROUP BY kb_name;
 
--- Vectors per KB (via document registry)
-SELECT kb_name, sum(chunk_count) FROM documents WHERE status='ready' GROUP BY kb_name;
+-- KB collection catalog
+SELECT kb_name, collections_used FROM knowledge_bases
+WHERE plugin_namespace = 'biomed';
 ```
 
-Milvus count by expr: `kb_name == 'pharma'` via admin or pymilvus.
-
-!!! tip "API default"
-    When clients omit `kb_name`, the server uses `settings.kb_name`. Explicit `kb_name` per request is recommended for multi-tenant agents.
+!!! tip "Two identifiers"
+    Deploy binds **domain** (`plugin_namespace`). Requests select **KB** (`kb_name`). MCP Core tools: `core_ingest`, `core_query`, `core_retrieve_text`, `core_retrieve_visual`.
 
 ---
 
 ## References
 
+- [Plugin architecture](plugin-architecture.md)
+- [ADR-001 Milvus Database isolation](adr/001-milvus-database-isolation.md)
+- [ADR-002 Single-domain deployment](adr/002-single-domain-deployment.md)
+- [ADR-006 Ingest–query routing contract](adr/006-ingest-query-routing-contract.md)
 - [Milvus scalar filtering](https://milvus.io/docs/scalar_index.md)
-- [Milvus multi-tenancy patterns](https://milvus.io/docs/multi_tenancy.md)
-- [Gao et al., 2023](https://arxiv.org/abs/2312.10997)
-- [Data flow — kb_name propagation](data-flow.md)
-- [API knowledge bases](../api/knowledge-bases.md)
-- [Glossary — kb_name](../glossary.md)
+- [Data flow](data-flow.md) · [API knowledge bases](../api/knowledge-bases.md) · [Glossary](../glossary.md)

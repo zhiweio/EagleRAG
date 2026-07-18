@@ -134,6 +134,43 @@ export function VisualSourceCard({
         </div>
       )}
 
+      <div
+        className="mt-2.5 grid grid-cols-2 gap-1.5 rounded-xl border border-border/70 bg-(--surface-muted) p-2"
+        aria-label={t("anchorsTitle")}
+      >
+        <p className="col-span-2 font-medium text-[10.5px] text-foreground-secondary">
+          {t("anchorsTitle")}
+        </p>
+        <div className="min-w-0">
+          <p className="font-mono text-[9.5px] text-foreground-tertiary">{t("anchorChunkType")}</p>
+          <p className="truncate font-mono text-[11px] text-foreground">{chunkType || "—"}</p>
+        </div>
+        <div className="min-w-0">
+          <p className="font-mono text-[9.5px] text-foreground-tertiary">
+            {t("anchorParentSection")}
+          </p>
+          <p className="truncate font-mono text-[11px] text-foreground" title={parentSection}>
+            {parentSection || "—"}
+          </p>
+        </div>
+        <div className="min-w-0">
+          <p className="font-mono text-[9.5px] text-foreground-tertiary">
+            {t("anchorContentSummary")}
+          </p>
+          <p className="truncate text-[11px] text-foreground" title={contentSummary}>
+            {contentSummary ? "✓" : "—"}
+          </p>
+        </div>
+        <div className="min-w-0">
+          <p className="font-mono text-[9.5px] text-foreground-tertiary">
+            {t("anchorSourceChunkId")}
+          </p>
+          <p className="truncate font-mono text-[11px] text-foreground" title={sourceChunkId}>
+            {sourceChunkId || "—"}
+          </p>
+        </div>
+      </div>
+
       {parentSection ? (
         <button
           type="button"

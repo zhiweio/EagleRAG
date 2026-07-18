@@ -26,7 +26,12 @@ from eagle_rag.api.mcp_http import build_mcp_app
 from eagle_rag.api.mcp_server import TOOL_DEFINITIONS, mcp
 from eagle_rag.api.mcp_server_http import app as standalone_app
 
-EXPECTED_TOOL_NAMES = {"ingest", "query", "retrieve_text", "retrieve_visual"}
+EXPECTED_TOOL_NAMES = {
+    "core_ingest",
+    "core_query",
+    "core_retrieve_text",
+    "core_retrieve_visual",
+}
 
 
 @pytest.fixture(autouse=True)
@@ -85,10 +90,12 @@ def test_fastapi_app_mounts_mcp_at_streamable_path() -> None:
 
 
 def test_standalone_app_is_asgi() -> None:
-    """Standalone entrypoint ``mcp_server_http.app`` is a Starlette ASGI sub-app."""
-    assert type(standalone_app).__module__ == "fastmcp.server.http"
-    # ASGI callable
+    """Standalone entrypoint ``mcp_server_http.app`` is a composite Starlette ASGI app."""
+    assert type(standalone_app).__module__ == "starlette.applications"
     assert callable(standalone_app)
+    route_paths = {getattr(r, "path", None) for r in standalone_app.routes}
+    assert "/health" in route_paths
+    assert "/metrics" in route_paths
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +138,9 @@ async def test_inmem_client_retrieve_text_contract() -> None:
         return_value=fake_retriever,
     ):
         async with Client(mcp) as client:
-            result = await client.call_tool("retrieve_text", {"query": "个税起征点", "top_k": 5})
+            result = await client.call_tool(
+                "core_retrieve_text", {"query": "个税起征点", "top_k": 5}
+            )
 
     # fastmcp wraps a list return value into structured_content {"result": [...]} (wrap_result).
     payload = result.structured_content
@@ -178,7 +187,7 @@ async def test_inmem_client_retrieve_text_scope_filtering() -> None:
     ):
         async with Client(mcp) as client:
             result = await client.call_tool(
-                "retrieve_text", {"query": "x", "scope": ["d1"], "top_k": 5}
+                "core_retrieve_text", {"query": "x", "scope": ["d1"], "top_k": 5}
             )
 
     payload = result.structured_content
@@ -205,7 +214,7 @@ async def test_inmem_client_query_contract() -> None:
         return_value=fake_engine,
     ):
         async with Client(mcp) as client:
-            result = await client.call_tool("query", {"query": "个税起征点", "mode": "auto"})
+            result = await client.call_tool("core_query", {"query": "个税起征点", "mode": "auto"})
 
     payload = result.structured_content
     data = payload.get("result", payload) if isinstance(payload, dict) else payload
@@ -224,7 +233,7 @@ async def test_inmem_client_tool_error_returns_error_dict() -> None:
         side_effect=RuntimeError("milvus down"),
     ):
         async with Client(mcp) as client:
-            result = await client.call_tool("retrieve_visual", {"query": "图表"})
+            result = await client.call_tool("core_retrieve_visual", {"query": "图表"})
 
     payload = result.structured_content
     # retrieve_visual failure returns [{"error": ...}] (list wrapper).

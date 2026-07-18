@@ -234,7 +234,7 @@ def test_dispatch_visual_chunks_image_and_table():
     assert call_kwargs.kwargs.get("routing_key") == "pixelrag_queue"
 
     kwargs = call_kwargs.kwargs["kwargs"]
-    assert kwargs["job_id"] == "job-123"
+    assert kwargs["job_id"] == "job-123:visual"
     assert kwargs["document_id"] == "doc-abc"
     assert kwargs["kb_name"] == "finance"
     assert kwargs["source_type"] == "policy"
@@ -300,10 +300,10 @@ def _reset_visual_client():
     """Reset milvus_visual_store._client singleton before and after each ensure_collection test."""
     import eagle_rag.index.milvus_visual_store as store
 
-    old = store._client
-    store._client = None
+    old = store._client_db
+    store._client_db = None
     yield
-    store._client = old
+    store._client_db = old
 
 
 def test_ensure_collection_add_field_for_existing(_reset_visual_client):
@@ -350,8 +350,11 @@ def test_ensure_collection_add_field_for_existing(_reset_visual_client):
     mock_settings.milvus.host = "localhost"
     mock_settings.milvus.port = "19530"
 
+    mock_pool = MagicMock()
+    mock_pool.get = MagicMock(return_value=mock_client)
+
     with (
-        patch("eagle_rag.index.milvus_visual_store.MilvusClient", return_value=mock_client),
+        patch("eagle_rag.index.milvus_visual_store.get_milvus_pool", return_value=mock_pool),
         patch("eagle_rag.index.milvus_visual_store.get_settings", return_value=mock_settings),
     ):
         store.ensure_collection()

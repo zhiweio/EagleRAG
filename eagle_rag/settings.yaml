@@ -10,11 +10,13 @@ kb_name: ${KB_NAME:-default}
 milvus:
   host: ${MILVUS_HOST:-localhost}
   port: ${MILVUS_PORT:-19530}
+  db_name: ${MILVUS_DB_NAME:-default}
   text_collection: eagle_text
   visual_collection: eagle_visual
   dim_text: 1536
   dim_visual: 2048  # Qwen3-VL-Embedding-2B outputs 2048-dim
   visual_index_type: ${MILVUS_VISUAL_INDEX_TYPE:-hnsw}   # hnsw | diskann
+  auto_create_db: true
 
 # Knowhere parsing: mode=api (knowhere-python-sdk → self-hosted :5005) or mode=parser (knowhere-parse-sdk, in-process).
 # API mode: Knowhere is split into a standalone compose (docker/knowhere-self-hosted/); reach via knowhere-net DNS `knowhere`.
@@ -96,6 +98,10 @@ router:
   source_content_max_chars: ${ROUTER_SOURCE_CONTENT_MAX_CHARS:-4000}
   # Upper bound on section nodes persisted / served for a document's semantic tree.
   structure_max_nodes: ${ROUTER_STRUCTURE_MAX_NODES:-2000}
+  # Two-stage parent-document retrieval on eagle_text (G5).
+  parent_doc_retrieval: ${ROUTER_PARENT_DOC_RETRIEVAL:-true}
+  # RRF fusion constant for multi-collection merge (G8).
+  rrf_k: ${ROUTER_RRF_K:-60}
   llm:
     enabled: ${ROUTER_LLM_ENABLED:-true}   # When false, skip LLM intent classification and go straight to heuristics.
     prompt_template: |-
@@ -167,7 +173,9 @@ attachments:
     cache_enabled: ${ATTACHMENTS_PARSE_CACHE_ENABLED:-true}
     chunk_size: ${ATTACHMENTS_PARSE_CHUNK_SIZE:-2000}
 
-# Ingest routing config: extension / prefix / content_type rules plus source_type keywords (all configurable; defaults match the prior hardcoded values).
+# Ingest routing config: extension / prefix / content_type rules.
+# source_type is free-form metadata only (does not affect routing). Core ships empty
+# keyword rules — industry labels belong in deployment profiles / domain plugins.
 ingest:
   routing:
     prefix_force:                     # Filename prefix → forced pipeline.
@@ -185,13 +193,8 @@ ingest:
       - {match: spreadsheet, mode: contains, pipeline: pixelrag}
       - {match: excel, mode: contains, pipeline: pixelrag}
     default_pipeline: knowhere        # Fallback for unknown sources.
-  source_type:                        # source_type inference keywords (metadata tag only; does not affect routing).
-    rules:
-      - {keywords: [财报, 报表, 资产负债, 利润表, 现金流量, 审计报告, financial, balance, income, cashflow, table], source_type: financial}
-      - {keywords: [政策, 法规, 条例, 办法, 通知, 公告, policy, law, regulation, act], source_type: policy}
-      - {keywords: [招标, 中标, 投标, 采购, bidding, tender], source_type: bidding}
-      - {keywords: [税, 税务, 个税, 增值税, tax, vat], source_type: tax}
-      - {keywords: [工商, 企业信息, 营业执照, 公司简介, business, company], source_type: business}
+  source_type:
+    rules: []                         # Empty in Core; set per deployment / profile if needed.
     default: other
   url_prefetch:
     timeout_sec: ${INGEST_URL_PREFETCH_TIMEOUT:-10}
@@ -227,6 +230,44 @@ mcp:
     required_scopes: []
   mtls:
     enabled: false
+
+# In-process plugin microkernel (M1+). Instance binds a single plugin_namespace via default_namespace.
+# Select a profile with EAGLE_RAG_PROFILE=core|biomed|lakehouse-bi (see profiles: below).
+plugins:
+  enabled:
+    - eagle_rag.plugins.core_defaults
+  default_namespace: ${PLUGIN_NAMESPACE:-core}
+  allow_namespace_override: false
+  query_assemble_enabled: true
+  # Per-plugin knobs keyed by namespace (not Core-typed fields).
+  options:
+    biomed:
+      default_dual_text_search: false
+      exploratory_search_collections: []
+      encoder_mode: ${EAGLE_BIOMED_ENCODER_MODE:-auto}
+
+# Optional deployment profiles (P2-4): bind namespace + Milvus DB + enabled plugins together.
+# Activate via EAGLE_RAG_PROFILE or YAML active_profile.
+# active_profile: core
+profiles:
+  core:
+    plugins:
+      enabled: [eagle_rag.plugins.core_defaults]
+      default_namespace: core
+    milvus:
+      db_name: default
+  biomed:
+    plugins:
+      enabled: [eagle_rag.plugins.core_defaults, plugins.biomed]
+      default_namespace: biomed
+    milvus:
+      db_name: biomed
+  lakehouse-bi:
+    plugins:
+      enabled: [eagle_rag.plugins.core_defaults, plugins.lakehouse_bi]
+      default_namespace: lakehouse-bi
+    milvus:
+      db_name: lakehouse_bi
 
 # Telemetry and observability: structlog (AI event JSONL) + loguru (ops logs) + OpenTelemetry tracing.
 telemetry:

@@ -121,6 +121,7 @@ RUN useradd --create-home --uid 1000 eagle \
 
 COPY --chown=eagle:eagle pyproject.toml uv.lock ./
 COPY --chown=eagle:eagle eagle_rag ./eagle_rag
+COPY --chown=eagle:eagle plugins ./plugins
 
 USER eagle
 

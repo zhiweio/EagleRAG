@@ -54,7 +54,7 @@ def _probe_results(*, down: set[str] | None = None) -> dict[str, dict[str, Any]]
     }
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def client() -> TestClient:
     """Build a single TestClient reused by every test in this module."""
     with TestClient(app) as c:
@@ -194,7 +194,10 @@ def test_admin_milvus_lists_collections(client: TestClient) -> None:
     mock_client = MagicMock()
     mock_client.list_collections.return_value = ["eagle_text", "eagle_visual"]
     mock_client.get_collection_stats.return_value = {"row_count": 42}
-    with patch("pymilvus.MilvusClient", return_value=mock_client):
+    mock_client.describe_collection.return_value = {"fields": []}
+    mock_pool = MagicMock()
+    mock_pool.get.return_value = mock_client
+    with patch("eagle_rag.index.milvus_pool.get_milvus_pool", return_value=mock_pool):
         resp = client.get("/admin/milvus")
     assert resp.status_code == 200
     body = resp.json()
@@ -513,7 +516,9 @@ def test_admin_milvus_collection_details(client: TestClient) -> None:
         ]
     }
     mock_client.describe_index.return_value = [{"index_type": "IVF_FLAT", "metric_type": "L2"}]
-    with patch("pymilvus.MilvusClient", return_value=mock_client):
+    mock_pool = MagicMock()
+    mock_pool.get.return_value = mock_client
+    with patch("eagle_rag.index.milvus_pool.get_milvus_pool", return_value=mock_pool):
         resp = client.get("/admin/milvus")
     assert resp.status_code == 200
     body = resp.json()

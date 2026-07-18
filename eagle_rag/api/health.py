@@ -63,6 +63,7 @@ from eagle_rag.api.schemas.health import (
     MinioBucketOut,
     ModelRouterOut,
     ModelRouterUpdate,
+    PluginsHealthResponse,
     ProbeConfigOut,
     ProbeDetail,
     QueueSeriesPoint,
@@ -136,19 +137,12 @@ def _update_uptime(results: dict[str, dict[str, Any]]) -> dict[str, str]:
 
 
 def _milvus_probe_sync() -> dict[str, Any]:
-    """Probe Milvus synchronously: connect with MilvusClient and list_collections."""
-    from pymilvus import MilvusClient
+    """Probe Milvus synchronously via the pooled client (G24)."""
+    from eagle_rag.index.milvus_pool import get_milvus_pool
 
-    cfg = get_settings().milvus
-    client = MilvusClient(uri=f"http://{cfg.host}:{cfg.port}")
-    try:
-        cols = client.list_collections()
-        return {"status": "up", "detail": f"collections={len(cols)}"}
-    finally:
-        try:
-            client.close()
-        except Exception:  # noqa: BLE001
-            pass
+    client = get_milvus_pool().get()
+    cols = client.list_collections()
+    return {"status": "up", "detail": f"collections={len(cols)}"}
 
 
 async def _probe_milvus() -> dict[str, Any]:
@@ -435,6 +429,15 @@ async def mcp_tools() -> McpToolsResponse:
         return McpToolsResponse(tools=tools)
     except Exception as exc:  # noqa: BLE001
         return McpToolsResponse(tools=[], error=f"{type(exc).__name__}: {exc}")
+
+
+@router.get("/health/plugins", response_model=PluginsHealthResponse)
+async def health_plugins() -> PluginsHealthResponse:
+    """Loaded plugin manifests and Celery module list (worker consistency probe)."""
+    from eagle_rag.plugins import get_plugin_manager
+
+    payload = get_plugin_manager().health_payload()
+    return PluginsHealthResponse.model_validate(payload)
 
 
 # ---------------------------------------------------------------------------
@@ -789,94 +792,89 @@ async def admin_milvus() -> AdminMilvusResponse:
     """List Milvus collections and per-collection row count (num_entities)."""
 
     def _milvus_admin_sync() -> dict[str, Any]:
-        from pymilvus import DataType, MilvusClient
+        from pymilvus import DataType
 
-        cfg = get_settings().milvus
-        client = MilvusClient(uri=f"http://{cfg.host}:{cfg.port}")
-        try:
-            collections: list[dict[str, Any]] = []
-            collection_details: list[dict[str, Any]] = []
-            for name in client.list_collections():
-                # num_entities (existing logic).
-                try:
-                    stats = client.get_collection_stats(name)
-                    row_count = int(stats.get("row_count", 0))
-                    collections.append({"name": name, "num_entities": row_count})
-                except Exception as exc:  # noqa: BLE001
-                    collections.append({"name": name, "num_entities": None, "error": str(exc)})
+        from eagle_rag.index.milvus_pool import get_milvus_pool
 
-                # Collection detail: fields / dim / metric_type / index_type.
-                detail: dict[str, Any] = {"name": name}
-                try:
-                    desc = client.describe_collection(name)
-                    fields_out: list[dict[str, Any]] = []
-                    vector_field_name: str | None = None
-                    for f in desc.get("fields", []):
-                        fname = f.get("name", "")
-                        ftype = f.get("type")
-                        dtype_str = ""
-                        if ftype is not None:
-                            try:
-                                dtype_str = DataType(ftype).name
-                            except Exception:  # noqa: BLE001
-                                dtype_str = str(ftype)
-                        fields_out.append(
-                            {
-                                "name": fname,
-                                "dtype": dtype_str,
-                                "is_primary": bool(f.get("is_primary", False)),
-                            }
-                        )
-                        # Identify the vector field and extract dim.
-                        if ftype is not None:
-                            try:
-                                dt = DataType(ftype)
-                                if dt.name.endswith("_VECTOR"):
-                                    vector_field_name = fname
-                                    params = f.get("params") or {}
-                                    dim_val = params.get("dim")
-                                    if dim_val is not None:
-                                        detail["dim"] = int(dim_val)
-                            except Exception:  # noqa: BLE001
-                                pass
-                    detail["fields"] = fields_out
-                    # num_entities (best-effort fill).
-                    if detail.get("num_entities") is None:
+        client = get_milvus_pool().get()
+        collections: list[dict[str, Any]] = []
+        collection_details: list[dict[str, Any]] = []
+        for name in client.list_collections():
+            # num_entities (existing logic).
+            try:
+                stats = client.get_collection_stats(name)
+                row_count = int(stats.get("row_count", 0))
+                collections.append({"name": name, "num_entities": row_count})
+            except Exception as exc:  # noqa: BLE001
+                collections.append({"name": name, "num_entities": None, "error": str(exc)})
+
+            # Collection detail: fields / dim / metric_type / index_type.
+            detail: dict[str, Any] = {"name": name}
+            try:
+                desc = client.describe_collection(name)
+                fields_out: list[dict[str, Any]] = []
+                vector_field_name: str | None = None
+                for f in desc.get("fields", []):
+                    fname = f.get("name", "")
+                    ftype = f.get("type")
+                    dtype_str = ""
+                    if ftype is not None:
                         try:
-                            st = client.get_collection_stats(name)
-                            rc = st.get("row_count")
-                            if rc is not None:
-                                detail["num_entities"] = int(rc)
+                            dtype_str = DataType(ftype).name
+                        except Exception:  # noqa: BLE001
+                            dtype_str = str(ftype)
+                    fields_out.append(
+                        {
+                            "name": fname,
+                            "dtype": dtype_str,
+                            "is_primary": bool(f.get("is_primary", False)),
+                        }
+                    )
+                    # Identify the vector field and extract dim.
+                    if ftype is not None:
+                        try:
+                            dt = DataType(ftype)
+                            if dt.name.endswith("_VECTOR"):
+                                vector_field_name = fname
+                                params = f.get("params") or {}
+                                dim_val = params.get("dim")
+                                if dim_val is not None:
+                                    detail["dim"] = int(dim_val)
                         except Exception:  # noqa: BLE001
                             pass
-                    # index_type / metric_type (best-effort).
+                detail["fields"] = fields_out
+                # num_entities (best-effort fill).
+                if detail.get("num_entities") is None:
                     try:
-                        if vector_field_name is not None:
-                            idx_info = client.describe_index(name, vector_field_name)
-                        else:
-                            idx_info = client.describe_index(name)
-                        idx_list = idx_info if isinstance(idx_info, list) else [idx_info]
-                        for idx in idx_list:
-                            if not isinstance(idx, dict):
-                                continue
-                            if not detail.get("index_type") and idx.get("index_type"):
-                                detail["index_type"] = str(idx.get("index_type"))
-                            if not detail.get("metric_type") and idx.get("metric_type"):
-                                detail["metric_type"] = str(idx.get("metric_type"))
+                        st = client.get_collection_stats(name)
+                        rc = st.get("row_count")
+                        if rc is not None:
+                            detail["num_entities"] = int(rc)
                     except Exception:  # noqa: BLE001
                         pass
-                except Exception as exc:  # noqa: BLE001
-                    detail["error"] = str(exc)
-                collection_details.append(detail)
-            return {
-                "collections": collections,
-                "collection_details": collection_details,
-            }
-        finally:
-            try:
-                client.close()
-            except Exception:  # noqa: BLE001
-                pass
+                # index_type / metric_type (best-effort).
+                try:
+                    if vector_field_name is not None:
+                        idx_info = client.describe_index(name, vector_field_name)
+                    else:
+                        idx_info = client.describe_index(name)
+                    idx_list = idx_info if isinstance(idx_info, list) else [idx_info]
+                    for idx in idx_list:
+                        if not isinstance(idx, dict):
+                            continue
+                        if not detail.get("index_type") and idx.get("index_type"):
+                            detail["index_type"] = str(idx.get("index_type"))
+                        if not detail.get("metric_type") and idx.get("metric_type"):
+                            detail["metric_type"] = str(idx.get("metric_type"))
+                except Exception:  # noqa: BLE001
+                    pass
+            except Exception as exc:  # noqa: BLE001
+                detail["error"] = str(exc)
+            collection_details.append(detail)
+        return {
+            "collections": collections,
+            "collection_details": collection_details,
+        }
 
     payload = await asyncio.to_thread(_milvus_admin_sync)
     return AdminMilvusResponse(
@@ -891,50 +889,37 @@ async def admin_milvus() -> AdminMilvusResponse:
 
 
 def _milvus_action_sync(action: str) -> dict[str, Any]:
-    """Run flush / compact on all Milvus collections; return a details list.
-
-    action: "flush" -> ``client.flush(name)``; "compact" -> ``client.compact(name)``
-    (falls back to ``Collection(name).compact()`` when MilvusClient has no
-    compact). Each collection is wrapped in its own try/except; failures are
-    recorded in detail.
-    """
-    from pymilvus import MilvusClient
+    """Run flush / compact on all Milvus collections; return a details list."""
+    from eagle_rag.index.milvus_pool import get_milvus_pool
 
     cfg = get_settings().milvus
-    client = MilvusClient(uri=f"http://{cfg.host}:{cfg.port}")
+    client = get_milvus_pool().get()
     details: list[dict[str, Any]] = []
-    try:
-        names = client.list_collections()
-        for name in names:
-            try:
-                if action == "flush":
-                    client.flush(name)
-                else:
-                    # MilvusClient may lack a compact method; fall back to ORM API.
-                    try:
-                        client.compact(name)
-                    except AttributeError:
-                        from pymilvus import Collection, connections
-
-                        if not connections.has_connection("default"):
-                            connections.connect(uri=f"http://{cfg.host}:{cfg.port}")
-                        Collection(name).compact()
-                details.append({"collection": name, "action": action, "success": True})
-            except Exception as exc:  # noqa: BLE001
-                details.append(
-                    {
-                        "collection": name,
-                        "action": action,
-                        "success": False,
-                        "detail": f"{type(exc).__name__}: {exc}",
-                    }
-                )
-        return {"details": details}
-    finally:
+    names = client.list_collections()
+    for name in names:
         try:
-            client.close()
-        except Exception:  # noqa: BLE001
-            pass
+            if action == "flush":
+                client.flush(name)
+            else:
+                try:
+                    client.compact(name)
+                except AttributeError:
+                    from pymilvus import Collection, connections
+
+                    if not connections.has_connection("default"):
+                        connections.connect(uri=f"http://{cfg.host}:{cfg.port}")
+                    Collection(name).compact()
+            details.append({"collection": name, "action": action, "success": True})
+        except Exception as exc:  # noqa: BLE001
+            details.append(
+                {
+                    "collection": name,
+                    "action": action,
+                    "success": False,
+                    "detail": f"{type(exc).__name__}: {exc}",
+                }
+            )
+    return {"details": details}
 
 
 def _build_action_result(action: str, payload: dict[str, Any]) -> AdminActionResult:
@@ -1089,50 +1074,38 @@ async def admin_knowhere() -> AdminKnowhereResponse:
 
 
 def _knowhere_action_sync(action: str) -> dict[str, Any]:
-    """Run flush / compact on the eagle_text Milvus collection.
-
-    The Knowhere HTTP service (:5005) has no flush/clean API; the Knowhere
-    Dashboard shows partition data of the eagle_text Collection, so maintenance
-    operations target that Collection. Returns empty details when the Collection
-    does not exist.
-    """
-    from pymilvus import MilvusClient
+    """Run flush / compact on the eagle_text Milvus collection."""
+    from eagle_rag.index.milvus_pool import get_milvus_pool
 
     cfg = get_settings().milvus
-    client = MilvusClient(uri=f"http://{cfg.host}:{cfg.port}")
+    client = get_milvus_pool().get()
     coll_name = cfg.text_collection
     details: list[dict[str, Any]] = []
-    try:
-        if not client.has_collection(coll_name):
-            return {"details": details}
-        try:
-            if action == "flush":
-                client.flush(coll_name)
-            else:
-                try:
-                    client.compact(coll_name)
-                except AttributeError:
-                    from pymilvus import Collection, connections
-
-                    if not connections.has_connection("default"):
-                        connections.connect(uri=f"http://{cfg.host}:{cfg.port}")
-                    Collection(coll_name).compact()
-            details.append({"collection": coll_name, "action": action, "success": True})
-        except Exception as exc:  # noqa: BLE001
-            details.append(
-                {
-                    "collection": coll_name,
-                    "action": action,
-                    "success": False,
-                    "detail": f"{type(exc).__name__}: {exc}",
-                }
-            )
+    if not client.has_collection(coll_name):
         return {"details": details}
-    finally:
-        try:
-            client.close()
-        except Exception:  # noqa: BLE001
-            pass
+    try:
+        if action == "flush":
+            client.flush(coll_name)
+        else:
+            try:
+                client.compact(coll_name)
+            except AttributeError:
+                from pymilvus import Collection, connections
+
+                if not connections.has_connection("default"):
+                    connections.connect(uri=f"http://{cfg.host}:{cfg.port}")
+                Collection(coll_name).compact()
+        details.append({"collection": coll_name, "action": action, "success": True})
+    except Exception as exc:  # noqa: BLE001
+        details.append(
+            {
+                "collection": coll_name,
+                "action": action,
+                "success": False,
+                "detail": f"{type(exc).__name__}: {exc}",
+            }
+        )
+    return {"details": details}
 
 
 @admin_router.post("/knowhere/flush", response_model=AdminActionResult)

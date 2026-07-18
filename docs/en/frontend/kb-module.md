@@ -1,6 +1,13 @@
 # Knowledge Base Module
 
-Tenant management UI at `/kb` and `/kb/[kbName]`. Components live in `components/kb/`.
+Knowledge-base management UI at `/kb` and `/kb/[kbName]`. Components live in `components/kb/`.
+
+!!! note "Terminology"
+    - **Domain** (`plugin_namespace`) — deploy-time binding shown read-only in the AppBar. Not selectable in this UI.
+    - **Knowledge base** (`kb_name`) — what this module creates, lists, and opens. Scalar filter inside the domain Milvus Database.
+    - Do **not** call a KB a “namespace” or “tenant namespace” in UI copy.
+
+See [Multi-tenancy](../architecture/multi-tenancy.md).
 
 ---
 
@@ -36,7 +43,7 @@ Query keys:
 
 ## Detail page (`/kb/[kbName]`)
 
-`KBDetailClient.tsx` — deep dive for one namespace.
+`KBDetailClient.tsx` — deep dive for one knowledge base.
 
 ### KPI header
 
@@ -56,7 +63,7 @@ Recharts bar/area charts with theme colours from KB `theme` token.
 
 ### Milvus panel (`MilvusCollectionCard.tsx`)
 
-`GET …/collections` — row counts for `eagle_text` / `eagle_visual`.
+`GET …/collections` — row counts for base `eagle_text` / `eagle_visual` (and specialized collections when the domain plugin provides them).
 
 ### Facets
 
@@ -84,20 +91,23 @@ Maps `theme` + `icon` fields to Tailwind colour classes and Lucide icons — con
 
 ## Types (`lib/kb/types.ts`)
 
-Re-exports / narrows generated OpenAPI types for KB domain.
+Re-exports / narrows generated OpenAPI types for the knowledge-base module.
 
 ---
 
-## Multi-tenancy UX notes
+## Isolation UX notes
 
-- `kb_name` in URL is the canonical identifier (lowercase + underscores)
+- `kb_name` in the URL is the canonical KB identifier (lowercase + underscores)
+- AppBar shows the deploy **domain** (`NEXT_PUBLIC_PLUGIN_NAMESPACE`); users switch **KBs**, not domains
 - Ingest page uses `TargetKBSelector` — separate from QA `scopeStore`
 - QA scope drawer can select **multiple** KBs via `scope_filter.kb_names[]`
+- i18n: prefer “knowledge base” / “知识库”; never “namespace” / “命名空间” for `kb_name`
 
 ---
 
 ## Related documentation
 
-- [Knowledge bases API](../api/knowledge-bases.md)
-- [Documents API](../api/documents.md)
-- [Design system](design-system.md) — theme swatches
+- [Frontend index](index.md)
+- [Ingest module](ingest-module.md)
+- [State management](state-management.md)
+- [Multi-tenancy](../architecture/multi-tenancy.md)

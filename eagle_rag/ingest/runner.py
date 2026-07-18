@@ -32,9 +32,10 @@ from typing import Any
 from uuid import uuid4
 
 from eagle_rag.config import get_settings
+from eagle_rag.db.repositories import dedup
 from eagle_rag.index import registry
 from eagle_rag.ingest.router import infer_source_type
-from eagle_rag.storage import dedup, minio_client
+from eagle_rag.storage import minio_client
 from eagle_rag.tasks import state as task_state
 from eagle_rag.telemetry import get_ai_logger, get_logger, send_task_with_trace, truncate
 
@@ -138,8 +139,10 @@ def ingest(
     MinIO/PostgreSQL outages degrade gracefully (logged, dispatch not blocked).
     """
     kb = kb_name if kb_name is not None else get_settings().kb_name
-    from eagle_rag.kb.registry import kb_exists_sync
+    from eagle_rag.db.repositories.base import instance_namespace
+    from eagle_rag.db.repositories.kb import kb_exists_sync
 
+    plugin_ns = instance_namespace()
     if not kb_exists_sync(kb):
         raise ValueError(f"knowledge base not registered: {kb}")
     t0 = time.monotonic()
@@ -168,7 +171,7 @@ def ingest(
             name, source_uri=source_uri, source_type_hint=source_type_hint
         )
         sha256 = dedup.compute_sha256(local_path)
-        dup = dedup.check_duplicate(sha256, kb_name=kb)
+        dup = dedup.check_duplicate(sha256, kb_name=kb, plugin_namespace=plugin_ns)
         if dup is not None:
             try:
                 task_state.create_audit(
@@ -214,7 +217,7 @@ def ingest(
         # in the API container is unreachable from worker containers, so upload
         # failure is fatal rather than degrading to local_path.
         if object_key is None:
-            obj_key = f"{source_type}/{document_id}/{name}"
+            obj_key = f"{plugin_ns}/{source_type}/{document_id}/{name}"
             content_type = _guess_content_type(name)
             if file_bytes is not None:
                 minio_client.upload_bytes(
@@ -249,6 +252,7 @@ def ingest(
             sha256=sha256,
             status="pending",
             kb_name=kb,
+            plugin_namespace=plugin_ns,
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("document registration failed (non-fatal; dispatch continues)：%s", exc)
@@ -270,6 +274,7 @@ def ingest(
             "source_type_hint": source_type_hint,
             "kb_name": kb,
             "sha256": sha256,
+            "plugin_namespace": plugin_ns,
         },
     )
 

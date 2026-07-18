@@ -77,7 +77,12 @@
       "adaptivePdf": "PDF→image slice",
       "adaptiveMd": "MD→text+breadcrumb",
       "adaptiveXlsx": "XLSX→data table",
-      "openFull": "Open full source"
+      "openFull": "Open full source",
+      "anchorsTitle": "Four anchors",
+      "anchorChunkType": "chunk_type",
+      "anchorParentSection": "parent_section",
+      "anchorContentSummary": "content_summary",
+      "anchorSourceChunkId": "source_chunk_id"
     },
     "rail": {
       "sources": "Sources",
@@ -119,7 +124,10 @@
       "thinkingLive": "Thinking",
       "thinkingDone": "Thought · {count} steps",
       "count": "items",
-      "empty": "No step information"
+      "empty": "No step information",
+      "collectionPlans": "Collections",
+      "planEncoder": "encoder {encoder}",
+      "planTopK": "top_k {topK}"
     },
     "search": {
       "ask": "Ask",
@@ -202,6 +210,9 @@
       "docMeta": "{kb} · {nodes} nodes",
       "tagMeta": "{nodes} nodes · {kb} KBs",
       "navHint": "Multi-select across dimensions"
+    },
+    "scope": {
+      "exploratoryHint": "Empty scope searches the general text index by default. Biomedical specialized indexes require entity terms in the query, or narrow scope to documents/KBs that use them."
     },
     "role": {
       "user": "You",

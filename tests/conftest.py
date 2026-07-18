@@ -49,9 +49,20 @@ def _reset_telemetry_state():
 
 
 @pytest.fixture(autouse=True)
+def _reset_plugin_manager_singleton():
+    """Avoid cross-test plugin/MCP lifespan contamination."""
+    yield
+    from eagle_rag.plugins import reset_plugin_manager
+
+    reset_plugin_manager()
+
+
+@pytest.fixture(autouse=True)
 def _kb_registered():
     """Treat KB as registered for ingest/query tests (no real Postgres hit)."""
     with (
+        patch("eagle_rag.db.repositories.kb.kb_exists_sync", return_value=True),
+        patch("eagle_rag.db.repositories.kb.get_pdf_ratio_sync", return_value=None),
         patch("eagle_rag.kb.registry.kb_exists_sync", return_value=True),
         patch("eagle_rag.kb.registry.get_pdf_ratio_sync", return_value=None),
     ):

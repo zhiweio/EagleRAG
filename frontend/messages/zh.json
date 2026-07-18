@@ -10,7 +10,9 @@
     "manageAccount": "账户与偏好设置",
     "history": "历史记录",
     "collapseSidebar": "收起侧边栏",
-    "expandSidebar": "展开侧边栏"
+    "expandSidebar": "展开侧边栏",
+    "domain": "领域：{domain}",
+    "domainHint": "部署领域（plugin_namespace，只读）。请在本领域内选择知识库（kb_name）——此处不能切换领域。"
   },
   "nav": {
     "qa": "智能问答",
@@ -94,9 +96,9 @@
       "title": "知识库",
       "manage": "管理",
       "totalDocs": "文档总数",
-      "activeTenants": "KB 实例",
+      "activeTenants": "知识库实例",
       "storageAlerts": "存储告警",
-      "colTenant": "租户名称",
+      "colTenant": "知识库",
       "colStorage": "存储",
       "colDocuments": "文档数",
       "colStatus": "状态",
@@ -104,7 +106,7 @@
       "statusSyncing": "同步中",
       "statusDegraded": "异常",
       "empty": "暂无知识库",
-      "alertHint": "{count} 个租户需要关注"
+      "alertHint": "{count} 个知识库需要关注"
     },
     "healthCard": {
       "title": "服务健康",

@@ -69,7 +69,7 @@ app = Starlette(
         Route("/health", health_handler),
         Mount("/", app=_mcp_app),
     ],
-    lifespan=get_combined_lifespan(_mcp_app),
+    lifespan=get_combined_lifespan(""),
 )
 
 

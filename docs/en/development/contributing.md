@@ -27,7 +27,10 @@ Copy into your PR description and check each item:
 ### Scope and design
 
 - [ ] Change matches [`AGENTS.md`](https://github.com/fintax-ai/eagle-rag/blob/master/AGENTS.md) module boundaries (no pixelrag-serve, FAISS, OpenAI, Cohere, LibreOffice).
-- [ ] Multi-tenant paths propagate `kb_name` (API, MCP, Celery kwargs, Milvus filters).
+- [ ] Multi-tenant paths propagate `kb_name` and respect `plugin_namespace` (repositories, Milvus `db_name`, API 403 on mismatch).
+- [ ] New MCP tools use `core_*` or `{namespace}_*` via `mcp_registry`; RAG-only names only — no side-effect tools ([ADR-008](../architecture/adr/008-rag-only-plugin-platform.md)).
+- [ ] No domain-specific UI in `frontend/` for vertical plugins (backend + MCP only).
+- [ ] Architecture-facing behaviour updates `README.md`, `AGENTS.md`, and/or `docs/en/architecture/plugin-architecture.md` (+ zh mirror) when plugin or tenancy behaviour changes.
 - [ ] New HTTP endpoints use Pydantic schemas in `eagle_rag/api/schemas/` and `response_model=`.
 - [ ] DB schema changes include an Alembic revision (no DDL in stores).
 - [ ] Config changes add `${VAR:-default}` in `settings.yaml` + pydantic field in `config.py`.
@@ -103,7 +106,7 @@ Reviewers typically check:
 | Celery | Task registered in `include=` and `task_routes`? `@with_retry` or explicit dead letter? |
 | Scope | `scope_filter` OR semantics preserved? |
 | Streaming | SSE event types unchanged without migration note? |
-| MCP | `TOOL_DEFINITIONS` updated? `@with_metrics` on new tools? |
+| MCP | `TOOL_DEFINITIONS` + `mcp_registry`; `core_*` naming; RAG-only guard; `@with_metrics` on new tools |
 
 ## Local development commands
 

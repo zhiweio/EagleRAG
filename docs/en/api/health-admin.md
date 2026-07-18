@@ -4,7 +4,7 @@ Operations probes and dashboards for the `/health` console page. Two routers in 
 
 | Router | Prefix | Tag |
 |--------|--------|-----|
-| `router` | `/health`, `/mcp/tools` | `health` |
+| `router` | `/health`, `/health/plugins`, `/mcp/tools` | `health` |
 | `admin_router` | `/admin` | `admin` |
 
 Probe timeout: **3 s** per dependency (`_PROBE_TIMEOUT`). All probes are read-only.
@@ -21,7 +21,7 @@ Probe timeout: **3 s** per dependency (`_PROBE_TIMEOUT`). All probes are read-on
 |------|-------|
 | `postgresql` | Async DB ping |
 | `redis` | Broker connectivity |
-| `milvus` | List collections (`eagle_text`, `eagle_visual`) |
+| `milvus` | List collections in the instance-bound Database (`eagle_text`, `eagle_visual`, …) |
 | `minio` | Bucket head |
 | `knowhere` | HTTP GET `settings.knowhere.base_url` |
 | `pixelrag` | Import `pixelrag_render` / `pixelrag_embed` (library, not serve) |
@@ -42,9 +42,44 @@ Each dependency returns `DependencyStatus`:
 
 `uptime` uses in-process monotonic tracking (`_UPTIME_SINCE`) — resets on API restart.
 
+Milvus probes use `settings.milvus.db_name` (from `EAGLE_RAG_PROFILE` / `plugins.default_namespace`) — not a global default database.
+
 ### Summary block
 
 `DependencySummary`: counts of `up` / `down` / `unknown`, overall `status`, `version` (`eagle_rag.__version__`).
+
+---
+
+## `GET /health/plugins`
+
+`PluginsHealthResponse` — loaded plugin manifests and Celery module list (worker consistency probe).
+
+```json
+{
+  "default_namespace": "core",
+  "enabled_modules": ["eagle_rag.plugins.core_defaults"],
+  "manifests": [
+    {
+      "namespace": "core",
+      "version": "1.0.0",
+      "milvus_db_name": "core",
+      "provides_pipelines": ["knowhere", "pixelrag"],
+      "provides_specialized_collections": [],
+      "provides_mcp_tools": ["core_ingest", "core_query", "core_retrieve_text", "core_retrieve_visual"]
+    }
+  ],
+  "celery_modules": ["eagle_rag.plugins.core_defaults", "..."]
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `default_namespace` | Instance-bound domain (`settings.plugins.default_namespace`) |
+| `enabled_modules` | Python module paths from `settings.plugins.enabled` |
+| `manifests` | Per-plugin `PluginManifest` summary |
+| `celery_modules` | Modules workers should import for task registration parity |
+
+Use after changing `EAGLE_RAG_PROFILE`, adding in-repo plugins, or debugging namespace / MCP tool exposure mismatches.
 
 ---
 
@@ -56,7 +91,7 @@ Each dependency returns `DependencyStatus`:
 {
   "tools": [
     {
-      "name": "ingest",
+      "name": "core_ingest",
       "description": "…",
       "parameters": { "type": "object", "properties": { … } }
     }

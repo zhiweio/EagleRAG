@@ -77,7 +77,12 @@
       "adaptivePdf": "PDF→图片切片",
       "adaptiveMd": "MD→文本+面包屑",
       "adaptiveXlsx": "XLSX→数据表",
-      "openFull": "查看完整来源"
+      "openFull": "查看完整来源",
+      "anchorsTitle": "四锚点",
+      "anchorChunkType": "chunk_type",
+      "anchorParentSection": "parent_section",
+      "anchorContentSummary": "content_summary",
+      "anchorSourceChunkId": "source_chunk_id"
     },
     "rail": {
       "sources": "来源",
@@ -119,7 +124,10 @@
       "thinkingLive": "思考中",
       "thinkingDone": "已思考 · {count} 步",
       "count": "条",
-      "empty": "无步骤信息"
+      "empty": "无步骤信息",
+      "collectionPlans": "检索集合",
+      "planEncoder": "编码器 {encoder}",
+      "planTopK": "top_k {topK}"
     },
     "search": {
       "ask": "问答",
@@ -202,6 +210,9 @@
       "docMeta": "{kb} · {nodes} 节点",
       "tagMeta": "命中 {nodes} 节点 · {kb} 库",
       "navHint": "多选，可跨类型组合"
+    },
+    "scope": {
+      "exploratoryHint": "未限定范围时默认检索通用文本库。生物医学专用库需在问题中含实体词，或限定到已使用专用库的文档/知识库。"
     },
     "role": {
       "user": "你",

@@ -93,9 +93,23 @@ Parent-document retrieval: recall `type="section_summary"` first, drill down by 
 - **Streaming**: `POST /query/stream` SSE (`session`/`step`/`sources`/`token`/`done`); `POST /search` / `/search/stream` for retrieval-only.
 - **Evidence**: `GET /documents/{id}/structure`, `/file`, `/chunks/{chunk_id}`.
 - **Celery**: `router_queue` (4) / `knowhere_queue` (8) / `pixelrag_queue` (1); `with_retry` + dead letter.
-- **MCP**: FastMCP at `/mcp` (HTTP default, stdio fallback). Tools: `ingest`, `query`, `retrieve_text`, `retrieve_visual`. Register new tools in `eagle_rag/api/mcp_server.py` + `TOOL_DEFINITIONS`.
+- **MCP**: FastMCP at `/mcp` (HTTP default, stdio fallback). Core tools: `core_ingest`, `core_query`, `core_retrieve_text`, `core_retrieve_visual`. Domain plugins register `{namespace}_{name}` via `eagle_rag/plugins/mcp_registry.py`. Only `core_*` + `default_namespace` plugin tools are exposed per instance (G3).
 - **Do not** proactively create `*.md` docs or commit `.env` secrets.
+
+## Plugin architecture (microkernel)
+
+- **Product red line**: Eagle-RAG is a **pure RAG** data layer (ingest / retrieve / assemble context). Domain plugins improve recall; they must **not** add Agent workflows or side-effect MCP tools. See ADR-008.
+- **Frontend**: Built-in UI showcases **Core** knowhere + pixelrag hybrid retrieval only. Vertical domains ship as **backend + MCP only** (no domain UI in this repo).
+- **Core** registers as namespace `core` via `eagle_rag.plugins.core_defaults` — same hook/MCP extension path as domain plugins.
+- **PluginManager** (`eagle_rag/plugins/manager.py`): load from `settings.plugins.enabled` (in-repo modules only; no pip entry_points).
+- **Instance binding**: `settings.plugins.default_namespace` = Milvus Database + PG repository filter. Single-domain deploy — no runtime domain switching.
+- **HookBus** (`eagle_rag/plugins/hookbus.py`): `invoke_first` / `invoke_all` / `invoke_transform`. Hot-path `PARSE` / `CHUNK` / `QUERY_ASSEMBLE` via `eagle_rag/plugins/hotpath_hooks.py`.
+- **Config**: per-plugin knobs under `settings.plugins.options[<namespace>]` (`plugin_options()`); Core `source_type.rules` default empty.
+- **Ingest**: `IngestOrchestrator` + `CLASSIFY_*` / `EMBED_*` / `UPSERT_VECTORS` hooks (G22/G26).
+- **Query**: `RetrieverOrchestrator` + `QueryRouteClassifier` + RRF merge (`eagle_rag/router/rerank_fusion.py`). Core default never auto-queries specialized collections (G4).
+- **Models**: Core uses DeepSeek + Qwen for routing/generation; domain plugins may register domain encoders (e.g. PubMedBERT) via `EncoderRegistry`.
+- **Domain plugins**: `plugins/biomed`, `plugins/lakehouse_bi` — enable via profile / `settings.plugins.enabled` + matching `default_namespace`. Template: `plugins/_template/` + `docs/zh/guides/authoring-industry-plugin.md`.
 
 ## Sync on architecture changes
 
-Update `README.md`, `AGENTS.md`, `docs/en/architecture/multimodal-fusion.md`, `docs/zh/architecture/multimodal-fusion.md`, and `eagle_rag/settings.yaml` when behavior changes.
+Update `README.md`, `AGENTS.md`, `docs/en/architecture/multimodal-fusion.md`, `docs/zh/architecture/multimodal-fusion.md`, `docs/en/architecture/plugin-architecture.md`, `docs/zh/architecture/plugin-architecture.md`, and `eagle_rag/settings.yaml` when behavior changes.

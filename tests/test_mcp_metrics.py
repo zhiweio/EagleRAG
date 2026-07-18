@@ -417,7 +417,9 @@ def test_query_tool_increments_metrics(_mock_record_mcp_call) -> None:
     from eagle_rag.api.mcp_server import query
     from eagle_rag.mcp_resilience import CircuitBreakerError
 
-    before = _get_sample_value("mcp_tool_calls_total", {"tool": "query", "status": "circuit_open"})
+    before = _get_sample_value(
+        "mcp_tool_calls_total", {"tool": "core_query", "status": "circuit_open"}
+    )
     before = before or 0.0
 
     with patch(
@@ -426,8 +428,10 @@ def test_query_tool_increments_metrics(_mock_record_mcp_call) -> None:
     ):
         result = query("个税起征点")
 
-    assert result == {"error": "circuit_open: query"}
-    after = _get_sample_value("mcp_tool_calls_total", {"tool": "query", "status": "circuit_open"})
+    assert result == {"error": "circuit_open: core_query"}
+    after = _get_sample_value(
+        "mcp_tool_calls_total", {"tool": "core_query", "status": "circuit_open"}
+    )
     assert after == before + 1.0
 
 
@@ -436,7 +440,7 @@ def test_ingest_tool_increments_timeout_metrics(_mock_record_mcp_call) -> None:
     """The ``ingest`` tool increments the ``status=timeout`` counter on ``TimeoutError``."""
     from eagle_rag.api.mcp_server import ingest
 
-    before = _get_sample_value("mcp_tool_calls_total", {"tool": "ingest", "status": "timeout"})
+    before = _get_sample_value("mcp_tool_calls_total", {"tool": "core_ingest", "status": "timeout"})
     before = before or 0.0
 
     with patch(
@@ -445,8 +449,8 @@ def test_ingest_tool_increments_timeout_metrics(_mock_record_mcp_call) -> None:
     ):
         result = ingest("/tmp/test.pdf")
 
-    assert result == {"error": "timeout: ingest"}
-    after = _get_sample_value("mcp_tool_calls_total", {"tool": "ingest", "status": "timeout"})
+    assert result == {"error": "timeout: core_ingest"}
+    after = _get_sample_value("mcp_tool_calls_total", {"tool": "core_ingest", "status": "timeout"})
     assert after == before + 1.0
 
 
@@ -459,7 +463,7 @@ def test_retrieve_text_cache_hit_increments_cache_hit_counter(_mock_record_mcp_c
     reset_redis_pool()
     cached_data = [{"node_id": "n1", "text": "cached", "score": 0.9, "metadata": {}}]
     before = _get_sample_value(
-        "mcp_tool_calls_total", {"tool": "retrieve_text", "status": "cache_hit"}
+        "mcp_tool_calls_total", {"tool": "core_retrieve_text", "status": "cache_hit"}
     )
     before = before or 0.0
 
@@ -468,7 +472,7 @@ def test_retrieve_text_cache_hit_increments_cache_hit_counter(_mock_record_mcp_c
 
     assert result == cached_data
     after = _get_sample_value(
-        "mcp_tool_calls_total", {"tool": "retrieve_text", "status": "cache_hit"}
+        "mcp_tool_calls_total", {"tool": "core_retrieve_text", "status": "cache_hit"}
     )
     assert after == before + 1.0
 
@@ -492,10 +496,16 @@ def test_with_metrics_compatible_with_fastmcp_tool_decorator() -> None:
         """Compat test tool."""
         return {"x": x, "y": y}
 
-    tools = asyncio.run(mcp.list_tools())
-    tool_names = [t.name for t in tools]
+    tools = asyncio.run(mcp.get_tools())
+    if isinstance(tools, dict):
+        tool_names = list(tools.keys())
+    else:
+        tool_names = [t.name for t in tools]
     assert "compat_tool" in tool_names
 
-    tool = next(t for t in tools if t.name == "compat_tool")
+    if isinstance(tools, dict):
+        tool = tools["compat_tool"]
+    else:
+        tool = next(t for t in tools if t.name == "compat_tool")
     props = tool.parameters.get("properties", {})
     assert set(props.keys()) == {"x", "y"}

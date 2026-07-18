@@ -194,6 +194,8 @@ When `docker-compose.override.yml` merges (default `docker compose up`):
 | --- | --- |
 | API `command: uvicorn ... --reload --reload-dir eagle_rag` | Hot reload; **do not** watch `./data` (HF cache writes restart SSE) |
 | Bind-mount `./eagle_rag:/app/eagle_rag:ro` on api + workers | Live code without image rebuild |
+| Bind-mount `./plugins:/app/plugins:ro` on api + workers | In-repo domain plugins (hot reload with `--reload-dir plugins`) |
+| `EAGLE_RAG_PROFILE: ${EAGLE_RAG_PROFILE:-core}` on api + workers | Single-domain binding per [ADR-007](../architecture/adr/007-plugin-implementation-status.md) |
 | `worker-knowhere` / `worker-pixelrag` `deploy: !reset null` | Remove prod CPU/memory limits for local debugging |
 | Frontend → `oven/bun:1.2.18` + `bunx next dev` | Skip production image build |
 | Expose postgres/redis/minio/milvus ports | Host-side debugging |
@@ -210,6 +212,7 @@ Compose `env_file: .env` plus explicit `environment:` blocks override `settings.
 
 ```yaml
 KNOWHERE_BASE_URL: ${KNOWHERE_BASE_URL:-http://knowhere:5005}
+EAGLE_RAG_PROFILE: ${EAGLE_RAG_PROFILE:-core}
 HF_HOME: /opt/huggingface          # worker-pixelrag (baked in image)
 CHROME_PATH: /usr/local/bin/chrome   # worker-pixelrag only
 ```

@@ -215,9 +215,44 @@ ingest:
     content_type_rules: [...]
     default_pipeline: knowhere
   source_type:
-    rules: [...]    # metadata only
+    rules: []       # Core default empty; industry keywords via profile / deploy YAML
     default: other
 ```
+
+### `plugins`
+
+单域实例绑定 + 同仓插件加载：
+
+```yaml
+plugins:
+  enabled:
+    - eagle_rag.plugins.core_defaults
+  default_namespace: core          # = Milvus DB / PG namespace
+  allow_namespace_override: false  # prod: ignore request plugin_namespace
+  query_assemble_enabled: true
+  options:                         # per-namespace knobs (not Core-typed)
+    biomed:
+      default_dual_text_search: false
+      encoder_mode: auto
+
+# EAGLE_RAG_PROFILE=biomed|lakehouse-bi|core
+profiles:
+  biomed:
+    plugins:
+      enabled: [eagle_rag.plugins.core_defaults, plugins.biomed]
+      default_namespace: biomed
+    milvus:
+      db_name: biomed
+```
+
+二开：复制 `plugins/_template/`，见 [编写行业插件](../guides/authoring-industry-plugin.md)。
+
+**部署说明：**
+
+- API 与**所有** Celery worker 设置 `EAGLE_RAG_PROFILE` — profile 不一致会导致错误 Milvus Database 或缺失域 MCP 工具。
+- 活动 profile 中 `milvus.db_name` 须与 `plugins.default_namespace` 一致。
+- 垂直旋钮放在 `plugins.options.<namespace>` — 勿向 Core `Settings` 添加行业字段。
+- 部署后探测：`GET /health/plugins`（清单 + `celery_modules`）与 `GET /mcp/tools`（暴露的工具名）。
 
 ### `attachments`
 
@@ -276,7 +311,7 @@ telemetry:
 
     `text`、`visual` 或 `hybrid` 跳过 LLM 分类。适用于基准测试或受限 Agent。
 
-每请求覆盖：`POST /query` 或 MCP `query` 工具上的 `mode`。
+每请求覆盖：`POST /query` 或 MCP `core_query` 工具上的 `mode`。
 
 **Ingest 覆盖（不同旋钮）：** `settings.router.mode` 非 `auto` 时，`route()` 中 `ForcedModeSelector` 也会强制 ingest 流水线。
 

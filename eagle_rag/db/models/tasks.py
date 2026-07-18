@@ -18,6 +18,7 @@ class TaskAudit(SQLModel, table=True):
         Index("idx_task_audit_status", "status"),
         Index("idx_task_audit_document", "document_id"),
         Index("idx_task_audit_kb", "kb_name"),
+        Index("idx_task_audit_namespace", "plugin_namespace"),
     )
 
     job_id: str = Field(primary_key=True, sa_type=Text())
@@ -34,3 +35,4 @@ class TaskAudit(SQLModel, table=True):
     created_at: datetime = Field(sa_column=timestamptz())
     updated_at: datetime = Field(sa_column=timestamptz())
     kb_name: str = Field(default="default", sa_type=Text())
+    plugin_namespace: str = Field(default="core", sa_type=Text())
