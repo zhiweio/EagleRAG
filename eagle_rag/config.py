@@ -435,12 +435,24 @@ class UrlPrefetchConfig(BaseModel):
     max_redirects: int = 3
 
 
+class IngestLimitsConfig(BaseModel):
+    """Early size/page guards aligned with MinerU Precision Extract API caps.
+
+    Defaults match mineru.net Precision Extract: 200 MiB / 200 pages per file.
+    """
+
+    enabled: bool = True
+    max_file_bytes: int = 209_715_200  # 200 MiB
+    max_pdf_pages: int = 200
+
+
 class IngestSettings(BaseModel):
     """Aggregate config for ingest routing and source_type inference."""
 
     routing: IngestRoutingSettings = IngestRoutingSettings()
     source_type: IngestSourceTypeSettings = IngestSourceTypeSettings()
     url_prefetch: UrlPrefetchConfig = UrlPrefetchConfig()
+    limits: IngestLimitsConfig = Field(default_factory=IngestLimitsConfig)
 
 
 class AuthSettings(BaseModel):

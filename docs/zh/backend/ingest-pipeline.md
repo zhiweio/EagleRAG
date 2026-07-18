@@ -377,6 +377,20 @@ pdf_probe:
 
 经 `get_pdf_ratio_sync(kb_name)` 每 KB 覆盖。
 
+### 6.2.1 摄入体积 / 页数限制（MinerU）
+
+MinerU Precision Extract API（`mineru.net` `/api/v4`）对单文件上限为 **200 MiB**、**200 页**。Eagle-RAG 通过 `ingest.limits` 使用相同默认值，使过大 PDF 在摄入阶段（422）失败，而不是在 Celery 重试后才在 Knowhere/MinerU 内报错：
+
+```yaml
+ingest:
+  limits:
+    enabled: true
+    max_file_bytes: 209715200   # 200 MiB
+    max_pdf_pages: 200
+```
+
+可用环境变量 `INGEST_MAX_FILE_BYTES` / `INGEST_MAX_PDF_PAGES` / `INGEST_LIMITS_ENABLED` 覆盖。
+
 ### 6.3 Knowhere SDK
 
 ```yaml

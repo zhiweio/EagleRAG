@@ -41,6 +41,16 @@ class UrlValidationErrorDetail(BaseModel):
     suggestion: str | None = Field(default=None, description="Optional corrective suggestion")
 
 
+class IngestLimitErrorDetail(BaseModel):
+    """Structured detail returned with 422 when ingest size/page limits fail."""
+
+    code: str = Field(
+        description=("Machine-readable error code, e.g. file_too_large / pdf_too_many_pages")
+    )
+    reason: str = Field(description="Human-readable reason")
+    suggestion: str | None = Field(default=None, description="Optional corrective suggestion")
+
+
 _STATUS_PHASE_MAP: dict[str, str] = {
     "pending": "pending",
     "queued": "pending",

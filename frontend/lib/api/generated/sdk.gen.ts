@@ -2,7 +2,7 @@
 
 import { type Client, type ClientMeta, formDataBodySerializer, type Options as Options2, type RequestResult, type ServerSentEventsResult, type TDataShape } from './client';
 import { client } from './client.gen';
-import type { AdminCeleryAdminCeleryGetData, AdminCeleryAdminCeleryGetResponses, AdminConfigAdminConfigGetData, AdminConfigAdminConfigGetResponses, AdminKnowhereAdminKnowhereGetData, AdminKnowhereAdminKnowhereGetResponses, AdminKnowhereCleanAdminKnowhereCleanPostData, AdminKnowhereCleanAdminKnowhereCleanPostResponses, AdminKnowhereFlushAdminKnowhereFlushPostData, AdminKnowhereFlushAdminKnowhereFlushPostResponses, AdminLogsAdminLogsGetData, AdminLogsAdminLogsGetResponse, AdminLogsAdminLogsGetResponses, AdminMcpAdminMcpGetData, AdminMcpAdminMcpGetResponses, AdminMilvusAdminMilvusGetData, AdminMilvusAdminMilvusGetResponses, AdminMilvusCleanAdminMilvusCleanPostData, AdminMilvusCleanAdminMilvusCleanPostResponses, AdminMilvusFlushAdminMilvusFlushPostData, AdminMilvusFlushAdminMilvusFlushPostResponses, AdminMinioAdminMinioGetData, AdminMinioAdminMinioGetResponses, AdminPixelragAdminPixelragGetData, AdminPixelragAdminPixelragGetResponses, AdminProbesAdminProbesGetData, AdminProbesAdminProbesGetResponses, AdminRedisAdminRedisGetData, AdminRedisAdminRedisGetResponses, AdminUpdateModelRouterAdminModelRouterPatchData, AdminUpdateModelRouterAdminModelRouterPatchErrors, AdminUpdateModelRouterAdminModelRouterPatchResponses, AdminVlmAdminVlmGetData, AdminVlmAdminVlmGetResponses, CreateKnowledgeBaseKnowledgeBasesPostData, CreateKnowledgeBaseKnowledgeBasesPostErrors, CreateKnowledgeBaseKnowledgeBasesPostResponses, CreateSessionApiSessionsPostData, CreateSessionApiSessionsPostErrors, CreateSessionApiSessionsPostResponses, DeleteAttachmentAttachmentsAttachmentIdDeleteData, DeleteAttachmentAttachmentsAttachmentIdDeleteErrors, DeleteAttachmentAttachmentsAttachmentIdDeleteResponses, DeleteDocumentApiDocumentsDocumentIdDeleteData, DeleteDocumentApiDocumentsDocumentIdDeleteErrors, DeleteDocumentApiDocumentsDocumentIdDeleteResponses, DeleteKnowledgeBaseKnowledgeBasesKbNameDeleteData, DeleteKnowledgeBaseKnowledgeBasesKbNameDeleteErrors, DeleteKnowledgeBaseKnowledgeBasesKbNameDeleteResponses, DeleteSessionApiSessionsSessionIdDeleteData, DeleteSessionApiSessionsSessionIdDeleteErrors, DeleteSessionApiSessionsSessionIdDeleteResponses, DeleteTaskTasksJobIdDeleteData, DeleteTaskTasksJobIdDeleteErrors, DeleteTaskTasksJobIdDeleteResponses, GetAttachmentContentAttachmentsAttachmentIdContentGetData, GetAttachmentContentAttachmentsAttachmentIdContentGetErrors, GetAttachmentContentAttachmentsAttachmentIdContentGetResponses, GetAttachmentMetaAttachmentsAttachmentIdGetData, GetAttachmentMetaAttachmentsAttachmentIdGetErrors, GetAttachmentMetaAttachmentsAttachmentIdGetResponses, GetDocumentApiDocumentsDocumentIdGetData, GetDocumentApiDocumentsDocumentIdGetErrors, GetDocumentApiDocumentsDocumentIdGetResponses, GetDocumentChunkHtmlApiDocumentsDocumentIdChunksChunkIdGetData, GetDocumentChunkHtmlApiDocumentsDocumentIdChunksChunkIdGetErrors, GetDocumentChunkHtmlApiDocumentsDocumentIdChunksChunkIdGetResponses, GetDocumentFileApiDocumentsDocumentIdFileGetData, GetDocumentFileApiDocumentsDocumentIdFileGetErrors, GetDocumentFileApiDocumentsDocumentIdFileGetResponses, GetDocumentStructureApiDocumentsDocumentIdStructureGetData, GetDocumentStructureApiDocumentsDocumentIdStructureGetErrors, GetDocumentStructureApiDocumentsDocumentIdStructureGetResponses, GetImageBytesApiImagesImageIdGetData, GetImageBytesApiImagesImageIdGetErrors, GetImageBytesApiImagesImageIdGetResponses, GetImageMetaApiImagesImageIdMetaGetData, GetImageMetaApiImagesImageIdMetaGetErrors, GetImageMetaApiImagesImageIdMetaGetResponses, GetKnowledgeBaseKnowledgeBasesKbNameGetData, GetKnowledgeBaseKnowledgeBasesKbNameGetErrors, GetKnowledgeBaseKnowledgeBasesKbNameGetResponses, GetMeUsersMeGetData, GetMeUsersMeGetResponses, GetMyPreferencesUsersMePreferencesGetData, GetMyPreferencesUsersMePreferencesGetResponses, GetSessionApiSessionsSessionIdGetData, GetSessionApiSessionsSessionIdGetErrors, GetSessionApiSessionsSessionIdGetResponses, GetTaskLogsTasksJobIdLogsGetData, GetTaskLogsTasksJobIdLogsGetErrors, GetTaskLogsTasksJobIdLogsGetResponses, GetTaskTasksJobIdGetData, GetTaskTasksJobIdGetErrors, GetTaskTasksJobIdGetResponses, HealthHealthGetData, HealthHealthGetResponses, IngestQueueMetricsIngestQueueMetricsGetData, IngestQueueMetricsIngestQueueMetricsGetResponses, KbCollectionsKnowledgeBasesKbNameCollectionsGetData, KbCollectionsKnowledgeBasesKbNameCollectionsGetErrors, KbCollectionsKnowledgeBasesKbNameCollectionsGetResponses, KbFacetsKnowledgeBasesKbNameFacetsGetData, KbFacetsKnowledgeBasesKbNameFacetsGetErrors, KbFacetsKnowledgeBasesKbNameFacetsGetResponses, KbFormatDistributionKnowledgeBasesKbNameFormatDistributionGetData, KbFormatDistributionKnowledgeBasesKbNameFormatDistributionGetErrors, KbFormatDistributionKnowledgeBasesKbNameFormatDistributionGetResponses, KbIngestionVolumeKnowledgeBasesKbNameIngestionVolumeGetData, KbIngestionVolumeKnowledgeBasesKbNameIngestionVolumeGetErrors, KbIngestionVolumeKnowledgeBasesKbNameIngestionVolumeGetResponses, KnowledgeBasesOverviewKnowledgeBasesOverviewGetData, KnowledgeBasesOverviewKnowledgeBasesOverviewGetResponses, ListDocumentsApiDocumentsGetData, ListDocumentsApiDocumentsGetErrors, ListDocumentsApiDocumentsGetResponses, ListKnowledgeBasesKnowledgeBasesGetData, ListKnowledgeBasesKnowledgeBasesGetErrors, ListKnowledgeBasesKnowledgeBasesGetResponses, ListMessagesApiSessionsSessionIdMessagesGetData, ListMessagesApiSessionsSessionIdMessagesGetErrors, ListMessagesApiSessionsSessionIdMessagesGetResponses, ListNotificationsApiNotificationsGetData, ListNotificationsApiNotificationsGetErrors, ListNotificationsApiNotificationsGetResponses, ListSessionsApiSessionsGetData, ListSessionsApiSessionsGetErrors, ListSessionsApiSessionsGetResponses, ListTagsApiTagsGetData, ListTagsApiTagsGetErrors, ListTagsApiTagsGetResponses, ListTasksTasksGetData, ListTasksTasksGetErrors, ListTasksTasksGetResponses, McpToolsMcpToolsGetData, McpToolsMcpToolsGetResponses, PatchKnowledgeBaseKnowledgeBasesKbNamePatchData, PatchKnowledgeBaseKnowledgeBasesKbNamePatchErrors, PatchKnowledgeBaseKnowledgeBasesKbNamePatchResponses, PatchMeUsersMePatchData, PatchMeUsersMePatchErrors, PatchMeUsersMePatchResponses, PatchMyPreferencesUsersMePreferencesPatchData, PatchMyPreferencesUsersMePreferencesPatchErrors, PatchMyPreferencesUsersMePreferencesPatchResponses, PatchNotificationNotificationsNotificationIdPatchData, PatchNotificationNotificationsNotificationIdPatchErrors, PatchNotificationNotificationsNotificationIdPatchResponses, PostIngestIngestPostData, PostIngestIngestPostErrors, PostIngestIngestPostResponses, PostQueryQueryPostData, PostQueryQueryPostErrors, PostQueryQueryPostResponses, PostQueryStreamQueryStreamPostData, PostQueryStreamQueryStreamPostErrors, PostQueryStreamQueryStreamPostResponse, PostQueryStreamQueryStreamPostResponses, PostSearchSearchPostData, PostSearchSearchPostErrors, PostSearchSearchPostResponses, PostSearchStreamSearchStreamPostData, PostSearchStreamSearchStreamPostErrors, PostSearchStreamSearchStreamPostResponse, PostSearchStreamSearchStreamPostResponses, ReadAllNotificationsNotificationsReadAllPostData, ReadAllNotificationsNotificationsReadAllPostResponses, RebuildKnowledgeBaseKnowledgeBasesKbNameRebuildPostData, RebuildKnowledgeBaseKnowledgeBasesKbNameRebuildPostErrors, RebuildKnowledgeBaseKnowledgeBasesKbNameRebuildPostResponses, RetryTaskTasksJobIdRetryPostData, RetryTaskTasksJobIdRetryPostErrors, RetryTaskTasksJobIdRetryPostResponses, RootGetData, RootGetResponses, StreamTaskTasksJobIdStreamGetData, StreamTaskTasksJobIdStreamGetErrors, StreamTaskTasksJobIdStreamGetResponse, StreamTaskTasksJobIdStreamGetResponses, UpdateSessionApiSessionsSessionIdPatchData, UpdateSessionApiSessionsSessionIdPatchErrors, UpdateSessionApiSessionsSessionIdPatchResponses, UploadAttachmentAttachmentsPostData, UploadAttachmentAttachmentsPostErrors, UploadAttachmentAttachmentsPostResponses } from './types.gen';
+import type { AdminCeleryAdminCeleryGetData, AdminCeleryAdminCeleryGetErrors, AdminCeleryAdminCeleryGetResponses, AdminConfigAdminConfigGetData, AdminConfigAdminConfigGetErrors, AdminConfigAdminConfigGetResponses, AdminKnowhereAdminKnowhereGetData, AdminKnowhereAdminKnowhereGetErrors, AdminKnowhereAdminKnowhereGetResponses, AdminKnowhereCleanAdminKnowhereCleanPostData, AdminKnowhereCleanAdminKnowhereCleanPostErrors, AdminKnowhereCleanAdminKnowhereCleanPostResponses, AdminKnowhereFlushAdminKnowhereFlushPostData, AdminKnowhereFlushAdminKnowhereFlushPostErrors, AdminKnowhereFlushAdminKnowhereFlushPostResponses, AdminLogsAdminLogsGetData, AdminLogsAdminLogsGetErrors, AdminLogsAdminLogsGetResponse, AdminLogsAdminLogsGetResponses, AdminMcpAdminMcpGetData, AdminMcpAdminMcpGetErrors, AdminMcpAdminMcpGetResponses, AdminMilvusAdminMilvusGetData, AdminMilvusAdminMilvusGetErrors, AdminMilvusAdminMilvusGetResponses, AdminMilvusCleanAdminMilvusCleanPostData, AdminMilvusCleanAdminMilvusCleanPostErrors, AdminMilvusCleanAdminMilvusCleanPostResponses, AdminMilvusFlushAdminMilvusFlushPostData, AdminMilvusFlushAdminMilvusFlushPostErrors, AdminMilvusFlushAdminMilvusFlushPostResponses, AdminMinioAdminMinioGetData, AdminMinioAdminMinioGetErrors, AdminMinioAdminMinioGetResponses, AdminPixelragAdminPixelragGetData, AdminPixelragAdminPixelragGetErrors, AdminPixelragAdminPixelragGetResponses, AdminProbesAdminProbesGetData, AdminProbesAdminProbesGetErrors, AdminProbesAdminProbesGetResponses, AdminRedisAdminRedisGetData, AdminRedisAdminRedisGetErrors, AdminRedisAdminRedisGetResponses, AdminUpdateModelRouterAdminModelRouterPatchData, AdminUpdateModelRouterAdminModelRouterPatchErrors, AdminUpdateModelRouterAdminModelRouterPatchResponses, AdminVlmAdminVlmGetData, AdminVlmAdminVlmGetErrors, AdminVlmAdminVlmGetResponses, CreateKnowledgeBaseKnowledgeBasesPostData, CreateKnowledgeBaseKnowledgeBasesPostErrors, CreateKnowledgeBaseKnowledgeBasesPostResponses, CreateSessionApiSessionsPostData, CreateSessionApiSessionsPostErrors, CreateSessionApiSessionsPostResponses, DeleteAttachmentAttachmentsAttachmentIdDeleteData, DeleteAttachmentAttachmentsAttachmentIdDeleteErrors, DeleteAttachmentAttachmentsAttachmentIdDeleteResponses, DeleteDocumentApiDocumentsDocumentIdDeleteData, DeleteDocumentApiDocumentsDocumentIdDeleteErrors, DeleteDocumentApiDocumentsDocumentIdDeleteResponses, DeleteKnowledgeBaseKnowledgeBasesKbNameDeleteData, DeleteKnowledgeBaseKnowledgeBasesKbNameDeleteErrors, DeleteKnowledgeBaseKnowledgeBasesKbNameDeleteResponses, DeleteSessionApiSessionsSessionIdDeleteData, DeleteSessionApiSessionsSessionIdDeleteErrors, DeleteSessionApiSessionsSessionIdDeleteResponses, DeleteTaskTasksJobIdDeleteData, DeleteTaskTasksJobIdDeleteErrors, DeleteTaskTasksJobIdDeleteResponses, GetAttachmentContentAttachmentsAttachmentIdContentGetData, GetAttachmentContentAttachmentsAttachmentIdContentGetErrors, GetAttachmentContentAttachmentsAttachmentIdContentGetResponses, GetAttachmentMetaAttachmentsAttachmentIdGetData, GetAttachmentMetaAttachmentsAttachmentIdGetErrors, GetAttachmentMetaAttachmentsAttachmentIdGetResponses, GetDocumentApiDocumentsDocumentIdGetData, GetDocumentApiDocumentsDocumentIdGetErrors, GetDocumentApiDocumentsDocumentIdGetResponses, GetDocumentChunkHtmlApiDocumentsDocumentIdChunksChunkIdGetData, GetDocumentChunkHtmlApiDocumentsDocumentIdChunksChunkIdGetErrors, GetDocumentChunkHtmlApiDocumentsDocumentIdChunksChunkIdGetResponses, GetDocumentFileApiDocumentsDocumentIdFileGetData, GetDocumentFileApiDocumentsDocumentIdFileGetErrors, GetDocumentFileApiDocumentsDocumentIdFileGetResponses, GetDocumentStructureApiDocumentsDocumentIdStructureGetData, GetDocumentStructureApiDocumentsDocumentIdStructureGetErrors, GetDocumentStructureApiDocumentsDocumentIdStructureGetResponses, GetImageBytesApiImagesImageIdGetData, GetImageBytesApiImagesImageIdGetErrors, GetImageBytesApiImagesImageIdGetResponses, GetImageMetaApiImagesImageIdMetaGetData, GetImageMetaApiImagesImageIdMetaGetErrors, GetImageMetaApiImagesImageIdMetaGetResponses, GetKnowledgeBaseKnowledgeBasesKbNameGetData, GetKnowledgeBaseKnowledgeBasesKbNameGetErrors, GetKnowledgeBaseKnowledgeBasesKbNameGetResponses, GetMeUsersMeGetData, GetMeUsersMeGetErrors, GetMeUsersMeGetResponses, GetMyPreferencesUsersMePreferencesGetData, GetMyPreferencesUsersMePreferencesGetErrors, GetMyPreferencesUsersMePreferencesGetResponses, GetSessionApiSessionsSessionIdGetData, GetSessionApiSessionsSessionIdGetErrors, GetSessionApiSessionsSessionIdGetResponses, GetTaskLogsTasksJobIdLogsGetData, GetTaskLogsTasksJobIdLogsGetErrors, GetTaskLogsTasksJobIdLogsGetResponses, GetTaskTasksJobIdGetData, GetTaskTasksJobIdGetErrors, GetTaskTasksJobIdGetResponses, HealthHealthGetData, HealthHealthGetErrors, HealthHealthGetResponses, HealthPluginsHealthPluginsGetData, HealthPluginsHealthPluginsGetErrors, HealthPluginsHealthPluginsGetResponses, IngestQueueMetricsIngestQueueMetricsGetData, IngestQueueMetricsIngestQueueMetricsGetErrors, IngestQueueMetricsIngestQueueMetricsGetResponses, KbCollectionsKnowledgeBasesKbNameCollectionsGetData, KbCollectionsKnowledgeBasesKbNameCollectionsGetErrors, KbCollectionsKnowledgeBasesKbNameCollectionsGetResponses, KbFacetsKnowledgeBasesKbNameFacetsGetData, KbFacetsKnowledgeBasesKbNameFacetsGetErrors, KbFacetsKnowledgeBasesKbNameFacetsGetResponses, KbFormatDistributionKnowledgeBasesKbNameFormatDistributionGetData, KbFormatDistributionKnowledgeBasesKbNameFormatDistributionGetErrors, KbFormatDistributionKnowledgeBasesKbNameFormatDistributionGetResponses, KbIngestionVolumeKnowledgeBasesKbNameIngestionVolumeGetData, KbIngestionVolumeKnowledgeBasesKbNameIngestionVolumeGetErrors, KbIngestionVolumeKnowledgeBasesKbNameIngestionVolumeGetResponses, KnowledgeBasesOverviewKnowledgeBasesOverviewGetData, KnowledgeBasesOverviewKnowledgeBasesOverviewGetErrors, KnowledgeBasesOverviewKnowledgeBasesOverviewGetResponses, ListDocumentsApiDocumentsGetData, ListDocumentsApiDocumentsGetErrors, ListDocumentsApiDocumentsGetResponses, ListKnowledgeBasesKnowledgeBasesGetData, ListKnowledgeBasesKnowledgeBasesGetErrors, ListKnowledgeBasesKnowledgeBasesGetResponses, ListMessagesApiSessionsSessionIdMessagesGetData, ListMessagesApiSessionsSessionIdMessagesGetErrors, ListMessagesApiSessionsSessionIdMessagesGetResponses, ListNotificationsApiNotificationsGetData, ListNotificationsApiNotificationsGetErrors, ListNotificationsApiNotificationsGetResponses, ListSessionsApiSessionsGetData, ListSessionsApiSessionsGetErrors, ListSessionsApiSessionsGetResponses, ListTagsApiTagsGetData, ListTagsApiTagsGetErrors, ListTagsApiTagsGetResponses, ListTasksTasksGetData, ListTasksTasksGetErrors, ListTasksTasksGetResponses, McpToolsMcpToolsGetData, McpToolsMcpToolsGetErrors, McpToolsMcpToolsGetResponses, PatchKnowledgeBaseKnowledgeBasesKbNamePatchData, PatchKnowledgeBaseKnowledgeBasesKbNamePatchErrors, PatchKnowledgeBaseKnowledgeBasesKbNamePatchResponses, PatchMeUsersMePatchData, PatchMeUsersMePatchErrors, PatchMeUsersMePatchResponses, PatchMyPreferencesUsersMePreferencesPatchData, PatchMyPreferencesUsersMePreferencesPatchErrors, PatchMyPreferencesUsersMePreferencesPatchResponses, PatchNotificationNotificationsNotificationIdPatchData, PatchNotificationNotificationsNotificationIdPatchErrors, PatchNotificationNotificationsNotificationIdPatchResponses, PostIngestIngestPostData, PostIngestIngestPostErrors, PostIngestIngestPostResponses, PostQueryQueryPostData, PostQueryQueryPostErrors, PostQueryQueryPostResponses, PostQueryStreamQueryStreamPostData, PostQueryStreamQueryStreamPostErrors, PostQueryStreamQueryStreamPostResponse, PostQueryStreamQueryStreamPostResponses, PostSearchSearchPostData, PostSearchSearchPostErrors, PostSearchSearchPostResponses, PostSearchStreamSearchStreamPostData, PostSearchStreamSearchStreamPostErrors, PostSearchStreamSearchStreamPostResponse, PostSearchStreamSearchStreamPostResponses, ReadAllNotificationsNotificationsReadAllPostData, ReadAllNotificationsNotificationsReadAllPostErrors, ReadAllNotificationsNotificationsReadAllPostResponses, RebuildKnowledgeBaseKnowledgeBasesKbNameRebuildPostData, RebuildKnowledgeBaseKnowledgeBasesKbNameRebuildPostErrors, RebuildKnowledgeBaseKnowledgeBasesKbNameRebuildPostResponses, RetryTaskTasksJobIdRetryPostData, RetryTaskTasksJobIdRetryPostErrors, RetryTaskTasksJobIdRetryPostResponses, RootGetData, RootGetErrors, RootGetResponses, StreamTaskTasksJobIdStreamGetData, StreamTaskTasksJobIdStreamGetErrors, StreamTaskTasksJobIdStreamGetResponse, StreamTaskTasksJobIdStreamGetResponses, UpdateSessionApiSessionsSessionIdPatchData, UpdateSessionApiSessionsSessionIdPatchErrors, UpdateSessionApiSessionsSessionIdPatchResponses, UploadAttachmentAttachmentsPostData, UploadAttachmentAttachmentsPostErrors, UploadAttachmentAttachmentsPostResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -26,7 +26,7 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
  * Probes 8 dependencies concurrently; any down -> status=degraded (still
  * returns 200).
  */
-export const healthHealthGet = <ThrowOnError extends boolean = false>(options?: Options<HealthHealthGetData, ThrowOnError>): RequestResult<HealthHealthGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<HealthHealthGetResponses, unknown, ThrowOnError>({ url: '/health', ...options });
+export const healthHealthGet = <ThrowOnError extends boolean = false>(options?: Options<HealthHealthGetData, ThrowOnError>): RequestResult<HealthHealthGetResponses, HealthHealthGetErrors, ThrowOnError> => (options?.client ?? client).get<HealthHealthGetResponses, HealthHealthGetErrors, ThrowOnError>({ url: '/health', ...options });
 
 /**
  * Mcp Tools
@@ -39,7 +39,14 @@ export const healthHealthGet = <ThrowOnError extends boolean = false>(options?: 
  * an empty list plus an error field (graceful degradation, does not block
  * /health).
  */
-export const mcpToolsMcpToolsGet = <ThrowOnError extends boolean = false>(options?: Options<McpToolsMcpToolsGetData, ThrowOnError>): RequestResult<McpToolsMcpToolsGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<McpToolsMcpToolsGetResponses, unknown, ThrowOnError>({ url: '/mcp/tools', ...options });
+export const mcpToolsMcpToolsGet = <ThrowOnError extends boolean = false>(options?: Options<McpToolsMcpToolsGetData, ThrowOnError>): RequestResult<McpToolsMcpToolsGetResponses, McpToolsMcpToolsGetErrors, ThrowOnError> => (options?.client ?? client).get<McpToolsMcpToolsGetResponses, McpToolsMcpToolsGetErrors, ThrowOnError>({ url: '/mcp/tools', ...options });
+
+/**
+ * Health Plugins
+ *
+ * Loaded plugin manifests and Celery module list (worker consistency probe).
+ */
+export const healthPluginsHealthPluginsGet = <ThrowOnError extends boolean = false>(options?: Options<HealthPluginsHealthPluginsGetData, ThrowOnError>): RequestResult<HealthPluginsHealthPluginsGetResponses, HealthPluginsHealthPluginsGetErrors, ThrowOnError> => (options?.client ?? client).get<HealthPluginsHealthPluginsGetResponses, HealthPluginsHealthPluginsGetErrors, ThrowOnError>({ url: '/health/plugins', ...options });
 
 /**
  * List Documents Api
@@ -126,7 +133,7 @@ export const postIngestIngestPost = <ThrowOnError extends boolean = false>(optio
  * Always returns 200 (concurrency is static config, always available); size is
  * null when Redis is unavailable.
  */
-export const ingestQueueMetricsIngestQueueMetricsGet = <ThrowOnError extends boolean = false>(options?: Options<IngestQueueMetricsIngestQueueMetricsGetData, ThrowOnError>): RequestResult<IngestQueueMetricsIngestQueueMetricsGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<IngestQueueMetricsIngestQueueMetricsGetResponses, unknown, ThrowOnError>({ url: '/ingest/queue-metrics', ...options });
+export const ingestQueueMetricsIngestQueueMetricsGet = <ThrowOnError extends boolean = false>(options?: Options<IngestQueueMetricsIngestQueueMetricsGetData, ThrowOnError>): RequestResult<IngestQueueMetricsIngestQueueMetricsGetResponses, IngestQueueMetricsIngestQueueMetricsGetErrors, ThrowOnError> => (options?.client ?? client).get<IngestQueueMetricsIngestQueueMetricsGetResponses, IngestQueueMetricsIngestQueueMetricsGetErrors, ThrowOnError>({ url: '/ingest/queue-metrics', ...options });
 
 /**
  * List Tasks
@@ -173,6 +180,10 @@ export const getTaskLogsTasksJobIdLogsGet = <ThrowOnError extends boolean = fals
  * object key or HTTP URL). ``local_path`` is intentionally left None — the
  * original temp file lived in the API container's filesystem and is not
  * available to workers.
+ *
+ * For ``knowhere_visual`` sub-tasks, rebuilds the ``chunks`` payload from
+ * MinIO ``{document_id}/visual_chunks/`` (the original Celery kwargs are not
+ * persisted in ``task_audit``).
  */
 export const retryTaskTasksJobIdRetryPost = <ThrowOnError extends boolean = false>(options: Options<RetryTaskTasksJobIdRetryPostData, ThrowOnError>): RequestResult<RetryTaskTasksJobIdRetryPostResponses, RetryTaskTasksJobIdRetryPostErrors, ThrowOnError> => (options.client ?? client).post<RetryTaskTasksJobIdRetryPostResponses, RetryTaskTasksJobIdRetryPostErrors, ThrowOnError>({ url: '/tasks/{job_id}/retry', ...options });
 
@@ -202,7 +213,7 @@ export const createKnowledgeBaseKnowledgeBasesPost = <ThrowOnError extends boole
  *
  * Cross-KB aggregate metrics.
  */
-export const knowledgeBasesOverviewKnowledgeBasesOverviewGet = <ThrowOnError extends boolean = false>(options?: Options<KnowledgeBasesOverviewKnowledgeBasesOverviewGetData, ThrowOnError>): RequestResult<KnowledgeBasesOverviewKnowledgeBasesOverviewGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<KnowledgeBasesOverviewKnowledgeBasesOverviewGetResponses, unknown, ThrowOnError>({ url: '/knowledge_bases/overview', ...options });
+export const knowledgeBasesOverviewKnowledgeBasesOverviewGet = <ThrowOnError extends boolean = false>(options?: Options<KnowledgeBasesOverviewKnowledgeBasesOverviewGetData, ThrowOnError>): RequestResult<KnowledgeBasesOverviewKnowledgeBasesOverviewGetResponses, KnowledgeBasesOverviewKnowledgeBasesOverviewGetErrors, ThrowOnError> => (options?.client ?? client).get<KnowledgeBasesOverviewKnowledgeBasesOverviewGetResponses, KnowledgeBasesOverviewKnowledgeBasesOverviewGetErrors, ThrowOnError>({ url: '/knowledge_bases/overview', ...options });
 
 /**
  * Delete Knowledge Base
@@ -301,12 +312,12 @@ export const patchNotificationNotificationsNotificationIdPatch = <ThrowOnError e
 /**
  * Read All Notifications
  */
-export const readAllNotificationsNotificationsReadAllPost = <ThrowOnError extends boolean = false>(options?: Options<ReadAllNotificationsNotificationsReadAllPostData, ThrowOnError>): RequestResult<ReadAllNotificationsNotificationsReadAllPostResponses, unknown, ThrowOnError> => (options?.client ?? client).post<ReadAllNotificationsNotificationsReadAllPostResponses, unknown, ThrowOnError>({ url: '/notifications/read-all', ...options });
+export const readAllNotificationsNotificationsReadAllPost = <ThrowOnError extends boolean = false>(options?: Options<ReadAllNotificationsNotificationsReadAllPostData, ThrowOnError>): RequestResult<ReadAllNotificationsNotificationsReadAllPostResponses, ReadAllNotificationsNotificationsReadAllPostErrors, ThrowOnError> => (options?.client ?? client).post<ReadAllNotificationsNotificationsReadAllPostResponses, ReadAllNotificationsNotificationsReadAllPostErrors, ThrowOnError>({ url: '/notifications/read-all', ...options });
 
 /**
  * Get Me
  */
-export const getMeUsersMeGet = <ThrowOnError extends boolean = false>(options?: Options<GetMeUsersMeGetData, ThrowOnError>): RequestResult<GetMeUsersMeGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<GetMeUsersMeGetResponses, unknown, ThrowOnError>({ url: '/users/me', ...options });
+export const getMeUsersMeGet = <ThrowOnError extends boolean = false>(options?: Options<GetMeUsersMeGetData, ThrowOnError>): RequestResult<GetMeUsersMeGetResponses, GetMeUsersMeGetErrors, ThrowOnError> => (options?.client ?? client).get<GetMeUsersMeGetResponses, GetMeUsersMeGetErrors, ThrowOnError>({ url: '/users/me', ...options });
 
 /**
  * Patch Me
@@ -323,7 +334,7 @@ export const patchMeUsersMePatch = <ThrowOnError extends boolean = false>(option
 /**
  * Get My Preferences
  */
-export const getMyPreferencesUsersMePreferencesGet = <ThrowOnError extends boolean = false>(options?: Options<GetMyPreferencesUsersMePreferencesGetData, ThrowOnError>): RequestResult<GetMyPreferencesUsersMePreferencesGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<GetMyPreferencesUsersMePreferencesGetResponses, unknown, ThrowOnError>({ url: '/users/me/preferences', ...options });
+export const getMyPreferencesUsersMePreferencesGet = <ThrowOnError extends boolean = false>(options?: Options<GetMyPreferencesUsersMePreferencesGetData, ThrowOnError>): RequestResult<GetMyPreferencesUsersMePreferencesGetResponses, GetMyPreferencesUsersMePreferencesGetErrors, ThrowOnError> => (options?.client ?? client).get<GetMyPreferencesUsersMePreferencesGetResponses, GetMyPreferencesUsersMePreferencesGetErrors, ThrowOnError>({ url: '/users/me/preferences', ...options });
 
 /**
  * Patch My Preferences
@@ -349,7 +360,7 @@ export const patchMyPreferencesUsersMePreferencesPatch = <ThrowOnError extends b
  * ``type(exc).__name__`` so that exceptions with empty ``str()`` (like
  * ``asyncio.TimeoutError``) do not produce a blank detail.
  */
-export const adminCeleryAdminCeleryGet = <ThrowOnError extends boolean = false>(options?: Options<AdminCeleryAdminCeleryGetData, ThrowOnError>): RequestResult<AdminCeleryAdminCeleryGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<AdminCeleryAdminCeleryGetResponses, unknown, ThrowOnError>({ url: '/admin/celery', ...options });
+export const adminCeleryAdminCeleryGet = <ThrowOnError extends boolean = false>(options?: Options<AdminCeleryAdminCeleryGetData, ThrowOnError>): RequestResult<AdminCeleryAdminCeleryGetResponses, AdminCeleryAdminCeleryGetErrors, ThrowOnError> => (options?.client ?? client).get<AdminCeleryAdminCeleryGetResponses, AdminCeleryAdminCeleryGetErrors, ThrowOnError>({ url: '/admin/celery', ...options });
 
 /**
  * Admin Minio
@@ -363,7 +374,7 @@ export const adminCeleryAdminCeleryGet = <ThrowOnError extends boolean = false>(
  * (capped at 10000 to avoid scanning a huge bucket and blocking). Any exception
  * degrades gracefully to ``status="down"`` + an ``error`` field, not a 503.
  */
-export const adminMinioAdminMinioGet = <ThrowOnError extends boolean = false>(options?: Options<AdminMinioAdminMinioGetData, ThrowOnError>): RequestResult<AdminMinioAdminMinioGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<AdminMinioAdminMinioGetResponses, unknown, ThrowOnError>({ url: '/admin/minio', ...options });
+export const adminMinioAdminMinioGet = <ThrowOnError extends boolean = false>(options?: Options<AdminMinioAdminMinioGetData, ThrowOnError>): RequestResult<AdminMinioAdminMinioGetResponses, AdminMinioAdminMinioGetErrors, ThrowOnError> => (options?.client ?? client).get<AdminMinioAdminMinioGetResponses, AdminMinioAdminMinioGetErrors, ThrowOnError>({ url: '/admin/minio', ...options });
 
 /**
  * Admin Redis
@@ -374,21 +385,21 @@ export const adminMinioAdminMinioGet = <ThrowOnError extends boolean = false>(op
  * up, reads ``client.info()`` and ``client.dbsize()``. Any exception degrades
  * gracefully to ``status="down"`` + an ``error`` field, not a 503.
  */
-export const adminRedisAdminRedisGet = <ThrowOnError extends boolean = false>(options?: Options<AdminRedisAdminRedisGetData, ThrowOnError>): RequestResult<AdminRedisAdminRedisGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<AdminRedisAdminRedisGetResponses, unknown, ThrowOnError>({ url: '/admin/redis', ...options });
+export const adminRedisAdminRedisGet = <ThrowOnError extends boolean = false>(options?: Options<AdminRedisAdminRedisGetData, ThrowOnError>): RequestResult<AdminRedisAdminRedisGetResponses, AdminRedisAdminRedisGetErrors, ThrowOnError> => (options?.client ?? client).get<AdminRedisAdminRedisGetResponses, AdminRedisAdminRedisGetErrors, ThrowOnError>({ url: '/admin/redis', ...options });
 
 /**
  * Admin Milvus
  *
  * List Milvus collections and per-collection row count (num_entities).
  */
-export const adminMilvusAdminMilvusGet = <ThrowOnError extends boolean = false>(options?: Options<AdminMilvusAdminMilvusGetData, ThrowOnError>): RequestResult<AdminMilvusAdminMilvusGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<AdminMilvusAdminMilvusGetResponses, unknown, ThrowOnError>({ url: '/admin/milvus', ...options });
+export const adminMilvusAdminMilvusGet = <ThrowOnError extends boolean = false>(options?: Options<AdminMilvusAdminMilvusGetData, ThrowOnError>): RequestResult<AdminMilvusAdminMilvusGetResponses, AdminMilvusAdminMilvusGetErrors, ThrowOnError> => (options?.client ?? client).get<AdminMilvusAdminMilvusGetResponses, AdminMilvusAdminMilvusGetErrors, ThrowOnError>({ url: '/admin/milvus', ...options });
 
 /**
  * Admin Milvus Flush
  *
  * Force-flush all Milvus collections (persist sealed segments to disk).
  */
-export const adminMilvusFlushAdminMilvusFlushPost = <ThrowOnError extends boolean = false>(options?: Options<AdminMilvusFlushAdminMilvusFlushPostData, ThrowOnError>): RequestResult<AdminMilvusFlushAdminMilvusFlushPostResponses, unknown, ThrowOnError> => (options?.client ?? client).post<AdminMilvusFlushAdminMilvusFlushPostResponses, unknown, ThrowOnError>({ url: '/admin/milvus/flush', ...options });
+export const adminMilvusFlushAdminMilvusFlushPost = <ThrowOnError extends boolean = false>(options?: Options<AdminMilvusFlushAdminMilvusFlushPostData, ThrowOnError>): RequestResult<AdminMilvusFlushAdminMilvusFlushPostResponses, AdminMilvusFlushAdminMilvusFlushPostErrors, ThrowOnError> => (options?.client ?? client).post<AdminMilvusFlushAdminMilvusFlushPostResponses, AdminMilvusFlushAdminMilvusFlushPostErrors, ThrowOnError>({ url: '/admin/milvus/flush', ...options });
 
 /**
  * Admin Milvus Clean
@@ -397,28 +408,28 @@ export const adminMilvusFlushAdminMilvusFlushPost = <ThrowOnError extends boolea
  *
  * Merges segments and removes deleted entities.
  */
-export const adminMilvusCleanAdminMilvusCleanPost = <ThrowOnError extends boolean = false>(options?: Options<AdminMilvusCleanAdminMilvusCleanPostData, ThrowOnError>): RequestResult<AdminMilvusCleanAdminMilvusCleanPostResponses, unknown, ThrowOnError> => (options?.client ?? client).post<AdminMilvusCleanAdminMilvusCleanPostResponses, unknown, ThrowOnError>({ url: '/admin/milvus/clean', ...options });
+export const adminMilvusCleanAdminMilvusCleanPost = <ThrowOnError extends boolean = false>(options?: Options<AdminMilvusCleanAdminMilvusCleanPostData, ThrowOnError>): RequestResult<AdminMilvusCleanAdminMilvusCleanPostResponses, AdminMilvusCleanAdminMilvusCleanPostErrors, ThrowOnError> => (options?.client ?? client).post<AdminMilvusCleanAdminMilvusCleanPostResponses, AdminMilvusCleanAdminMilvusCleanPostErrors, ThrowOnError>({ url: '/admin/milvus/clean', ...options });
 
 /**
  * Admin Pixelrag
  *
  * PixelRAG library availability + Milvus eagle_visual Collection stats.
  */
-export const adminPixelragAdminPixelragGet = <ThrowOnError extends boolean = false>(options?: Options<AdminPixelragAdminPixelragGetData, ThrowOnError>): RequestResult<AdminPixelragAdminPixelragGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<AdminPixelragAdminPixelragGetResponses, unknown, ThrowOnError>({ url: '/admin/pixelrag', ...options });
+export const adminPixelragAdminPixelragGet = <ThrowOnError extends boolean = false>(options?: Options<AdminPixelragAdminPixelragGetData, ThrowOnError>): RequestResult<AdminPixelragAdminPixelragGetResponses, AdminPixelragAdminPixelragGetErrors, ThrowOnError> => (options?.client ?? client).get<AdminPixelragAdminPixelragGetResponses, AdminPixelragAdminPixelragGetErrors, ThrowOnError>({ url: '/admin/pixelrag', ...options });
 
 /**
  * Admin Knowhere
  *
  * Knowhere parser service config and probe.
  */
-export const adminKnowhereAdminKnowhereGet = <ThrowOnError extends boolean = false>(options?: Options<AdminKnowhereAdminKnowhereGetData, ThrowOnError>): RequestResult<AdminKnowhereAdminKnowhereGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<AdminKnowhereAdminKnowhereGetResponses, unknown, ThrowOnError>({ url: '/admin/knowhere', ...options });
+export const adminKnowhereAdminKnowhereGet = <ThrowOnError extends boolean = false>(options?: Options<AdminKnowhereAdminKnowhereGetData, ThrowOnError>): RequestResult<AdminKnowhereAdminKnowhereGetResponses, AdminKnowhereAdminKnowhereGetErrors, ThrowOnError> => (options?.client ?? client).get<AdminKnowhereAdminKnowhereGetResponses, AdminKnowhereAdminKnowhereGetErrors, ThrowOnError>({ url: '/admin/knowhere', ...options });
 
 /**
  * Admin Knowhere Flush
  *
  * Force-flush the eagle_text collection (the text vector store written by Knowhere).
  */
-export const adminKnowhereFlushAdminKnowhereFlushPost = <ThrowOnError extends boolean = false>(options?: Options<AdminKnowhereFlushAdminKnowhereFlushPostData, ThrowOnError>): RequestResult<AdminKnowhereFlushAdminKnowhereFlushPostResponses, unknown, ThrowOnError> => (options?.client ?? client).post<AdminKnowhereFlushAdminKnowhereFlushPostResponses, unknown, ThrowOnError>({ url: '/admin/knowhere/flush', ...options });
+export const adminKnowhereFlushAdminKnowhereFlushPost = <ThrowOnError extends boolean = false>(options?: Options<AdminKnowhereFlushAdminKnowhereFlushPostData, ThrowOnError>): RequestResult<AdminKnowhereFlushAdminKnowhereFlushPostResponses, AdminKnowhereFlushAdminKnowhereFlushPostErrors, ThrowOnError> => (options?.client ?? client).post<AdminKnowhereFlushAdminKnowhereFlushPostResponses, AdminKnowhereFlushAdminKnowhereFlushPostErrors, ThrowOnError>({ url: '/admin/knowhere/flush', ...options });
 
 /**
  * Admin Knowhere Clean
@@ -427,14 +438,14 @@ export const adminKnowhereFlushAdminKnowhereFlushPost = <ThrowOnError extends bo
  *
  * Merges segments and removes deleted entities.
  */
-export const adminKnowhereCleanAdminKnowhereCleanPost = <ThrowOnError extends boolean = false>(options?: Options<AdminKnowhereCleanAdminKnowhereCleanPostData, ThrowOnError>): RequestResult<AdminKnowhereCleanAdminKnowhereCleanPostResponses, unknown, ThrowOnError> => (options?.client ?? client).post<AdminKnowhereCleanAdminKnowhereCleanPostResponses, unknown, ThrowOnError>({ url: '/admin/knowhere/clean', ...options });
+export const adminKnowhereCleanAdminKnowhereCleanPost = <ThrowOnError extends boolean = false>(options?: Options<AdminKnowhereCleanAdminKnowhereCleanPostData, ThrowOnError>): RequestResult<AdminKnowhereCleanAdminKnowhereCleanPostResponses, AdminKnowhereCleanAdminKnowhereCleanPostErrors, ThrowOnError> => (options?.client ?? client).post<AdminKnowhereCleanAdminKnowhereCleanPostResponses, AdminKnowhereCleanAdminKnowhereCleanPostErrors, ThrowOnError>({ url: '/admin/knowhere/clean', ...options });
 
 /**
  * Admin Vlm
  *
  * VLM config (api_key is not leaked).
  */
-export const adminVlmAdminVlmGet = <ThrowOnError extends boolean = false>(options?: Options<AdminVlmAdminVlmGetData, ThrowOnError>): RequestResult<AdminVlmAdminVlmGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<AdminVlmAdminVlmGetResponses, unknown, ThrowOnError>({ url: '/admin/vlm', ...options });
+export const adminVlmAdminVlmGet = <ThrowOnError extends boolean = false>(options?: Options<AdminVlmAdminVlmGetData, ThrowOnError>): RequestResult<AdminVlmAdminVlmGetResponses, AdminVlmAdminVlmGetErrors, ThrowOnError> => (options?.client ?? client).get<AdminVlmAdminVlmGetResponses, AdminVlmAdminVlmGetErrors, ThrowOnError>({ url: '/admin/vlm', ...options });
 
 /**
  * Admin Update Model Router
@@ -455,21 +466,21 @@ export const adminUpdateModelRouterAdminModelRouterPatch = <ThrowOnError extends
  *
  * MCP registration status and tool list.
  */
-export const adminMcpAdminMcpGet = <ThrowOnError extends boolean = false>(options?: Options<AdminMcpAdminMcpGetData, ThrowOnError>): RequestResult<AdminMcpAdminMcpGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<AdminMcpAdminMcpGetResponses, unknown, ThrowOnError>({ url: '/admin/mcp', ...options });
+export const adminMcpAdminMcpGet = <ThrowOnError extends boolean = false>(options?: Options<AdminMcpAdminMcpGetData, ThrowOnError>): RequestResult<AdminMcpAdminMcpGetResponses, AdminMcpAdminMcpGetErrors, ThrowOnError> => (options?.client ?? client).get<AdminMcpAdminMcpGetResponses, AdminMcpAdminMcpGetErrors, ThrowOnError>({ url: '/admin/mcp', ...options });
 
 /**
  * Admin Config
  *
  * Return masked settings (fields with key/secret/password are replaced with "***").
  */
-export const adminConfigAdminConfigGet = <ThrowOnError extends boolean = false>(options?: Options<AdminConfigAdminConfigGetData, ThrowOnError>): RequestResult<AdminConfigAdminConfigGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<AdminConfigAdminConfigGetResponses, unknown, ThrowOnError>({ url: '/admin/config', ...options });
+export const adminConfigAdminConfigGet = <ThrowOnError extends boolean = false>(options?: Options<AdminConfigAdminConfigGetData, ThrowOnError>): RequestResult<AdminConfigAdminConfigGetResponses, AdminConfigAdminConfigGetErrors, ThrowOnError> => (options?.client ?? client).get<AdminConfigAdminConfigGetResponses, AdminConfigAdminConfigGetErrors, ThrowOnError>({ url: '/admin/config', ...options });
 
 /**
  * Admin Probes
  *
  * Like /health but more detailed: returns each probe's raw result (including latency_ms).
  */
-export const adminProbesAdminProbesGet = <ThrowOnError extends boolean = false>(options?: Options<AdminProbesAdminProbesGetData, ThrowOnError>): RequestResult<AdminProbesAdminProbesGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<AdminProbesAdminProbesGetResponses, unknown, ThrowOnError>({ url: '/admin/probes', ...options });
+export const adminProbesAdminProbesGet = <ThrowOnError extends boolean = false>(options?: Options<AdminProbesAdminProbesGetData, ThrowOnError>): RequestResult<AdminProbesAdminProbesGetResponses, AdminProbesAdminProbesGetErrors, ThrowOnError> => (options?.client ?? client).get<AdminProbesAdminProbesGetResponses, AdminProbesAdminProbesGetErrors, ThrowOnError>({ url: '/admin/probes', ...options });
 
 /**
  * Admin Logs
@@ -479,7 +490,7 @@ export const adminProbesAdminProbesGet = <ThrowOnError extends boolean = false>(
  * Subscribes to the ``logs`` channel when Redis is available; otherwise uses
  * an in-memory queue + heartbeat.
  */
-export const adminLogsAdminLogsGet = <ThrowOnError extends boolean = false>(options?: Options<AdminLogsAdminLogsGetData, ThrowOnError, AdminLogsAdminLogsGetResponse>): Promise<ServerSentEventsResult<AdminLogsAdminLogsGetResponses>> => (options?.client ?? client).sse.get<AdminLogsAdminLogsGetResponses, unknown, ThrowOnError>({ url: '/admin/logs', ...options });
+export const adminLogsAdminLogsGet = <ThrowOnError extends boolean = false>(options?: Options<AdminLogsAdminLogsGetData, ThrowOnError, AdminLogsAdminLogsGetResponse>): Promise<ServerSentEventsResult<AdminLogsAdminLogsGetResponses>> => (options?.client ?? client).sse.get<AdminLogsAdminLogsGetResponses, AdminLogsAdminLogsGetErrors, ThrowOnError>({ url: '/admin/logs', ...options });
 
 /**
  * Post Search
@@ -598,4 +609,4 @@ export const listMessagesApiSessionsSessionIdMessagesGet = <ThrowOnError extends
  *
  * Root path info.
  */
-export const rootGet = <ThrowOnError extends boolean = false>(options?: Options<RootGetData, ThrowOnError>): RequestResult<RootGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<RootGetResponses, unknown, ThrowOnError>({ url: '/', ...options });
+export const rootGet = <ThrowOnError extends boolean = false>(options?: Options<RootGetData, ThrowOnError>): RequestResult<RootGetResponses, RootGetErrors, ThrowOnError> => (options?.client ?? client).get<RootGetResponses, RootGetErrors, ThrowOnError>({ url: '/', ...options });

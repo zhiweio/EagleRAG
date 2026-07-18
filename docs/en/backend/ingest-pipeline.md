@@ -377,6 +377,20 @@ pdf_probe:
 
 Per-KB override via `get_pdf_ratio_sync(kb_name)`.
 
+### 6.2.1 Ingest size / page limits (MinerU)
+
+MinerU Precision Extract API (`mineru.net` `/api/v4`) caps each file at **200 MiB** and **200 pages**. Eagle-RAG enforces the same defaults via `ingest.limits` so oversized PDFs fail at ingest time (422) instead of after Celery retries inside Knowhere/MinerU:
+
+```yaml
+ingest:
+  limits:
+    enabled: true
+    max_file_bytes: 209715200   # 200 MiB
+    max_pdf_pages: 200
+```
+
+Override with `INGEST_MAX_FILE_BYTES` / `INGEST_MAX_PDF_PAGES` / `INGEST_LIMITS_ENABLED`.
+
 ### 6.3 Knowhere SDK
 
 ```yaml

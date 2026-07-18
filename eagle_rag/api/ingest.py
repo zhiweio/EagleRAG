@@ -25,6 +25,7 @@ from eagle_rag.api.schemas.ingest import (
 from eagle_rag.config import get_settings
 from eagle_rag.db import sync_execute
 from eagle_rag.index import registry
+from eagle_rag.ingest.limits import IngestLimitError
 from eagle_rag.ingest.runner import ingest, ingest_url
 from eagle_rag.ingest.url_validator import (
     UrlValidationError,
@@ -101,6 +102,8 @@ async def post_ingest(
             result = await _run_sync(
                 ingest_url, url, source_type_hint=source_type_hint, kb_name=kb_name
             )
+    except IngestLimitError as exc:
+        raise HTTPException(status_code=422, detail=exc.to_detail()) from exc
     except ValueError as exc:
         if "knowledge base not registered" in str(exc).lower():
             raise HTTPException(status_code=404, detail=str(exc)) from exc

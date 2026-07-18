@@ -206,6 +206,11 @@ ingest:
   url_prefetch:
     timeout_sec: ${INGEST_URL_PREFETCH_TIMEOUT:-10}
     max_redirects: ${INGEST_URL_PREFETCH_MAX_REDIRECTS:-3}
+  # Early reject before MinIO/Celery/MinerU (MinerU Precision Extract: 200 MiB / 200 pages).
+  limits:
+    enabled: ${INGEST_LIMITS_ENABLED:-true}
+    max_file_bytes: ${INGEST_MAX_FILE_BYTES:-209715200}
+    max_pdf_pages: ${INGEST_MAX_PDF_PAGES:-200}
 
 auth:
   enabled: ${AUTH_ENABLED:-false}

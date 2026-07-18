@@ -820,6 +820,29 @@ def knowhere_parse(  # noqa: ANN001
                 download_file(object_key, tmp_path)
                 file_path = str(tmp_path)
 
+            # 1b. Defense-in-depth: reject oversize / over-page PDFs before MinerU.
+            # Permanent failures — return without raising so Celery does not retry.
+            from eagle_rag.ingest.limits import IngestLimitError, validate_ingest_file
+
+            try:
+                validate_ingest_file(Path(file_path), name)
+            except IngestLimitError as limit_exc:
+                try:
+                    ai_logger.info(
+                        "ingest",
+                        job_id=job_id,
+                        document_id=document_id,
+                        pipeline="knowhere",
+                        kb_name=effective_kb,
+                        status="failed",
+                        error=truncate(str(limit_exc), 256),
+                        duration_ms=int((time.monotonic() - t0) * 1000),
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.debug("telemetry emit failed", exc_info=True)
+                update_state(job_id, TaskState.FAILED, error=str(limit_exc))
+                return
+
             # 2. Parse via Knowhere SDK; KnowhereError bubbles up → outer handler marks FAILED.
             parse_result = parse_with_knowhere_sdk(file_path, kb_name=effective_kb, file_name=name)
 

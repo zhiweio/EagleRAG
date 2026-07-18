@@ -202,6 +202,8 @@ def ingest(
         logger.warning("MCP ingest tool call timed out: %s", exc)
         return {"error": "timeout: core_ingest"}
     except Exception as exc:  # noqa: BLE001
+        from eagle_rag.ingest.limits import IngestLimitError
+
         _latency = int((_time.perf_counter() - _start) * 1000)
         try:
             from eagle_rag.admin.mcp_log import record_mcp_call
@@ -216,6 +218,8 @@ def ingest(
         except Exception:  # noqa: BLE001
             logger.opt(exception=True).warning("MCP call log write failed (ingest)")
         logger.warning("MCP ingest tool call failed: %s", exc)
+        if isinstance(exc, IngestLimitError):
+            return {"error": exc.to_detail()}
         return {"error": f"{type(exc).__name__}: {exc}"}
 
 

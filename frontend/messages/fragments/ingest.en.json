@@ -21,11 +21,16 @@
       "docsCount": "{count} docs",
       "updatedAgo": "updated {time}",
       "dropTitle": "Drag to batch upload · or click to browse",
-      "dropHint": "Supports PDF · Word · Excel/CSV · Images · URL · up to 50MB per file",
+      "dropHint": "Supports PDF · Word · Excel/CSV · Images · URL · up to 200MB / 200 PDF pages (MinerU limit)",
       "submit": "Submit to queue",
       "submitting": "Submitting…",
       "systemDefault": "System default knowledge base",
-      "filesSelected": "{count} files selected"
+      "filesSelected": "{count} files selected",
+      "error": {
+        "file_too_large": "File exceeds the maximum size of {maxMb}MB (MinerU Precision Extract limit). Reduce or split the file and try again.",
+        "pdf_too_many_pages": "PDF has {pages} pages; maximum allowed is {max} (MinerU Precision Extract limit). Split the PDF and re-upload.",
+        "pdf_unreadable": "This PDF could not be read for page-count validation. Re-export or repair the file and try again."
+      }
     },
     "url": {
       "tab": {

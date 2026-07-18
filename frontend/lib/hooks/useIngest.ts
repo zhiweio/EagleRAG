@@ -61,6 +61,11 @@ export type UrlErrorCode =
   | "url_bad_status";
 
 /**
+ * Structured size/page limit codes from `eagle_rag/ingest/limits.py`.
+ */
+export type IngestLimitErrorCode = "file_too_large" | "pdf_too_many_pages" | "pdf_unreadable";
+
+/**
  * Structured URL ingest error parsed from a 422 response body.
  * Mirrors `UrlValidationErrorDetail` on the backend.
  */
@@ -68,6 +73,37 @@ export interface UrlIngestError {
   code: UrlErrorCode | string;
   reason: string;
   suggestion?: string;
+}
+
+/**
+ * Structured ingest limit error from a 422 response body.
+ * Mirrors `IngestLimitErrorDetail` on the backend.
+ */
+export interface IngestLimitError {
+  code: IngestLimitErrorCode | string;
+  reason: string;
+  suggestion?: string;
+}
+
+/**
+ * Parse a structured `{code, reason, suggestion?}` detail from a 422 body.
+ */
+function parseStructuredDetail(err: unknown): {
+  code: string;
+  reason: string;
+  suggestion?: string;
+} | null {
+  if (!err || typeof err !== "object") return null;
+  const obj = err as Record<string, unknown>;
+  const detail = obj.detail;
+  if (!detail || typeof detail !== "object") return null;
+  const d = detail as Record<string, unknown>;
+  if (typeof d.code !== "string" || typeof d.reason !== "string") return null;
+  return {
+    code: d.code,
+    reason: d.reason,
+    suggestion: typeof d.suggestion === "string" ? d.suggestion : undefined,
+  };
 }
 
 /**
@@ -81,17 +117,28 @@ export interface UrlIngestError {
  * `errorMessage`.
  */
 export function parseUrlIngestError(err: unknown): UrlIngestError | null {
-  if (!err || typeof err !== "object") return null;
-  const obj = err as Record<string, unknown>;
-  const detail = obj.detail;
-  if (!detail || typeof detail !== "object") return null;
-  const d = detail as Record<string, unknown>;
-  if (typeof d.code !== "string" || typeof d.reason !== "string") return null;
-  return {
-    code: d.code,
-    reason: d.reason,
-    suggestion: typeof d.suggestion === "string" ? d.suggestion : undefined,
-  };
+  const detail = parseStructuredDetail(err);
+  if (!detail) return null;
+  if (!detail.code.startsWith("url_") && detail.code !== "invalid_url_format") {
+    return null;
+  }
+  return detail;
+}
+
+/**
+ * Parse a structured ingest limit error (size / PDF pages) from a 422 body.
+ */
+export function parseIngestLimitError(err: unknown): IngestLimitError | null {
+  const detail = parseStructuredDetail(err);
+  if (!detail) return null;
+  if (
+    detail.code !== "file_too_large" &&
+    detail.code !== "pdf_too_many_pages" &&
+    detail.code !== "pdf_unreadable"
+  ) {
+    return null;
+  }
+  return detail;
 }
 
 export function useTasks(

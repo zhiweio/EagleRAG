@@ -167,6 +167,10 @@ def ingest(
             filename=filename,
             object_key=object_key,
         )
+        from eagle_rag.ingest.limits import validate_ingest_file
+
+        # Reject oversized / over-page files before MinIO upload and Celery dispatch.
+        validate_ingest_file(local_path, name)
         source_type = infer_source_type(
             name, source_uri=source_uri, source_type_hint=source_type_hint
         )

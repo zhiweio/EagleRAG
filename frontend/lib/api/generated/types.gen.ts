@@ -1827,6 +1827,10 @@ export type MilvusSettings = {
      */
     port: number;
     /**
+     * Db Name
+     */
+    db_name?: string;
+    /**
      * Text Collection
      */
     text_collection: string;
@@ -1846,6 +1850,10 @@ export type MilvusSettings = {
      * Visual Index Type
      */
     visual_index_type: string;
+    /**
+     * Auto Create Db
+     */
+    auto_create_db?: boolean;
 };
 
 /**
@@ -2079,6 +2087,89 @@ export type PixelRagSettings = {
 };
 
 /**
+ * PluginAuditStatsOut
+ */
+export type PluginAuditStatsOut = {
+    /**
+     * Buffer Size
+     */
+    buffer_size?: number;
+    /**
+     * Source
+     *
+     * redis | memory
+     */
+    source?: string;
+    /**
+     * Enabled
+     */
+    enabled?: boolean;
+    /**
+     * Redis Enabled
+     */
+    redis_enabled?: boolean;
+};
+
+/**
+ * PluginManifestOut
+ */
+export type PluginManifestOut = {
+    /**
+     * Namespace
+     */
+    namespace: string;
+    /**
+     * Version
+     */
+    version: string;
+    /**
+     * Milvus Db Name
+     */
+    milvus_db_name?: string | null;
+    /**
+     * Provides Pipelines
+     */
+    provides_pipelines?: Array<string>;
+    /**
+     * Provides Specialized Collections
+     */
+    provides_specialized_collections?: Array<string>;
+    /**
+     * Provides Mcp Tools
+     */
+    provides_mcp_tools?: Array<string>;
+};
+
+/**
+ * PluginsHealthResponse
+ */
+export type PluginsHealthResponse = {
+    /**
+     * Default Namespace
+     */
+    default_namespace: string;
+    /**
+     * Enabled Modules
+     */
+    enabled_modules?: Array<string>;
+    /**
+     * Manifests
+     */
+    manifests?: Array<PluginManifestOut>;
+    /**
+     * Celery Modules
+     */
+    celery_modules?: Array<string>;
+    /**
+     * Recent Decisions
+     */
+    recent_decisions?: Array<{
+        [key: string]: unknown;
+    }>;
+    audit_stats?: PluginAuditStatsOut | null;
+};
+
+/**
  * PostgresSettings
  */
 export type PostgresSettings = {
@@ -2179,6 +2270,12 @@ export type QueryFilters = {
  * QueryRequest
  */
 export type QueryRequest = {
+    /**
+     * Plugin Namespace
+     *
+     * Ignored in production; must match instance namespace or returns 403
+     */
+    plugin_namespace?: string | null;
     /**
      * Session Id
      *
@@ -2546,6 +2643,14 @@ export type RouterSettings = {
      * Structure Max Nodes
      */
     structure_max_nodes?: number;
+    /**
+     * Parent Doc Retrieval
+     */
+    parent_doc_retrieval?: boolean;
+    /**
+     * Rrf K
+     */
+    rrf_k?: number;
 };
 
 /**
@@ -2587,6 +2692,12 @@ export type SearchRequest = {
      * Query
      */
     query?: string;
+    /**
+     * Plugin Namespace
+     *
+     * Ignored in production; must match instance namespace or returns 403
+     */
+    plugin_namespace?: string | null;
     /**
      * Mode
      *
@@ -3178,6 +3289,15 @@ export type ValidationError = {
 
 /**
  * VisualEmbeddingSettings
+ *
+ * Core visual embedding (PixelRAG tiles / image queries).
+ *
+ * ``provider``:
+ * - ``pixelrag`` — local Hugging Face Qwen3-VL-Embedding (torch/transformers)
+ * - ``dashscope`` — Bailian ``qwen3-vl-embedding`` via DashScope MultiModalEmbedding
+ *
+ * Ingest and query must use the same provider; switching requires rebuilding
+ * ``eagle_visual`` (vectors are not mixed across backends).
  */
 export type VisualEmbeddingSettings = {
     /**
@@ -3192,6 +3312,26 @@ export type VisualEmbeddingSettings = {
      * Dim
      */
     dim: number;
+    /**
+     * Api Key
+     */
+    api_key?: string;
+    /**
+     * Base Url
+     */
+    base_url?: string;
+    /**
+     * Batch Size
+     */
+    batch_size?: number;
+    /**
+     * Timeout S
+     */
+    timeout_s?: number;
+    /**
+     * Max Retries
+     */
+    max_retries?: number;
 };
 
 /**
@@ -3224,10 +3364,25 @@ export type WorkerDetailOut = {
 
 export type HealthHealthGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/health';
 };
+
+export type HealthHealthGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HealthHealthGetError = HealthHealthGetErrors[keyof HealthHealthGetErrors];
 
 export type HealthHealthGetResponses = {
     /**
@@ -3240,10 +3395,25 @@ export type HealthHealthGetResponse = HealthHealthGetResponses[keyof HealthHealt
 
 export type McpToolsMcpToolsGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/mcp/tools';
 };
+
+export type McpToolsMcpToolsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type McpToolsMcpToolsGetError = McpToolsMcpToolsGetErrors[keyof McpToolsMcpToolsGetErrors];
 
 export type McpToolsMcpToolsGetResponses = {
     /**
@@ -3254,8 +3424,45 @@ export type McpToolsMcpToolsGetResponses = {
 
 export type McpToolsMcpToolsGetResponse = McpToolsMcpToolsGetResponses[keyof McpToolsMcpToolsGetResponses];
 
+export type HealthPluginsHealthPluginsGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/health/plugins';
+};
+
+export type HealthPluginsHealthPluginsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HealthPluginsHealthPluginsGetError = HealthPluginsHealthPluginsGetErrors[keyof HealthPluginsHealthPluginsGetErrors];
+
+export type HealthPluginsHealthPluginsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: PluginsHealthResponse;
+};
+
+export type HealthPluginsHealthPluginsGetResponse = HealthPluginsHealthPluginsGetResponses[keyof HealthPluginsHealthPluginsGetResponses];
+
 export type ListDocumentsApiDocumentsGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: {
         /**
@@ -3320,6 +3527,12 @@ export type ListDocumentsApiDocumentsGetResponse = ListDocumentsApiDocumentsGetR
 
 export type DeleteDocumentApiDocumentsDocumentIdDeleteData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Document Id
@@ -3350,6 +3563,12 @@ export type DeleteDocumentApiDocumentsDocumentIdDeleteResponse = DeleteDocumentA
 
 export type GetDocumentApiDocumentsDocumentIdGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Document Id
@@ -3380,6 +3599,12 @@ export type GetDocumentApiDocumentsDocumentIdGetResponse = GetDocumentApiDocumen
 
 export type GetDocumentStructureApiDocumentsDocumentIdStructureGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Document Id
@@ -3410,6 +3635,12 @@ export type GetDocumentStructureApiDocumentsDocumentIdStructureGetResponse = Get
 
 export type GetDocumentFileApiDocumentsDocumentIdFileGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Document Id
@@ -3438,6 +3669,12 @@ export type GetDocumentFileApiDocumentsDocumentIdFileGetResponses = {
 
 export type GetDocumentChunkHtmlApiDocumentsDocumentIdChunksChunkIdGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Document Id
@@ -3470,6 +3707,12 @@ export type GetDocumentChunkHtmlApiDocumentsDocumentIdChunksChunkIdGetResponses 
 
 export type GetImageBytesApiImagesImageIdGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Image Id
@@ -3498,6 +3741,12 @@ export type GetImageBytesApiImagesImageIdGetResponses = {
 
 export type GetImageMetaApiImagesImageIdMetaGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Image Id
@@ -3528,6 +3777,12 @@ export type GetImageMetaApiImagesImageIdMetaGetResponse = GetImageMetaApiImagesI
 
 export type PostIngestIngestPostData = {
     body?: BodyPostIngestIngestPost;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/ingest';
@@ -3553,10 +3808,25 @@ export type PostIngestIngestPostResponse = PostIngestIngestPostResponses[keyof P
 
 export type IngestQueueMetricsIngestQueueMetricsGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/ingest/queue-metrics';
 };
+
+export type IngestQueueMetricsIngestQueueMetricsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type IngestQueueMetricsIngestQueueMetricsGetError = IngestQueueMetricsIngestQueueMetricsGetErrors[keyof IngestQueueMetricsIngestQueueMetricsGetErrors];
 
 export type IngestQueueMetricsIngestQueueMetricsGetResponses = {
     /**
@@ -3569,6 +3839,12 @@ export type IngestQueueMetricsIngestQueueMetricsGetResponse = IngestQueueMetrics
 
 export type ListTasksTasksGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: {
         /**
@@ -3623,6 +3899,12 @@ export type ListTasksTasksGetResponse = ListTasksTasksGetResponses[keyof ListTas
 
 export type DeleteTaskTasksJobIdDeleteData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Job Id
@@ -3653,6 +3935,12 @@ export type DeleteTaskTasksJobIdDeleteResponse = DeleteTaskTasksJobIdDeleteRespo
 
 export type GetTaskTasksJobIdGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Job Id
@@ -3683,6 +3971,12 @@ export type GetTaskTasksJobIdGetResponse = GetTaskTasksJobIdGetResponses[keyof G
 
 export type StreamTaskTasksJobIdStreamGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Job Id
@@ -3713,6 +4007,12 @@ export type StreamTaskTasksJobIdStreamGetResponse = StreamTaskTasksJobIdStreamGe
 
 export type GetTaskLogsTasksJobIdLogsGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Job Id
@@ -3743,6 +4043,12 @@ export type GetTaskLogsTasksJobIdLogsGetResponse = GetTaskLogsTasksJobIdLogsGetR
 
 export type RetryTaskTasksJobIdRetryPostData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Job Id
@@ -3773,6 +4079,12 @@ export type RetryTaskTasksJobIdRetryPostResponse = RetryTaskTasksJobIdRetryPostR
 
 export type ListKnowledgeBasesKnowledgeBasesGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: {
         /**
@@ -3815,6 +4127,12 @@ export type ListKnowledgeBasesKnowledgeBasesGetResponse = ListKnowledgeBasesKnow
 
 export type CreateKnowledgeBaseKnowledgeBasesPostData = {
     body: KbCreate;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/knowledge_bases';
@@ -3840,10 +4158,25 @@ export type CreateKnowledgeBaseKnowledgeBasesPostResponse = CreateKnowledgeBaseK
 
 export type KnowledgeBasesOverviewKnowledgeBasesOverviewGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/knowledge_bases/overview';
 };
+
+export type KnowledgeBasesOverviewKnowledgeBasesOverviewGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type KnowledgeBasesOverviewKnowledgeBasesOverviewGetError = KnowledgeBasesOverviewKnowledgeBasesOverviewGetErrors[keyof KnowledgeBasesOverviewKnowledgeBasesOverviewGetErrors];
 
 export type KnowledgeBasesOverviewKnowledgeBasesOverviewGetResponses = {
     /**
@@ -3856,6 +4189,12 @@ export type KnowledgeBasesOverviewKnowledgeBasesOverviewGetResponse = KnowledgeB
 
 export type DeleteKnowledgeBaseKnowledgeBasesKbNameDeleteData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Kb Name
@@ -3886,6 +4225,12 @@ export type DeleteKnowledgeBaseKnowledgeBasesKbNameDeleteResponse = DeleteKnowle
 
 export type GetKnowledgeBaseKnowledgeBasesKbNameGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Kb Name
@@ -3916,6 +4261,12 @@ export type GetKnowledgeBaseKnowledgeBasesKbNameGetResponse = GetKnowledgeBaseKn
 
 export type PatchKnowledgeBaseKnowledgeBasesKbNamePatchData = {
     body: KbUpdate;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Kb Name
@@ -3946,6 +4297,12 @@ export type PatchKnowledgeBaseKnowledgeBasesKbNamePatchResponse = PatchKnowledge
 
 export type KbFormatDistributionKnowledgeBasesKbNameFormatDistributionGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Kb Name
@@ -3976,6 +4333,12 @@ export type KbFormatDistributionKnowledgeBasesKbNameFormatDistributionGetRespons
 
 export type KbIngestionVolumeKnowledgeBasesKbNameIngestionVolumeGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Kb Name
@@ -4011,6 +4374,12 @@ export type KbIngestionVolumeKnowledgeBasesKbNameIngestionVolumeGetResponse = Kb
 
 export type KbCollectionsKnowledgeBasesKbNameCollectionsGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Kb Name
@@ -4041,6 +4410,12 @@ export type KbCollectionsKnowledgeBasesKbNameCollectionsGetResponse = KbCollecti
 
 export type KbFacetsKnowledgeBasesKbNameFacetsGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Kb Name
@@ -4071,6 +4446,12 @@ export type KbFacetsKnowledgeBasesKbNameFacetsGetResponse = KbFacetsKnowledgeBas
 
 export type RebuildKnowledgeBaseKnowledgeBasesKbNameRebuildPostData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Kb Name
@@ -4101,6 +4482,12 @@ export type RebuildKnowledgeBaseKnowledgeBasesKbNameRebuildPostResponse = Rebuil
 
 export type ListTagsApiTagsGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: {
         /**
@@ -4149,6 +4536,12 @@ export type ListTagsApiTagsGetResponse = ListTagsApiTagsGetResponses[keyof ListT
 
 export type UploadAttachmentAttachmentsPostData = {
     body: BodyUploadAttachmentAttachmentsPost;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/attachments';
@@ -4174,6 +4567,12 @@ export type UploadAttachmentAttachmentsPostResponse = UploadAttachmentAttachment
 
 export type DeleteAttachmentAttachmentsAttachmentIdDeleteData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Attachment Id
@@ -4204,6 +4603,12 @@ export type DeleteAttachmentAttachmentsAttachmentIdDeleteResponse = DeleteAttach
 
 export type GetAttachmentMetaAttachmentsAttachmentIdGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Attachment Id
@@ -4234,6 +4639,12 @@ export type GetAttachmentMetaAttachmentsAttachmentIdGetResponse = GetAttachmentM
 
 export type GetAttachmentContentAttachmentsAttachmentIdContentGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Attachment Id
@@ -4262,6 +4673,12 @@ export type GetAttachmentContentAttachmentsAttachmentIdContentGetResponses = {
 
 export type ListNotificationsApiNotificationsGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: {
         /**
@@ -4300,6 +4717,12 @@ export type ListNotificationsApiNotificationsGetResponse = ListNotificationsApiN
 
 export type PatchNotificationNotificationsNotificationIdPatchData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Notification Id
@@ -4330,10 +4753,25 @@ export type PatchNotificationNotificationsNotificationIdPatchResponse = PatchNot
 
 export type ReadAllNotificationsNotificationsReadAllPostData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/notifications/read-all';
 };
+
+export type ReadAllNotificationsNotificationsReadAllPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ReadAllNotificationsNotificationsReadAllPostError = ReadAllNotificationsNotificationsReadAllPostErrors[keyof ReadAllNotificationsNotificationsReadAllPostErrors];
 
 export type ReadAllNotificationsNotificationsReadAllPostResponses = {
     /**
@@ -4346,10 +4784,25 @@ export type ReadAllNotificationsNotificationsReadAllPostResponse = ReadAllNotifi
 
 export type GetMeUsersMeGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/users/me';
 };
+
+export type GetMeUsersMeGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetMeUsersMeGetError = GetMeUsersMeGetErrors[keyof GetMeUsersMeGetErrors];
 
 export type GetMeUsersMeGetResponses = {
     /**
@@ -4362,6 +4815,12 @@ export type GetMeUsersMeGetResponse = GetMeUsersMeGetResponses[keyof GetMeUsersM
 
 export type PatchMeUsersMePatchData = {
     body: UserUpdate;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/users/me';
@@ -4387,10 +4846,25 @@ export type PatchMeUsersMePatchResponse = PatchMeUsersMePatchResponses[keyof Pat
 
 export type GetMyPreferencesUsersMePreferencesGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/users/me/preferences';
 };
+
+export type GetMyPreferencesUsersMePreferencesGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetMyPreferencesUsersMePreferencesGetError = GetMyPreferencesUsersMePreferencesGetErrors[keyof GetMyPreferencesUsersMePreferencesGetErrors];
 
 export type GetMyPreferencesUsersMePreferencesGetResponses = {
     /**
@@ -4403,6 +4877,12 @@ export type GetMyPreferencesUsersMePreferencesGetResponse = GetMyPreferencesUser
 
 export type PatchMyPreferencesUsersMePreferencesPatchData = {
     body: PreferencesUpdate;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/users/me/preferences';
@@ -4428,10 +4908,25 @@ export type PatchMyPreferencesUsersMePreferencesPatchResponse = PatchMyPreferenc
 
 export type AdminCeleryAdminCeleryGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/admin/celery';
 };
+
+export type AdminCeleryAdminCeleryGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AdminCeleryAdminCeleryGetError = AdminCeleryAdminCeleryGetErrors[keyof AdminCeleryAdminCeleryGetErrors];
 
 export type AdminCeleryAdminCeleryGetResponses = {
     /**
@@ -4444,10 +4939,25 @@ export type AdminCeleryAdminCeleryGetResponse = AdminCeleryAdminCeleryGetRespons
 
 export type AdminMinioAdminMinioGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/admin/minio';
 };
+
+export type AdminMinioAdminMinioGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AdminMinioAdminMinioGetError = AdminMinioAdminMinioGetErrors[keyof AdminMinioAdminMinioGetErrors];
 
 export type AdminMinioAdminMinioGetResponses = {
     /**
@@ -4460,10 +4970,25 @@ export type AdminMinioAdminMinioGetResponse = AdminMinioAdminMinioGetResponses[k
 
 export type AdminRedisAdminRedisGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/admin/redis';
 };
+
+export type AdminRedisAdminRedisGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AdminRedisAdminRedisGetError = AdminRedisAdminRedisGetErrors[keyof AdminRedisAdminRedisGetErrors];
 
 export type AdminRedisAdminRedisGetResponses = {
     /**
@@ -4476,10 +5001,25 @@ export type AdminRedisAdminRedisGetResponse = AdminRedisAdminRedisGetResponses[k
 
 export type AdminMilvusAdminMilvusGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/admin/milvus';
 };
+
+export type AdminMilvusAdminMilvusGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AdminMilvusAdminMilvusGetError = AdminMilvusAdminMilvusGetErrors[keyof AdminMilvusAdminMilvusGetErrors];
 
 export type AdminMilvusAdminMilvusGetResponses = {
     /**
@@ -4492,10 +5032,25 @@ export type AdminMilvusAdminMilvusGetResponse = AdminMilvusAdminMilvusGetRespons
 
 export type AdminMilvusFlushAdminMilvusFlushPostData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/admin/milvus/flush';
 };
+
+export type AdminMilvusFlushAdminMilvusFlushPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AdminMilvusFlushAdminMilvusFlushPostError = AdminMilvusFlushAdminMilvusFlushPostErrors[keyof AdminMilvusFlushAdminMilvusFlushPostErrors];
 
 export type AdminMilvusFlushAdminMilvusFlushPostResponses = {
     /**
@@ -4508,10 +5063,25 @@ export type AdminMilvusFlushAdminMilvusFlushPostResponse = AdminMilvusFlushAdmin
 
 export type AdminMilvusCleanAdminMilvusCleanPostData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/admin/milvus/clean';
 };
+
+export type AdminMilvusCleanAdminMilvusCleanPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AdminMilvusCleanAdminMilvusCleanPostError = AdminMilvusCleanAdminMilvusCleanPostErrors[keyof AdminMilvusCleanAdminMilvusCleanPostErrors];
 
 export type AdminMilvusCleanAdminMilvusCleanPostResponses = {
     /**
@@ -4524,10 +5094,25 @@ export type AdminMilvusCleanAdminMilvusCleanPostResponse = AdminMilvusCleanAdmin
 
 export type AdminPixelragAdminPixelragGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/admin/pixelrag';
 };
+
+export type AdminPixelragAdminPixelragGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AdminPixelragAdminPixelragGetError = AdminPixelragAdminPixelragGetErrors[keyof AdminPixelragAdminPixelragGetErrors];
 
 export type AdminPixelragAdminPixelragGetResponses = {
     /**
@@ -4540,10 +5125,25 @@ export type AdminPixelragAdminPixelragGetResponse = AdminPixelragAdminPixelragGe
 
 export type AdminKnowhereAdminKnowhereGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/admin/knowhere';
 };
+
+export type AdminKnowhereAdminKnowhereGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AdminKnowhereAdminKnowhereGetError = AdminKnowhereAdminKnowhereGetErrors[keyof AdminKnowhereAdminKnowhereGetErrors];
 
 export type AdminKnowhereAdminKnowhereGetResponses = {
     /**
@@ -4556,10 +5156,25 @@ export type AdminKnowhereAdminKnowhereGetResponse = AdminKnowhereAdminKnowhereGe
 
 export type AdminKnowhereFlushAdminKnowhereFlushPostData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/admin/knowhere/flush';
 };
+
+export type AdminKnowhereFlushAdminKnowhereFlushPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AdminKnowhereFlushAdminKnowhereFlushPostError = AdminKnowhereFlushAdminKnowhereFlushPostErrors[keyof AdminKnowhereFlushAdminKnowhereFlushPostErrors];
 
 export type AdminKnowhereFlushAdminKnowhereFlushPostResponses = {
     /**
@@ -4572,10 +5187,25 @@ export type AdminKnowhereFlushAdminKnowhereFlushPostResponse = AdminKnowhereFlus
 
 export type AdminKnowhereCleanAdminKnowhereCleanPostData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/admin/knowhere/clean';
 };
+
+export type AdminKnowhereCleanAdminKnowhereCleanPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AdminKnowhereCleanAdminKnowhereCleanPostError = AdminKnowhereCleanAdminKnowhereCleanPostErrors[keyof AdminKnowhereCleanAdminKnowhereCleanPostErrors];
 
 export type AdminKnowhereCleanAdminKnowhereCleanPostResponses = {
     /**
@@ -4588,10 +5218,25 @@ export type AdminKnowhereCleanAdminKnowhereCleanPostResponse = AdminKnowhereClea
 
 export type AdminVlmAdminVlmGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/admin/vlm';
 };
+
+export type AdminVlmAdminVlmGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AdminVlmAdminVlmGetError = AdminVlmAdminVlmGetErrors[keyof AdminVlmAdminVlmGetErrors];
 
 export type AdminVlmAdminVlmGetResponses = {
     /**
@@ -4604,6 +5249,12 @@ export type AdminVlmAdminVlmGetResponse = AdminVlmAdminVlmGetResponses[keyof Adm
 
 export type AdminUpdateModelRouterAdminModelRouterPatchData = {
     body: ModelRouterUpdate;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/admin/model-router';
@@ -4631,10 +5282,25 @@ export type AdminUpdateModelRouterAdminModelRouterPatchResponse = AdminUpdateMod
 
 export type AdminMcpAdminMcpGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/admin/mcp';
 };
+
+export type AdminMcpAdminMcpGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AdminMcpAdminMcpGetError = AdminMcpAdminMcpGetErrors[keyof AdminMcpAdminMcpGetErrors];
 
 export type AdminMcpAdminMcpGetResponses = {
     /**
@@ -4647,10 +5313,25 @@ export type AdminMcpAdminMcpGetResponse = AdminMcpAdminMcpGetResponses[keyof Adm
 
 export type AdminConfigAdminConfigGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/admin/config';
 };
+
+export type AdminConfigAdminConfigGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AdminConfigAdminConfigGetError = AdminConfigAdminConfigGetErrors[keyof AdminConfigAdminConfigGetErrors];
 
 export type AdminConfigAdminConfigGetResponses = {
     /**
@@ -4663,10 +5344,25 @@ export type AdminConfigAdminConfigGetResponse = AdminConfigAdminConfigGetRespons
 
 export type AdminProbesAdminProbesGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/admin/probes';
 };
+
+export type AdminProbesAdminProbesGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AdminProbesAdminProbesGetError = AdminProbesAdminProbesGetErrors[keyof AdminProbesAdminProbesGetErrors];
 
 export type AdminProbesAdminProbesGetResponses = {
     /**
@@ -4679,10 +5375,25 @@ export type AdminProbesAdminProbesGetResponse = AdminProbesAdminProbesGetRespons
 
 export type AdminLogsAdminLogsGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/admin/logs';
 };
+
+export type AdminLogsAdminLogsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AdminLogsAdminLogsGetError = AdminLogsAdminLogsGetErrors[keyof AdminLogsAdminLogsGetErrors];
 
 export type AdminLogsAdminLogsGetResponses = {
     /**
@@ -4695,6 +5406,12 @@ export type AdminLogsAdminLogsGetResponse = AdminLogsAdminLogsGetResponses[keyof
 
 export type PostSearchSearchPostData = {
     body: SearchRequest;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/search';
@@ -4720,6 +5437,12 @@ export type PostSearchSearchPostResponse = PostSearchSearchPostResponses[keyof P
 
 export type PostSearchStreamSearchStreamPostData = {
     body: SearchRequest;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/search/stream';
@@ -4745,6 +5468,12 @@ export type PostSearchStreamSearchStreamPostResponse = PostSearchStreamSearchStr
 
 export type PostQueryQueryPostData = {
     body: QueryRequest;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/query';
@@ -4770,6 +5499,12 @@ export type PostQueryQueryPostResponse = PostQueryQueryPostResponses[keyof PostQ
 
 export type PostQueryStreamQueryStreamPostData = {
     body: QueryRequest;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/query/stream';
@@ -4795,6 +5530,12 @@ export type PostQueryStreamQueryStreamPostResponse = PostQueryStreamQueryStreamP
 
 export type ListSessionsApiSessionsGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: {
         /**
@@ -4833,6 +5574,12 @@ export type ListSessionsApiSessionsGetResponse = ListSessionsApiSessionsGetRespo
 
 export type CreateSessionApiSessionsPostData = {
     body: SessionCreate;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/sessions';
@@ -4858,6 +5605,12 @@ export type CreateSessionApiSessionsPostResponse = CreateSessionApiSessionsPostR
 
 export type DeleteSessionApiSessionsSessionIdDeleteData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Session Id
@@ -4888,6 +5641,12 @@ export type DeleteSessionApiSessionsSessionIdDeleteResponse = DeleteSessionApiSe
 
 export type GetSessionApiSessionsSessionIdGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Session Id
@@ -4918,6 +5677,12 @@ export type GetSessionApiSessionsSessionIdGetResponse = GetSessionApiSessionsSes
 
 export type UpdateSessionApiSessionsSessionIdPatchData = {
     body: SessionCreate;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Session Id
@@ -4948,6 +5713,12 @@ export type UpdateSessionApiSessionsSessionIdPatchResponse = UpdateSessionApiSes
 
 export type ListMessagesApiSessionsSessionIdMessagesGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path: {
         /**
          * Session Id
@@ -4987,10 +5758,25 @@ export type ListMessagesApiSessionsSessionIdMessagesGetResponse = ListMessagesAp
 
 export type RootGetData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Plugin-Namespace
+         */
+        'X-Plugin-Namespace'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/';
 };
+
+export type RootGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type RootGetError = RootGetErrors[keyof RootGetErrors];
 
 export type RootGetResponses = {
     /**

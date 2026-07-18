@@ -241,7 +241,13 @@ ingest:
   source_type:
     rules: []       # Core default empty; industry keywords via profile / deploy YAML
     default: other
+  limits:
+    enabled: true
+    max_file_bytes: 209715200   # 200 MiB — MinerU Precision Extract max file size
+    max_pdf_pages: 200          # MinerU Precision Extract max pages per PDF
 ```
+
+When `ingest.limits.enabled` is true, `POST /ingest` and MCP `core_ingest` reject files that exceed these caps with HTTP 422 (`file_too_large` / `pdf_too_many_pages`) before MinIO upload or Celery/MinerU work. URL ingest is checked after the worker downloads the file (same limits, no Celery retry on violation).
 
 ### `plugins`
 

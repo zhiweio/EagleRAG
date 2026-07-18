@@ -1,7 +1,13 @@
 "use client";
 
 import type { RoutingMode } from "@/components/ingest/RoutingModeCards";
-import { errorMessage, useIngestFile } from "@/lib/hooks/useIngest";
+import { errorMessage, parseIngestLimitError, useIngestFile } from "@/lib/hooks/useIngest";
+import {
+  INGEST_MAX_FILE_BYTES,
+  INGEST_MAX_PDF_PAGES,
+  type IngestLimitViolation,
+  checkIngestFileLimits,
+} from "@/lib/ingest/limits";
 import type { IngestResponse } from "@/lib/types";
 import { Button } from "@heroui/react";
 import { Snowflake, UploadCloud, X } from "lucide-react";
@@ -58,6 +64,21 @@ export function UploadZone({ onIngested, onError, onBatch, kbName, mode }: Uploa
     event.target.value = "";
   }
 
+  function formatLimitMessage(violation: IngestLimitViolation): string {
+    if (violation.code === "file_too_large") {
+      return t("upload.error.file_too_large", {
+        maxMb: Math.round(INGEST_MAX_FILE_BYTES / (1024 * 1024)),
+      });
+    }
+    if (violation.code === "pdf_too_many_pages") {
+      return t("upload.error.pdf_too_many_pages", {
+        pages: violation.pages ?? 0,
+        max: INGEST_MAX_PDF_PAGES,
+      });
+    }
+    return t("upload.error.pdf_unreadable");
+  }
+
   async function handleSubmit() {
     if (staged.length === 0 || busy) return;
     setBusy(true);
@@ -66,6 +87,11 @@ export function UploadZone({ onIngested, onError, onBatch, kbName, mode }: Uploa
     await Promise.allSettled(
       files.map(async (file) => {
         try {
+          const violation = await checkIngestFileLimits(file);
+          if (violation) {
+            onError(file.name, formatLimitMessage(violation));
+            return;
+          }
           const resp = await ingestFile.mutateAsync({
             file: applyRoutingPrefix(file, mode),
             kb_name: kbName || undefined,
@@ -73,6 +99,12 @@ export function UploadZone({ onIngested, onError, onBatch, kbName, mode }: Uploa
           ok += 1;
           onIngested(resp, file.name);
         } catch (err) {
+          const limitErr = parseIngestLimitError(err);
+          if (limitErr) {
+            const suggestion = limitErr.suggestion ? ` ${limitErr.suggestion}` : "";
+            onError(file.name, `${limitErr.reason}${suggestion}`);
+            return;
+          }
           onError(file.name, errorMessage(err));
         }
       }),

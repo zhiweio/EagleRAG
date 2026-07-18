@@ -21,11 +21,16 @@
       "docsCount": "{count} 文档",
       "updatedAgo": "更新于 {time}",
       "dropTitle": "拖拽批量上传 · 或点击浏览",
-      "dropHint": "支持 PDF · Word · Excel/CSV · 图片 · URL · 单文件最大 50MB",
+      "dropHint": "支持 PDF · Word · Excel/CSV · 图片 · URL · 单文件最大 200MB / PDF 最多 200 页（MinerU 限制）",
       "submit": "提交到队列",
       "submitting": "提交中…",
       "systemDefault": "系统默认知识库",
-      "filesSelected": "已选 {count} 个文件"
+      "filesSelected": "已选 {count} 个文件",
+      "error": {
+        "file_too_large": "文件超过最大限制 {maxMb}MB（MinerU Precision Extract 上限）。请缩小或拆分后重试。",
+        "pdf_too_many_pages": "该 PDF 共 {pages} 页，上限为 {max} 页（MinerU Precision Extract 限制）。请拆分后重新上传。",
+        "pdf_unreadable": "无法读取该 PDF 的页数，请重新导出或修复文件后再试。"
+      }
     },
     "url": {
       "tab": {
