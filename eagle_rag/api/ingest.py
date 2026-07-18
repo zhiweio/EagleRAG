@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
@@ -46,6 +47,7 @@ _PIPELINE_QUEUE: dict[str, tuple[str, str]] = {
     "router": ("eagle_rag.ingest.router.ingest_router", "router_queue"),
     "knowhere": ("eagle_rag.tasks.knowhere_parse", "knowhere_queue"),
     "pixelrag": ("eagle_rag.tasks.pixelrag_build", "pixelrag_queue"),
+    "knowhere_visual": ("eagle_rag.tasks.knowhere_visual_chunks", "pixelrag_queue"),
 }
 
 _SSE_POLL_INTERVAL = 1.5
@@ -290,6 +292,34 @@ async def get_task_logs(job_id: str) -> TaskLogsResponse:
     return TaskLogsResponse(job_id=job_id, logs=audit.get("logs") or [])
 
 
+def _visual_chunks_from_minio(document_id: str) -> list[dict[str, Any]]:
+    """Rebuild ``knowhere_visual_chunks`` descriptors from MinIO object keys."""
+    from eagle_rag.config import get_settings
+    from eagle_rag.storage.minio_client import get_minio_client
+
+    bucket = get_settings().minio.bucket
+    prefix = f"{document_id}/visual_chunks/"
+    client = get_minio_client()
+    chunks: list[dict[str, Any]] = []
+    for obj in client.list_objects(bucket, prefix=prefix, recursive=True):
+        key = obj.object_name
+        if not key or key.endswith("/"):
+            continue
+        stem = Path(key).stem
+        suffix = Path(key).suffix.lower()
+        chunks.append(
+            {
+                "chunk_id": stem,
+                "type": "table" if suffix == ".html" else "image",
+                "object_key": key,
+                "summary": "",
+                "parent_section": "",
+                "file_path": key,
+            }
+        )
+    return chunks
+
+
 @router.post("/tasks/{job_id}/retry", response_model=TaskRetryResponse)
 async def retry_task(job_id: str) -> TaskRetryResponse | JSONResponse:
     """Re-dispatch a task to its Celery queue.
@@ -299,6 +329,10 @@ async def retry_task(job_id: str) -> TaskRetryResponse | JSONResponse:
     object key or HTTP URL). ``local_path`` is intentionally left None — the
     original temp file lived in the API container's filesystem and is not
     available to workers.
+
+    For ``knowhere_visual`` sub-tasks, rebuilds the ``chunks`` payload from
+    MinIO ``{document_id}/visual_chunks/`` (the original Celery kwargs are not
+    persisted in ``task_audit``).
     """
     try:
         audit = await _run_sync(task_state.get_audit, job_id)
@@ -348,19 +382,40 @@ async def retry_task(job_id: str) -> TaskRetryResponse | JSONResponse:
     except Exception:  # noqa: BLE001
         logger.warning("Failed to reset audit status to PENDING (non-fatal)")
 
+    if pipeline_key == "knowhere_visual":
+        if not document_id:
+            raise HTTPException(status_code=422, detail="visual retry requires document_id")
+        chunks = await _run_sync(_visual_chunks_from_minio, document_id)
+        if not chunks:
+            raise HTTPException(
+                status_code=422,
+                detail=f"no visual chunks in MinIO for document_id={document_id}",
+            )
+        parent_job_id = job_id.removesuffix(":visual") if job_id.endswith(":visual") else job_id
+        kwargs: dict[str, Any] = {
+            "job_id": job_id,
+            "parent_job_id": parent_job_id,
+            "document_id": document_id,
+            "kb_name": kb_name,
+            "source_type": source_type_hint or "other",
+            "chunks": chunks,
+        }
+    else:
+        kwargs = {
+            "job_id": job_id,
+            "document_id": document_id,
+            "name": name,
+            "object_key": object_key,
+            "local_path": None,
+            "source_uri": source_uri,
+            "source_type_hint": source_type_hint,
+            "kb_name": kb_name,
+        }
+
     try:
         celery_app.send_task(
             task_name,
-            kwargs={
-                "job_id": job_id,
-                "document_id": document_id,
-                "name": name,
-                "object_key": object_key,
-                "local_path": None,
-                "source_uri": source_uri,
-                "source_type_hint": source_type_hint,
-                "kb_name": kb_name,
-            },
+            kwargs=kwargs,
             queue=queue,
             routing_key=queue,
         )

@@ -331,6 +331,8 @@ def pixelrag_build(
     source_type: str = "financial",
     kb_name: str | None = None,
     year: int | None = None,
+    plugin_namespace: str | None = None,
+    sha256: str | None = None,
 ) -> None:
     """PixelRAG pipeline: render → slice → embed → write the visual index.
 
@@ -525,10 +527,17 @@ def knowhere_visual_chunks(
     resolved_kb = kb_name if kb_name is not None else settings.kb_name
 
     # Create an independent audit record for this visual sub-task.
-    from eagle_rag.tasks.state import create_audit, get_audit
+    from eagle_rag.tasks.state import create_audit, get_audit, prepare_rerun
 
-    if get_audit(job_id) is None:
+    existing = get_audit(job_id)
+    if existing is None:
         create_audit(job_id, document_id, "knowhere_visual", kb_name=resolved_kb)
+    else:
+        # Worker restart / acks_late redelivery leaves audits mid-pipeline
+        # (embedding/indexing). prepare_rerun bridges to a legal RENDERING entry.
+        if (existing.get("status") or "").lower() == TaskState.SUCCESS.value:
+            return
+        prepare_rerun(job_id)
 
     try:
         with trace_span("ingest.knowhere_visual"):

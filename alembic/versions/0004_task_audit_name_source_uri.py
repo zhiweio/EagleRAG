@@ -28,12 +28,22 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """新增 name / source_uri 列。"""
-    op.add_column("task_audit", sa.Column("name", sa.Text(), nullable=True))
-    op.add_column("task_audit", sa.Column("source_uri", sa.Text(), nullable=True))
+    """Add name / source_uri when missing (0001 create_all may already have them)."""
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {col["name"] for col in inspector.get_columns("task_audit")}
+    if "name" not in columns:
+        op.add_column("task_audit", sa.Column("name", sa.Text(), nullable=True))
+    if "source_uri" not in columns:
+        op.add_column("task_audit", sa.Column("source_uri", sa.Text(), nullable=True))
 
 
 def downgrade() -> None:
-    """删除 name / source_uri 列。"""
-    op.drop_column("task_audit", "source_uri")
-    op.drop_column("task_audit", "name")
+    """Drop name / source_uri when present."""
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {col["name"] for col in inspector.get_columns("task_audit")}
+    if "source_uri" in columns:
+        op.drop_column("task_audit", "source_uri")
+    if "name" in columns:
+        op.drop_column("task_audit", "name")

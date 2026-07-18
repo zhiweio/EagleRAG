@@ -113,14 +113,18 @@ def retry_on_failure(task: Any, exc: BaseException) -> None:
     Marks the audit as RETRYING before retrying; on exhaustion ``send_to_dead_letter``
     marks it FAILED.
     """
-    from eagle_rag.tasks.state import TaskState, update_state
+    from eagle_rag.tasks.state import TaskState, prepare_rerun, update_state
 
-    job_id = task.request.id
+    # Prefer the audit job_id from kwargs (e.g. "{parent}:visual"); Celery's
+    # request.id is a different UUID and would miss the task_audit row.
+    kwargs = dict(task.request.kwargs) if task.request.kwargs else {}
+    job_id = kwargs.get("job_id") or task.request.id
     max_retries = task.max_retries or _cfg.max_retries
     if task.request.retries < max_retries:
         countdown = _cfg.retry_backoff * (2**task.request.retries)
         if job_id is not None:
             try:
+                prepare_rerun(job_id)
                 update_state(
                     job_id,
                     TaskState.RETRYING,

@@ -12,7 +12,7 @@ established only when the worker starts or a task is dispatched.
 from __future__ import annotations
 
 from celery import Celery
-from celery.signals import task_prerun, worker_process_init
+from celery.signals import task_prerun, worker_init, worker_process_init
 from kombu import Queue
 
 from eagle_rag.config import get_settings
@@ -30,11 +30,13 @@ _IMPORTED_MODULES: set[str] = set()
 
 _cfg = get_settings().celery
 
+# ``include`` loads task modules after this module finishes initializing, avoiding
+# the circular import ``celery_app → task module → dead_letter → celery_app``.
 app = Celery(
     "eagle_rag",
     broker=_cfg.broker_url,
     backend=_cfg.result_backend,
-    include=[],
+    include=list(_BASE_CELERY_MODULES),
 )
 
 # Three pipeline queues: router (dispatch) / knowhere (structured parsing)
@@ -109,6 +111,18 @@ from eagle_rag.telemetry import (  # noqa: E402
 )
 
 
+@worker_init.connect
+def _on_worker_init(**kwargs) -> None:  # noqa: ANN001
+    """Import plugin Celery modules in the worker main process before consuming."""
+    try:
+        from eagle_rag.plugins import get_plugin_manager
+
+        get_plugin_manager()
+        autodiscover_tasks()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @worker_process_init.connect
 def _init_worker(**kwargs) -> None:  # noqa: ANN001
     """Configure telemetry (dual logger + tracing) on worker subprocess startup."""
@@ -147,7 +161,6 @@ def _ensure_telemetry_on_task(**kwargs) -> None:  # noqa: ANN001
 
 
 register_celery_signals(app)
-
 
 celery_app = app
 

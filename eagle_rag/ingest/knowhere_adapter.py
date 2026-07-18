@@ -779,6 +779,7 @@ def knowhere_parse(  # noqa: ANN001
     source_uri: str | None = None,
     kb_name: str | None = None,
     sha256: str | None = None,
+    plugin_namespace: str | None = None,
 ) -> None:
     """Knowhere pipeline: fetch file → SDK parse → vectorize → Milvus → update registry.
 
@@ -791,8 +792,12 @@ def knowhere_parse(  # noqa: ANN001
         source_type: Source type (policy/financial/business/bidding/tax/other).
         source_uri: Original source URI (logging only).
         kb_name: Knowledge base id; falls back to ``settings.kb_name`` when None.
+        plugin_namespace: Plugin namespace from the router; defaults to instance binding.
     """
+    from eagle_rag.db.repositories.base import instance_namespace
+
     effective_kb = kb_name if kb_name is not None else get_settings().kb_name
+    ns = instance_namespace(plugin_namespace)
 
     try:
         with trace_span("ingest.knowhere"):
@@ -820,7 +825,6 @@ def knowhere_parse(  # noqa: ANN001
 
             from eagle_rag.plugins.hotpath_hooks import apply_chunk_hook, apply_parse_hook
 
-            ns = get_settings().plugins.default_namespace
             parse_result = apply_parse_hook(
                 parse_result,
                 file_path=str(file_path),
@@ -904,7 +908,7 @@ def knowhere_parse(  # noqa: ANN001
 
                 mgr = get_plugin_manager()
                 hook_ctx = HookContext(
-                    plugin_namespace=get_settings().plugins.default_namespace,
+                    plugin_namespace=ns,
                     kb_name=effective_kb,
                     document_id=document_id,
                 )
@@ -963,7 +967,7 @@ def knowhere_parse(  # noqa: ANN001
                 document_id,
                 effective_kb,
                 collections,
-                plugin_namespace=settings_ns.plugins.default_namespace,
+                plugin_namespace=ns,
             )
 
             # 7. Done.

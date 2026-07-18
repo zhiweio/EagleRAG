@@ -32,6 +32,7 @@ __all__ = [
     "validate_transition",
     "transition",
     "create_audit",
+    "prepare_rerun",
     "update_state",
     "get_audit",
     "list_audits",
@@ -94,6 +95,7 @@ ALLOWED_TRANSITIONS: dict[TaskState, set[TaskState]] = {
     TaskState.FAILED: {
         TaskState.PENDING,
         TaskState.RENDERING,
+        TaskState.RETRYING,
         TaskState.FAILED,
     },  # Auto-retry / manual replay
 }
@@ -114,6 +116,36 @@ def transition(from_state: TaskState, to_state: TaskState) -> None:
         raise InvalidStateTransitionError(
             f"illegal state transition: {from_state.value} -> {to_state.value}"
         )
+
+
+def prepare_rerun(job_id: str, *, log_entry: str | None = None) -> TaskState | None:
+    """Move an interrupted audit into a state that can legally enter ``RENDERING``.
+
+    Worker restarts (acks_late redelivery) leave audits in ``embedding`` /
+    ``indexing`` / ``rendering``. Restarting the pipeline calls
+    ``update_state(RENDERING)`` which is illegal from those states and aborts
+    the rerun. This helper bridges via ``RETRYING`` (or ``PENDING`` from
+    ``FAILED``). Returns the status after preparation, or ``None`` if missing.
+    """
+    row = sync_fetchone("SELECT status FROM task_audit WHERE job_id = %s", (job_id,))
+    if row is None:
+        return None
+    current = TaskState(row[0])
+    if current in (TaskState.PENDING, TaskState.RETRYING, TaskState.SUCCESS):
+        return current
+    if current == TaskState.FAILED:
+        update_state(
+            job_id,
+            TaskState.PENDING,
+            log_entry=log_entry or "Reset failed audit for rerun",
+        )
+        return TaskState.PENDING
+    update_state(
+        job_id,
+        TaskState.RETRYING,
+        log_entry=log_entry or "Interrupted; preparing pipeline rerun",
+    )
+    return TaskState.RETRYING
 
 
 # ---------------------------------------------------------------------------
