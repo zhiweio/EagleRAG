@@ -111,7 +111,7 @@ flowchart TB
 
 | 原则 | 实现 | 文档 |
 | --- | --- | --- |
-| 惰性初始化 | `get_settings()`、Milvus 客户端、`_Qwen3VLVisualEncoder` | [系统设计](system-design.md) |
+| 惰性初始化 | `get_settings()`、Milvus 客户端、`get_visual_encoder()` | [系统设计](system-design.md) |
 | 优雅降级 | 检索器 `try/except` → `[]`；非阻塞视觉分发 | [可靠性](reliability.md) |
 | 同步 + 异步 DB | `*_sync` / 异步 store 对 | [系统设计](system-design.md) |
 | 适配器模式 | `knowhere_adapter`、`pixelrag_adapter` → LlamaIndex 节点 | [系统设计](system-design.md) |

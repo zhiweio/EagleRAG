@@ -36,10 +36,10 @@ class PluginManager:
 
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
-        self.bus = HookBus()
+        self.audit = PluginAudit.from_settings(self._settings)
+        self.bus = HookBus(audit=self.audit)
         self.encoder_registry = EncoderRegistry()
         self.collection_registry = CollectionStoreRegistry()
-        self.audit = PluginAudit()
         self._loaded: list[LoadedPlugin] = []
         self._pipeline_registry: dict[str, Any] = {}
         self._mcp_tools: list[dict[str, Any]] = []
@@ -218,6 +218,7 @@ class PluginManager:
     def health_payload(self) -> dict[str, Any]:
         if not self._bootstrapped:
             self.load_all()
+        recent = self.audit.recent()
         return {
             "default_namespace": self.default_namespace,
             "enabled_modules": [p.module_path for p in self._loaded],
@@ -235,6 +236,8 @@ class PluginManager:
                 for p in self._loaded
             ],
             "celery_modules": self.collect_celery_modules(),
+            "recent_decisions": recent,
+            "audit_stats": self.audit.audit_stats(),
         }
 
     def register_pipeline(self, name: str, pipeline: Any) -> None:

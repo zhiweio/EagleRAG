@@ -109,6 +109,7 @@ class PixelRAGVisualRetriever(BaseRetriever):
         source_type: str | None = None,
         parent_section: str | None = None,
         chunk_type: str | None = None,
+        plugin_namespace: str | None = None,
     ) -> None:
         super().__init__()
         self.top_k = top_k
@@ -120,6 +121,10 @@ class PixelRAGVisualRetriever(BaseRetriever):
         self.source_type = source_type
         self.parent_section = parent_section
         self.chunk_type = chunk_type
+        # Plugin namespace -> Milvus Database binding (G17). None falls back to the
+        # instance default inside ``get_visual_client``; a non-core namespace binds
+        # the visual search to that namespace's Milvus Database.
+        self.plugin_namespace = plugin_namespace
 
     def _search_params(self) -> dict[str, Any]:
         return {
@@ -131,6 +136,7 @@ class PixelRAGVisualRetriever(BaseRetriever):
             "source_type": self.source_type,
             "parent_section": self.parent_section,
             "chunk_type": self.chunk_type,
+            "plugin_namespace": self.plugin_namespace,
         }
 
     def _fetch_k(self) -> int:

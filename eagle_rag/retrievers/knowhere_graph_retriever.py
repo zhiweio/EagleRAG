@@ -82,6 +82,7 @@ class KnowhereGraphRetriever(BaseRetriever):
         document_ids: list[str] | None = None,
         source_type: str | None = None,
         year: int | None = None,
+        plugin_namespace: str | None = None,
     ) -> None:
         super().__init__()
         self.top_k = top_k
@@ -101,6 +102,11 @@ class KnowhereGraphRetriever(BaseRetriever):
         self.document_ids = document_ids or []
         self.source_type = source_type
         self.year = year
+        # Plugin namespace -> Milvus Database binding (G17). None falls back to the
+        # instance default inside ``get_text_index``; a non-core namespace binds the
+        # text index to that namespace's Milvus Database so retrieval never crosses
+        # domains.
+        self.plugin_namespace = plugin_namespace
 
     def _build_filters(
         self,
@@ -223,7 +229,7 @@ class KnowhereGraphRetriever(BaseRetriever):
         t0 = time.monotonic()
         with trace_span("retrieve.text") as span:
             try:
-                text_index = get_text_index()
+                text_index = get_text_index(plugin_namespace=self.plugin_namespace)
                 use_parent_doc = get_settings().router.parent_doc_retrieval
                 if use_parent_doc:
                     raw_nodes = self._parent_doc_retrieve(text_index, query_str)

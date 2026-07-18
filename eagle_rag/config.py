@@ -154,9 +154,24 @@ class TextEmbeddingSettings(BaseModel):
 
 
 class VisualEmbeddingSettings(BaseModel):
+    """Core visual embedding (PixelRAG tiles / image queries).
+
+    ``provider``:
+    - ``pixelrag`` — local Hugging Face Qwen3-VL-Embedding (torch/transformers)
+    - ``dashscope`` — Bailian ``qwen3-vl-embedding`` via DashScope MultiModalEmbedding
+
+    Ingest and query must use the same provider; switching requires rebuilding
+    ``eagle_visual`` (vectors are not mixed across backends).
+    """
+
     provider: str
     model: str
     dim: int
+    api_key: str = ""
+    base_url: str = ""  # native DashScope API base (not OpenAI-compatible)
+    batch_size: int = 5
+    timeout_s: float = 60.0
+    max_retries: int = 3
 
 
 class EmbeddingSettings(BaseModel):
@@ -458,6 +473,11 @@ class TelemetrySettings(BaseModel):
     otlp_endpoint: str = ""
     otlp_insecure: bool = True
     redis_log_channel: str = "logs"
+    # PluginAudit multi-sink knobs (memory ring + Redis recent + AI JSONL + metrics).
+    plugin_audit_enabled: bool = True
+    plugin_audit_ring_cap: int = 1000
+    plugin_audit_redis_enabled: bool = True
+    plugin_audit_health_limit: int = 50
 
 
 class McpOAuthSettings(BaseModel):

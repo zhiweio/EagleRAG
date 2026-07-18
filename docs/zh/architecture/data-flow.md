@@ -154,7 +154,7 @@ flowchart TD
 扫描 PDF、图片、URL、HTML：
 
 1. 渲染页为切片（`pixelrag_render`）— 设置：`tile_height`、`viewport_width`、`pdf_dpi`
-2. `INGEST_VISUAL_EXTRACT` → `IngestOrchestrator` 分类并嵌入切片（`_Qwen3VLVisualEncoder`）— 2048 维，L2 归一化
+2. `INGEST_VISUAL_EXTRACT` → `IngestOrchestrator` 分类并嵌入切片（`get_visual_encoder()`）— 2048 维，L2 归一化
 3. `UPSERT_VECTORS` → `eagle_visual` — `chunk_type=tile`
 4. `update_status(ready)`；`collections_used` 目录；成功时 `dedup.register()`
 
@@ -239,7 +239,7 @@ def query(self, query, mode=None, kb_name=None, scope_filter=None, attachments=N
 
 **`eagle_visual`（经 `PixelRAGVisualRetriever` 或编排器 plan）：**
 
-1. 经 `_Qwen3VLVisualEncoder` 嵌入查询（与切片同空间）
+1. 经 `get_visual_encoder()` 嵌入查询（与切片同 provider/空间）
 2. `milvus_visual_store.py` 中 `search_visual()` — IP 搜索，`ef=64`
 3. 标量 expr：`kb_name`、`document_id`、可选 `chunk_type`、`parent_section`
 

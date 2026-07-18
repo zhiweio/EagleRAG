@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1.7
-# Eagle-RAG 前端镜像（Next.js standalone 输出，多阶段构建）。
-# builder：Bun 安装依赖并构建（next.config.ts output:"standalone" 产出 .next/standalone）。
-# runtime：精简 Node 运行时，仅拷贝 standalone server + static + public + messages。
-# 构建期注入 NEXT_PUBLIC_API_URL（浏览器访问后端 API 的地址，会被内联到客户端产物）。
-# 构建：docker build -f docker/Dockerfile.frontend -t eagle-rag-frontend \
+# Eagle-RAG frontend image (Next.js standalone output, multi-stage).
+# builder: Bun install + build (next.config.ts output:"standalone" → .next/standalone).
+# runtime: slim Node runtime with only standalone server + static + public + messages.
+# Build-time inject NEXT_PUBLIC_API_URL (browser → backend API; inlined into client bundle).
+# Build: docker build -f docker/Dockerfile.frontend -t eagle-rag-frontend \
 #         --build-arg NEXT_PUBLIC_API_URL=http://localhost:8000 .
 ARG NODE_VERSION=20
 
@@ -12,15 +12,15 @@ FROM oven/bun:1.2.18 AS builder
 
 WORKDIR /app
 
-# 构建期注入前端访问后端 API 的地址（Next.js 将 NEXT_PUBLIC_* 内联到客户端产物）。
+# Build-time browser → backend API URL (Next.js inlines NEXT_PUBLIC_* into the client bundle).
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 
-# 先装依赖（利用层缓存）：仅复制 manifest 与锁文件后执行冻结安装。
+# Install deps first (layer cache): copy manifests/lockfile, then frozen install.
 COPY frontend/package.json frontend/bun.lock ./
 RUN bun install --frozen-lockfile
 
-# 复制前端源码并构建（output:"standalone" 产出 .next/standalone）。
+# Copy frontend source and build (output:"standalone" → .next/standalone).
 COPY frontend/ ./
 RUN bun run build
 
@@ -33,12 +33,12 @@ ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
     PORT=3000
 
-# standalone 产物：含最小化 server.js 与运行所需 node_modules。
+# Standalone output: minimal server.js plus required node_modules.
 COPY --from=builder /app/.next/standalone ./
-# standalone 默认不含 static / public，需单独拷贝。
+# Standalone omits static / public by default; copy them separately.
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
-# next-intl 在运行时用 readFileSync 读取 messages/*.json（standalone 无法 trace），必须显式拷贝。
+# next-intl reads messages/*.json via readFileSync at runtime (not traced by standalone).
 COPY --from=builder /app/messages ./messages
 
 EXPOSE 3000

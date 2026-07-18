@@ -150,25 +150,41 @@ async def _probe_milvus() -> dict[str, Any]:
 
 
 async def _probe_pixelrag() -> dict[str, Any]:
-    """Probe PixelRAG library availability (can pixelrag_render / pixelrag_embed be imported).
+    """Probe PixelRAG render library + visual embedding provider configuration.
 
-    PixelRAG is now a library call, no longer deployed as a standalone serve.
-    The library is an **optional dependency** (pyproject ``[vision]`` extra,
-    commented out by default); when not enabled the system falls back to mock and
-    still works. Therefore a missing install is reported as ``unknown`` (optional
-    dependency not enabled) rather than ``down`` (service failure) -- this avoids
-    conflating with a real "should be up but isn't" failure and keeps dashboard
-    coloring/semantics accurate.
+    Render still requires ``pixelrag_render``. Visual encode may be local HF
+    (``provider=pixelrag``) or Bailian DashScope (``provider=dashscope``).
     """
     import importlib.util
 
+    from eagle_rag.config import get_settings
+
     def _check() -> dict[str, Any]:
+        settings = get_settings()
+        provider = (settings.embedding.visual.provider or "").strip().lower()
         modules = [m for m in ("pixelrag_render", "pixelrag_embed") if importlib.util.find_spec(m)]
+        if provider == "dashscope":
+            has_key = bool(
+                settings.embedding.visual.api_key
+                or __import__("os").environ.get("DASHSCOPE_API_KEY")
+            )
+            if not has_key:
+                return {
+                    "status": "down",
+                    "detail": "visual provider=dashscope but DASHSCOPE_API_KEY missing",
+                }
+            detail = f"visual=dashscope model={settings.embedding.visual.model}"
+            if modules:
+                detail = f"{detail}; libraries={','.join(modules)}"
+            return {"status": "up", "detail": detail}
         if modules:
-            return {"status": "up", "detail": f"libraries={','.join(modules)}"}
+            return {
+                "status": "up",
+                "detail": f"visual=pixelrag libraries={','.join(modules)}",
+            }
         return {
             "status": "unknown",
-            "detail": "optional vision extra not installed (mock fallback)",
+            "detail": "pixelrag libraries not installed (visual provider=pixelrag)",
         }
 
     return await asyncio.to_thread(_check)

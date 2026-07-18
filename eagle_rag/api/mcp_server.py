@@ -472,10 +472,15 @@ def retrieve_text(
         _set_cache_hit(True)
         return _cached
     try:
+        from eagle_rag.plugins import get_plugin_manager
         from eagle_rag.retrievers.knowhere_graph_retriever import KnowhereGraphRetriever
 
         def _do_retrieve():
-            retriever = KnowhereGraphRetriever(top_k=top_k, kb_name=kb_name)
+            retriever = KnowhereGraphRetriever(
+                top_k=top_k,
+                kb_name=kb_name,
+                plugin_namespace=get_plugin_manager().default_namespace,
+            )
             return retriever.retrieve(query)
 
         nodes = resilient_call("core_retrieve_text", _do_retrieve) or []
@@ -676,10 +681,15 @@ def retrieve_visual(
         _set_cache_hit(True)
         return _cached
     try:
+        from eagle_rag.plugins import get_plugin_manager
         from eagle_rag.retrievers.pixelrag_visual_retriever import PixelRAGVisualRetriever
 
         def _do_retrieve():
-            retriever = PixelRAGVisualRetriever(top_k=top_k, kb_name=kb_name)
+            retriever = PixelRAGVisualRetriever(
+                top_k=top_k,
+                kb_name=kb_name,
+                plugin_namespace=get_plugin_manager().default_namespace,
+            )
             return retriever.retrieve(query or "", query_image_bytes=image_bytes)
 
         nodes = resilient_call("core_retrieve_visual", _do_retrieve) or []

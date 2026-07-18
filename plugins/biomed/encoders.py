@@ -8,6 +8,11 @@ Medical imaging encoders (MedImageInsight / UNI 2) **never** call Core
 - ``auto`` (default) — try native weights; if unavailable and
   ``EAGLE_BIOMED_ALLOW_DETERMINISTIC=1``, fall back to deterministic;
   otherwise raise.
+
+``medimageinsight`` prefers ``open_clip`` with HuggingFace Hub refs
+(``hf-hub:microsoft/BiomedCLIP-...``) so both ``encode_image`` and the
+CLIP text tower (``encode_text``) share one embedding space for
+text→radiology retrieval. Core ``eagle_visual`` / Qwen is untouched.
 """
 
 from __future__ import annotations
@@ -44,8 +49,7 @@ COLLECTION_DIMS: dict[str, int] = {
 _DEFAULT_HF_MODELS: dict[str, str] = {
     "pubmedbert": "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext",
     "molformer": "seyonec/ChemBERTa-zinc-base-v1",
-    # Public HF stand-ins when dedicated MedImageInsight / UNI2 checkpoints
-    # are not mounted; override via EAGLE_BIOMED_*_MODEL.
+    # Public HF stand-in for MedImageInsight; override via EAGLE_BIOMED_MEDIMAGE_MODEL.
     "medimageinsight": "microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
     "uni2": "MahmoodLab/UNI2-h",
 }
@@ -83,13 +87,34 @@ def _model_id_for(name: str) -> str:
     return os.environ.get(env_map[name], _DEFAULT_HF_MODELS.get(name, "")).strip()
 
 
+def _open_clip_model_ref(model_id: str) -> str:
+    """Normalize a model id for open_clip (HF hub or native name)."""
+    ref = model_id.strip()
+    if not ref:
+        return ref
+    if ref.startswith("hf-hub:"):
+        return ref
+    # Local open_clip checkpoint (.bin) or native name (ViT-B-32) — leave as-is.
+    if ref.endswith(".bin") or "/" not in ref:
+        return ref
+    return f"hf-hub:{ref}"
+
+
+def _prefer_open_clip(name: str, model_id: str) -> bool:
+    """BiomedCLIP / CLIP-family checkpoints load via open_clip; UNI stays on HF."""
+    if name == "medimageinsight":
+        return True
+    lowered = model_id.lower()
+    return "biomedclip" in lowered or "clip" in lowered
+
+
 class EncoderLoadError(RuntimeError):
     """Raised when a domain encoder cannot load native weights."""
 
 
 @dataclass
 class LazyDomainEncoder:
-    """Lazy-load HuggingFace encoders; never routes medical images through Qwen3-VL."""
+    """Lazy-load HuggingFace / open_clip encoders; never routes medical images through Qwen3-VL."""
 
     name: str
     dim: int
@@ -97,6 +122,13 @@ class LazyDomainEncoder:
     hf_model_id: str | None = None
     _backend: Any = None
     _backend_kind: str | None = None
+
+    def _fit_dim(self, pooled: list[float]) -> list[float]:
+        if len(pooled) > self.dim:
+            pooled = pooled[: self.dim]
+        elif len(pooled) < self.dim:
+            pooled = pooled + [0.0] * (self.dim - len(pooled))
+        return l2_normalize([float(x) for x in pooled])
 
     def _resolve_mode_vector(self, seed: str) -> list[float]:
         mode = _encoder_mode()
@@ -138,15 +170,19 @@ class LazyDomainEncoder:
         summed = (hidden * mask).sum(dim=1)
         counts = mask.sum(dim=1).clamp(min=1e-9)
         pooled = (summed / counts).squeeze(0).tolist()
-        if len(pooled) > self.dim:
-            pooled = pooled[: self.dim]
-        elif len(pooled) < self.dim:
-            pooled = pooled + [0.0] * (self.dim - len(pooled))
-        return l2_normalize([float(x) for x in pooled])
+        return self._fit_dim(pooled)
 
     def encode_text(self, text: str) -> list[float]:
+        """Encode text.
+
+        For ``modality="text"`` this is a text-only encoder (PubMedBERT / MolFormer).
+        For ``modality="visual"`` this is the CLIP **text tower** used for
+        text→image ANN against specialized medical collections (not Qwen).
+        """
+        if self.modality == "visual":
+            return self._encode_clip_text_query(text)
         if self.modality != "text":
-            msg = f"encoder {self.name!r} is not a text encoder"
+            msg = f"encoder {self.name!r} does not support encode_text"
             raise ValueError(msg)
         if _encoder_mode() == "deterministic":
             return deterministic_text_embedding(text, self.dim)
@@ -168,33 +204,52 @@ class LazyDomainEncoder:
     def encode_texts(self, texts: list[str]) -> list[list[float]]:
         return [self.encode_text(t) for t in texts]
 
-    def _load_vision_backend(self) -> Any:
-        """Load a vision encoder via open_clip / transformers (not Qwen3-VL)."""
-        model_id = self.hf_model_id or _model_id_for(self.name)
-        if not model_id:
-            raise EncoderLoadError(f"no vision model configured for {self.name!r}")
+    def _load_open_clip_backend(self, model_id: str) -> dict[str, Any]:
+        """Load BiomedCLIP-style weights via open_clip (image + text towers)."""
+        import open_clip
+        import torch
+        from PIL import Image
 
-        # Prefer open_clip for BiomedCLIP-style checkpoints.
-        try:
-            import open_clip
-            import torch
-            from PIL import Image
+        ref = _open_clip_model_ref(model_id)
+        if not ref:
+            raise EncoderLoadError(f"empty open_clip model ref for {self.name!r}")
 
+        if ref.startswith("hf-hub:"):
+            model, preprocess = open_clip.create_model_from_pretrained(ref)
+            tokenizer = open_clip.get_tokenizer(ref)
+        elif ref.endswith(".bin"):
+            # Local checkpoint: model architecture name via env, weights from path.
+            arch = os.environ.get(
+                "EAGLE_BIOMED_OPENCLIP_ARCH",
+                "ViT-B-16",
+            ).strip()
             model, _, preprocess = open_clip.create_model_and_transforms(
-                model_id,
-                pretrained="openai" if "/" not in model_id else None,
+                arch,
+                pretrained=ref,
             )
-            model.eval()
-            return {
-                "kind": "open_clip",
-                "model": model,
-                "preprocess": preprocess,
-                "torch": torch,
-                "Image": Image,
-            }
-        except Exception:  # noqa: BLE001
-            pass
+            tokenizer = open_clip.get_tokenizer(arch)
+        else:
+            pretrained = os.environ.get(
+                "EAGLE_BIOMED_OPENCLIP_PRETRAINED",
+                "openai",
+            ).strip()
+            model, _, preprocess = open_clip.create_model_and_transforms(
+                ref,
+                pretrained=pretrained,
+            )
+            tokenizer = open_clip.get_tokenizer(ref)
 
+        model.eval()
+        return {
+            "kind": "open_clip",
+            "model": model,
+            "preprocess": preprocess,
+            "tokenizer": tokenizer,
+            "torch": torch,
+            "Image": Image,
+        }
+
+    def _load_hf_vision_backend(self, model_id: str) -> dict[str, Any]:
         import torch
         from PIL import Image
         from transformers import AutoModel, AutoProcessor
@@ -209,6 +264,65 @@ class LazyDomainEncoder:
             "torch": torch,
             "Image": Image,
         }
+
+    def _load_vision_backend(self) -> Any:
+        """Load a vision encoder via open_clip / transformers (not Qwen3-VL)."""
+        model_id = self.hf_model_id or _model_id_for(self.name)
+        if not model_id:
+            raise EncoderLoadError(f"no vision model configured for {self.name!r}")
+
+        errors: list[str] = []
+        if _prefer_open_clip(self.name, model_id):
+            try:
+                return self._load_open_clip_backend(model_id)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"open_clip: {exc}")
+
+        try:
+            return self._load_hf_vision_backend(model_id)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"hf_vision: {exc}")
+            detail = "; ".join(errors) if errors else str(exc)
+            raise EncoderLoadError(
+                f"visual encoder {self.name!r} failed to load (model_id={model_id!r}): {detail}"
+            ) from exc
+
+    def _encode_open_clip_text(self, text: str) -> list[float]:
+        backend = self._backend
+        torch = backend["torch"]
+        tokens = backend["tokenizer"]([text])
+        with torch.no_grad():
+            feats = backend["model"].encode_text(tokens)
+            feats = feats / feats.norm(dim=-1, keepdim=True)
+        return self._fit_dim(feats.squeeze(0).tolist())
+
+    def _encode_clip_text_query(self, text: str) -> list[float]:
+        """Text tower for specialized visual collections (text→image retrieval)."""
+        if _encoder_mode() == "deterministic":
+            return deterministic_text_embedding(text, self.dim)
+        try:
+            if self._backend is None or self._backend_kind not in {
+                "open_clip",
+                "hf_vision",
+            }:
+                self._backend = self._load_vision_backend()
+                self._backend_kind = self._backend["kind"]
+            if self._backend_kind != "open_clip":
+                raise EncoderLoadError(
+                    f"encoder {self.name!r} has no CLIP text tower "
+                    f"(backend={self._backend_kind!r}); install open-clip-torch "
+                    "(`uv sync --extra biomed`) for text→image radiology retrieval"
+                )
+            return self._encode_open_clip_text(text)
+        except Exception as exc:  # noqa: BLE001
+            if isinstance(exc, EncoderLoadError):
+                raise
+            try:
+                return self._resolve_mode_vector(text)
+            except EncoderLoadError:
+                raise EncoderLoadError(
+                    f"visual encoder {self.name!r} text tower failed (no Qwen fallback): {exc}"
+                ) from exc
 
     def _encode_vision_bytes(self, image_bytes: bytes) -> list[float]:
         if self._backend is None or self._backend_kind not in {"open_clip", "hf_vision"}:
@@ -243,11 +357,7 @@ class LazyDomainEncoder:
             feats = feats / feats.norm(dim=-1, keepdim=True).clamp(min=1e-9)
             pooled = feats.squeeze(0).tolist()
 
-        if len(pooled) > self.dim:
-            pooled = pooled[: self.dim]
-        elif len(pooled) < self.dim:
-            pooled = pooled + [0.0] * (self.dim - len(pooled))
-        return l2_normalize([float(x) for x in pooled])
+        return self._fit_dim(pooled)
 
     def encode_image(self, image_bytes: bytes) -> list[float]:
         """Encode medical / domain images. Never uses Qwen3-VL."""

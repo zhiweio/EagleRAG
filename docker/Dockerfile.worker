@@ -94,7 +94,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     HF_HOME=/opt/huggingface \
     VISUAL_EMBEDDING_MODEL=/opt/huggingface/model \
     QUEUES=router_queue \
-    CONCURRENCY=4
+    CONCURRENCY=4 \
+    # PluginAudit multi-sink defaults (override via compose / .env).
+    # Cross-process recent window requires CELERY_BROKER_URL → redis service.
+    TELEMETRY_ENABLED=true \
+    AI_TELEMETRY_LOG_FILE=logs/ai_telemetry.jsonl \
+    OP_LOG_FILE=logs/eagle_rag.log \
+    PLUGIN_AUDIT_ENABLED=true \
+    PLUGIN_AUDIT_REDIS_ENABLED=true
 
 WORKDIR /app
 
@@ -115,6 +122,7 @@ COPY --from=model-prefetch /opt/huggingface /opt/huggingface
 # Stable symlink for pixelrag_render CHROME_PATH (survives Playwright version bumps).
 RUN ln -sf /opt/pw-browsers/chromium-*/chrome-linux/chrome /usr/local/bin/chrome
 
+# /app/logs holds PluginAudit AI JSONL + ops log; compose mounts ./logs:/app/logs.
 RUN useradd --create-home --uid 1000 eagle \
     && mkdir -p /app/logs /app/data /home/eagle/.cache/knowhere-parse-sdk \
     && chown -R eagle:eagle /app /home/eagle/.cache /opt/huggingface

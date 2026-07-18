@@ -49,7 +49,7 @@ Cross-module: [backend index](../backend/index.md), [observability](../ops/obser
 | Pattern | Where | Effect |
 | --- | --- | --- |
 | **Fail-closed** | `parse_with_knowhere_sdk()` | `KnowhereError` → task `FAILED` |
-| **Fail-fast** | `pixelrag_adapter._ensure_loaded()` | Wrong `provider` → `ValueError` |
+| **Fail-fast** | `visual_encoder.get_visual_encoder()` | Unknown `provider` → `ValueError` |
 | **Best-effort writes** | Milvus upsert edge cases | Logged; ingest may complete |
 | **Non-blocking side effects** | `knowhere_parse` steps 5.2, 5.5, 5.7 | Tag catalog, visual dispatch, doc_nav |
 | **Lazy singletons** | Stores, encoders | No import-time connection storms |

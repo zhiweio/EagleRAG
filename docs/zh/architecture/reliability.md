@@ -49,7 +49,7 @@
 | 模式 | 位置 | 效果 |
 | --- | --- | --- |
 | **失败即关闭** | `parse_with_knowhere_sdk()` | `KnowhereError` → 任务 `FAILED` |
-| **快速失败** | `pixelrag_adapter._ensure_loaded()` | 错误 `provider` → `ValueError` |
+| **快速失败** | `visual_encoder.get_visual_encoder()` | 未知 `provider` → `ValueError` |
 | **尽力写入** | Milvus upsert 边缘情况 | 记录日志；摄入可能完成 |
 | **非阻塞副作用** | `knowhere_parse` 步骤 5.2、5.5、5.7 | 标签目录、视觉派发、doc_nav |
 | **懒单例** | Store、编码器 | 导入时无连接风暴 |

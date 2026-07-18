@@ -278,6 +278,7 @@ def test_pixelrag_visual_retriever():
         source_type=None,
         parent_section=None,
         chunk_type=None,
+        plugin_namespace=None,
     )
 
 
@@ -312,6 +313,7 @@ def test_pixelrag_visual_retriever_with_filters():
         source_type="financial",
         parent_section=None,
         chunk_type=None,
+        plugin_namespace=None,
     )
 
 
@@ -355,6 +357,7 @@ def test_pixelrag_visual_retriever_with_context_filters():
         source_type=None,
         parent_section="3 Model Architecture",
         chunk_type="table",
+        plugin_namespace=None,
     )
     # Returned ImageNode metadata carries the new fields.
     assert len(results) == 1

@@ -7,42 +7,29 @@ library call:
   ``render_url``/``render_pdf``/``render_file`` write a
   ``{outdir}/{stem}.png.tiles/`` directory (containing a ``tiles.json`` manifest
   + JPEG tiles) and return a list of tile-directory ``Path``s.
-- Visual encoding is done by a **local Qwen3-VL-Embedding singleton**
-  (``_Qwen3VLVisualEncoder``) mirroring ``pixelrag_embed.embed_cpu``'s
-  last-token pooling + L2 normalization; images and text queries share the same
-  vector space. ``pixelrag_embed`` only ships an offline sharded batch pipeline
-  and exposes no per-item ``embed_image``/``embed_text`` API, so we implement
-  the singleton encoder here.
+- Visual encoding is delegated to :mod:`eagle_rag.ingest.visual_encoder`
+  (``get_visual_encoder``). Images and text queries share one vector space.
+  Backends:
+  - ``embedding.visual.provider == "pixelrag"`` — local Hugging Face
+    Qwen3-VL-Embedding (last-token pooling + L2, matching ``pixelrag_embed``)
+  - ``embedding.visual.provider == "dashscope"`` — Bailian
+    ``qwen3-vl-embedding`` via DashScope ``MultiModalEmbedding`` (same model
+    family; no local GPU/CPU weights)
 - Each ``(tile, embedding, metadata)`` is written to the Milvus
   ``eagle_visual`` collection via ``upsert_visual``; tile image bytes go to
   MinIO via ``store_tile``.
 - ``pixelrag serve`` is **no longer started**, and ``pixelrag.build()``/FAISS
   are **no longer called**.
 
-Visual-encoder provider constraints (per context7 research on the PixelRAG
-official docs):
-- PixelRAG officially supports only the ``Qwen3-VL-Embedding`` family — the
-  model is **fine-tuned on document screenshots** (pixelrag README: "fine-tuned
-  on screenshot data"), which is the foundation of tile retrieval quality.
-  ``pixelrag_embed`` provides only local backends (hf/vllm/sglang) with
-  **no HTTP/MaaS backend**.
-- This encoder therefore **accepts only** ``embedding.visual.provider == "pixelrag"``;
-  ``_ensure_loaded`` validates on first load and fail-fasts with a
-  ``ValueError`` explaining why if it does not match. Third-party MaaS visual
-  embeddings are not fine-tuned on screenshots (degrading retrieval quality)
-  and their vector dimension is hard-bound to the Milvus collection, so they
-  are unsupported.
-- The **only extensibility axis** is ``embedding.visual.model``: any
-  Qwen3-VL-Embedding checkpoint/size is allowed (including ``pixelrag-train``
-  self-fine-tuned BiQwen3 variants), but the model class
-  (``Qwen3VLForConditionalGeneration``) and pooling recipe are fixed and cannot
-  be swapped for another architecture.
+Cutover rule: ingest and query must use the **same** visual provider. Switching
+``pixelrag`` ↔ ``dashscope`` requires rebuilding ``eagle_visual`` (do not mix
+vectors from different backends in one collection). Keep ``dim: 2048`` unless
+you also recreate the Milvus schema.
 
 Key design:
-- ``pixelrag_render`` is a top-level import (hard dependency); torch/transformers
-  are imported lazily inside the encoder and the model is loaded on first
-  encoding, then cached as a process-local singleton. No mock fallback, no
-  API-inconsistency shimming.
+- ``pixelrag_render`` is a top-level import (hard dependency); local
+  torch/transformers load lazily inside ``LocalQwen3VLEncoder``. No mock
+  fallback, no random-vector shimming.
 - ``render_to_tiles`` / ``embed_tiles`` / ``embed_query`` are mutually
   independent; ``embed_query`` can be called directly by the retriever.
 """
@@ -52,7 +39,6 @@ from __future__ import annotations
 import io
 import json
 import tempfile
-import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -62,6 +48,7 @@ import pixelrag_render
 from eagle_rag.config import get_settings
 from eagle_rag.images.store import store_tile
 from eagle_rag.index.registry import update_chunk_count, update_status
+from eagle_rag.ingest.visual_encoder import get_visual_encoder
 from eagle_rag.plugins.pipeline import ParseContext, ParseResult
 from eagle_rag.storage.minio_client import download_file
 from eagle_rag.tasks.celery_app import app  # noqa: F401  -- ensure the Celery app is loaded
@@ -76,15 +63,12 @@ __all__ = [
     "render_to_tiles",
     "embed_tiles",
     "embed_query",
+    "embed_image_bytes",
     "upsert_visual",
 ]
 
 logger = get_logger(__name__)
 ai_logger = get_ai_logger(__name__)
-
-# Qwen3-VL patch alignment and render viewport width (aligned with pixelrag_embed / pixelrag_render)
-_RESIZE_FACTOR = 28
-_MAX_CHUNK_WIDTH = 875
 
 
 def upsert_visual(
@@ -134,180 +118,6 @@ def upsert_visual(
 # ---------------------------------------------------------------------------
 # Local Qwen3-VL-Embedding-2B singleton encoder
 # ---------------------------------------------------------------------------
-
-
-def _resolve_device(device: str) -> str:
-    """Resolve a device string; ``auto`` probes cuda → mps → cpu (in that order)."""
-    import platform
-
-    import torch
-
-    if device != "auto":
-        return device
-    if torch.cuda.is_available():
-        resolved = "cuda"
-    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        resolved = "mps"
-    else:
-        resolved = "cpu"
-    logger.info(
-        "PIXELRAG embed_device auto → %s (platform=%s/%s, torch=%s)",
-        resolved,
-        platform.system(),
-        platform.machine(),
-        torch.__version__,
-    )
-    if (
-        resolved == "cpu"
-        and platform.system() == "Linux"
-        and platform.machine()
-        in (
-            "aarch64",
-            "arm64",
-        )
-    ):
-        logger.info(
-            "ARM Linux container has no MPS/CUDA; visual encoding uses CPU. "
-            "On Apple Silicon, run API/worker-pixelrag natively with `uv run` for MPS."
-        )
-    return resolved
-
-
-def _clamp_width(img: Any, max_width: int = _MAX_CHUNK_WIDTH) -> Any:
-    """Downscale proportionally when width > ``max_width`` (28px-aligned), like ``embed_cpu``."""
-    from PIL import Image
-
-    w, h = img.size
-    if w <= max_width:
-        return img
-    scale = max_width / w
-    new_w = max(round(w * scale / _RESIZE_FACTOR) * _RESIZE_FACTOR, _RESIZE_FACTOR)
-    new_h = max(round(h * scale / _RESIZE_FACTOR) * _RESIZE_FACTOR, _RESIZE_FACTOR)
-    return img.resize((new_w, new_h), Image.LANCZOS)
-
-
-class _Qwen3VLVisualEncoder:
-    """Qwen3-VL-Embedding-2B singleton encoder (image and text share one space).
-
-    The model is loaded lazily on the first ``embed_image`` / ``embed_text`` call
-    and cached as a process-local singleton. Uses last-token pooling + L2
-    normalization (matching ``pixelrag_embed.embed_cpu``) so ingest-side (image)
-    and retrieval-side (text query) vectors are aligned.
-    """
-
-    _instance: _Qwen3VLVisualEncoder | None = None
-    _load_lock = threading.Lock()
-
-    def __init__(self) -> None:
-        self._model: Any = None
-        self._processor: Any = None
-        self._device: str | None = None
-        self._torch: Any = None
-
-    @classmethod
-    def get(cls) -> _Qwen3VLVisualEncoder:
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
-
-    def _ensure_loaded(self) -> None:
-        if self._model is not None:
-            return
-        with self._load_lock:
-            if self._model is not None:
-                return
-            settings = get_settings()
-            provider = settings.embedding.visual.provider
-            if provider != "pixelrag":
-                raise ValueError(
-                    f"embedding.visual.provider={provider!r} is not supported. "
-                    "PixelRAG visual encoding requires provider='pixelrag' "
-                    "(local Qwen3-VL-Embedding, fine-tuned for document screenshots). "
-                    "Third-party MaaS visual embeddings are not screenshot-tuned and would "
-                    "degrade retrieval quality; vector dimension is bound to the Milvus "
-                    "eagle_visual collection (changing provider requires a collection rebuild). "
-                    "For custom embeddings, train a Qwen3-VL-Embedding variant with "
-                    "pixelrag-train and set embedding.visual.model to its checkpoint."
-                )
-            import torch
-            from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
-
-            model_name = settings.embedding.visual.model
-            device = _resolve_device(settings.pixelrag.embed_device)
-            dtype = torch.float32 if device == "cpu" else torch.float16
-            logger.info("loading visual encoder model %s on %s (%s)", model_name, device, dtype)
-            import os
-
-            os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "120")
-            self._processor = AutoProcessor.from_pretrained(model_name, trust_remote_code=True)
-            self._model = Qwen3VLForConditionalGeneration.from_pretrained(
-                model_name,
-                trust_remote_code=True,
-                dtype=dtype,
-                attn_implementation="sdpa",
-            ).eval()
-            if device != "cpu":
-                self._model = self._model.to(device)
-            self._device = device
-            self._torch = torch
-
-    def _to_device(self, inputs: dict) -> dict:
-        if self._device == "cpu":
-            return inputs
-        return {k: v.to(self._device) if hasattr(v, "to") else v for k, v in inputs.items()}
-
-    def _pool(self, outputs: Any, inputs: dict) -> list[float]:
-        torch = self._torch
-        last_hidden = outputs.hidden_states[-1]
-        seq_lens = inputs["attention_mask"].sum(dim=1)
-        last_idx = seq_lens - 1
-        pooled = last_hidden[0, last_idx[0]]
-        pooled = torch.nn.functional.normalize(pooled, p=2, dim=-1)
-        return pooled.cpu().float().numpy().tolist()
-
-    def embed_image(self, image_bytes: bytes) -> list[float]:
-        """Encode image bytes into a visual vector."""
-        from PIL import Image
-
-        self._ensure_loaded()
-        torch = self._torch
-        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        img = _clamp_width(img)
-        instruction = get_settings().pixelrag.embed_instruction
-        messages = [
-            {"role": "system", "content": [{"type": "text", "text": instruction}]},
-            {"role": "user", "content": [{"type": "image", "image": img}]},
-        ]
-        text = self._processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-        inputs = self._processor(text=[text], images=[img], return_tensors="pt", padding=True)
-        inputs = self._to_device(inputs)
-        with torch.no_grad():
-            outputs = self._model(**inputs, output_hidden_states=True)
-        return self._pool(outputs, inputs)
-
-    def embed_text(self, text: str) -> list[float]:
-        """Encode a text query into a visual vector (same space as images; for the retriever)."""
-        self._ensure_loaded()
-        torch = self._torch
-        instruction = get_settings().pixelrag.embed_instruction
-        messages = [
-            {"role": "system", "content": [{"type": "text", "text": instruction}]},
-            {"role": "user", "content": [{"type": "text", "text": text}]},
-        ]
-        prompt = self._processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-        inputs = self._processor(text=[prompt], return_tensors="pt", padding=True)
-        inputs = self._to_device(inputs)
-        with torch.no_grad():
-            outputs = self._model(**inputs, output_hidden_states=True)
-        return self._pool(outputs, inputs)
-
-
-def _encoder() -> _Qwen3VLVisualEncoder:
-    return _Qwen3VLVisualEncoder.get()
 
 
 # ---------------------------------------------------------------------------
@@ -450,7 +260,7 @@ def render_to_tiles(
 
 
 # ---------------------------------------------------------------------------
-# embed tiles / query (local Qwen3-VL singleton)
+# embed tiles / query (provider-selected visual encoder)
 # ---------------------------------------------------------------------------
 
 
@@ -459,26 +269,24 @@ def embed_tiles(
 ) -> list[dict[str, Any]]:
     """Encode visual vectors for a list of tiles.
 
-    Calls the local Qwen3-VL-Embedding-2B singleton to encode each tile's
-    ``image_bytes``. Returns the original tile dicts with an added ``"vector"``
-    field (``list[float]``).
+    Uses :func:`get_visual_encoder` (local HF or Bailian DashScope). Returns the
+    original tile dicts with an added ``"vector"`` field (``list[float]``).
     """
-    enc = _encoder()
-    out: list[dict[str, Any]] = []
-    for t in tiles:
-        vec = enc.embed_image(t["image_bytes"])
-        out.append({**t, "vector": vec})
-    return out
+    if not tiles:
+        return []
+    enc = get_visual_encoder()
+    vectors = enc.embed_images([t["image_bytes"] for t in tiles])
+    return [{**t, "vector": vec} for t, vec in zip(tiles, vectors, strict=True)]
 
 
 def embed_query(text: str) -> list[float]:
     """Encode a text query into a visual vector (same space as images; for the retriever)."""
-    return _encoder().embed_text(text)
+    return get_visual_encoder().embed_text(text)
 
 
 def embed_image_bytes(image_bytes: bytes) -> list[float]:
     """Encode image bytes into a visual vector (for image-query retrieval)."""
-    return _encoder().embed_image(image_bytes)
+    return get_visual_encoder().embed_image(image_bytes)
 
 
 # ---------------------------------------------------------------------------

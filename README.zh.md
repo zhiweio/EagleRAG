@@ -39,8 +39,7 @@
 > 按文档「所说」与「所见」检索知识——而非二选一。  
 > 将 Knowhere 语义分块与 PixelRAG 像素原生感知织入同一多租户数据层，点亮 Agent 智能。
 
-Eagle-RAG 采用 **微内核 + 同仓插件**：Core（`namespace=core`）提供入库、多模态检索与 MCP（`core_*`）；领域插件（`plugins/biomed`、`plugins/lakehouse_bi`）经 `EAGLE_RAG_PROFILE` / `settings.plugins.enabled` + `default_namespace` 扩展 hooks、编码器与 MCP。**内置前端 = Core knowhere+pixelrag 橱窗**；垂类为 **后端 + MCP**，供下游 Agent 消费。见 [插件架构](docs/zh/architecture/plugin-architecture.md)、[ADR-008](docs/zh/architecture/adr/008-rag-only-plugin-platform.md)、[二开指南](docs/zh/guides/authoring-industry-plugin.md)。
-
+Eagle-RAG 采用 **微内核 + 同仓插件**：Core（`namespace=core`）提供入库、多模态检索与 MCP（`core_*`）；领域插件经 `EAGLE_RAG_PROFILE` / `settings.plugins.enabled` + `default_namespace` 扩展 hooks、编码器与 MCP。**`plugins/biomed` 为实验性**；**`plugins/lakehouse_bi` 仍在开发中**。**内置前端 = Core knowhere+pixelrag 橱窗**；垂类为 **后端 + MCP**，供下游 Agent 消费。见 [插件架构](docs/zh/architecture/plugin-architecture.md)、[ADR-008](docs/zh/architecture/adr/008-rag-only-plugin-platform.md)、[二开指南](docs/zh/guides/authoring-industry-plugin.md)。
 上传 PDF、Office、扫描件或网页即可——Eagle-RAG 同时理解正文与图表版式。回答流式返回、附可核对出处；多个团队可各建知识库，数据彼此隔离。
 
 ## 工作原理
@@ -120,7 +119,7 @@ Eagle-RAG 采用 **微内核 + 同仓插件**：Core（`namespace=core`）提供
 | --- | --- |
 | **后端** | Python ≥ 3.12, FastAPI, Celery 5, LlamaIndex, Pydantic v2, SQLModel, Alembic |
 | **前端** | Next.js 16 (App Router), React 19, TypeScript 5, HeroUI v3, Tailwind v4, TanStack Query, Zustand 5, next-intl（zh / en，light-only） |
-| **AI 模型** | DeepSeek-V4-Pro（文本 LLM / 路由）、Qwen-VL-Max（VLM）、`text-embedding-v4`（文本 1536 维）、Qwen3-VL-Embedding-2B（视觉 2048 维，自实现 `_Qwen3VLVisualEncoder` 单例编码器）、`qwen3-rerank`（rerank）。仅 DeepSeek + Qwen 系列，无 OpenAI / Cohere。 |
+| **AI 模型** | DeepSeek-V4-Pro（文本 LLM / 路由）、Qwen-VL-Max（VLM）、`text-embedding-v4`（文本 1536 维）、Qwen3-VL 视觉嵌入 2048 维经 `get_visual_encoder()`（`provider=pixelrag` 本地 HF 或 `dashscope` 百炼）、`qwen3-rerank`（rerank）。仅 DeepSeek + Qwen 系列，无 OpenAI / Cohere。 |
 | **基础设施** | Milvus 2.6（按 `plugin_namespace` 分 Database；基础 `eagle_text` + `eagle_visual`）, PostgreSQL 16, Redis 7, MinIO, Docker Compose |
 | **集成** | MCP（Model Context Protocol）over HTTP（默认 `/mcp`）+ stdio 降级, OpenAPI 生成的 TypeScript SDK |
 
@@ -166,7 +165,7 @@ Eagle-RAG 采用 **微内核 + 同仓插件**：Core（`namespace=core`）提供
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `EAGLE_RAG_PROFILE` | `core` | 部署 profile：`core` / `biomed` / `lakehouse-bi`（设定 `default_namespace` + Milvus `db_name`） |
+| `EAGLE_RAG_PROFILE` | `core` | 部署 profile：`core` / `biomed`（实验性）/ `lakehouse-bi`（开发中）；设定 `default_namespace` + Milvus `db_name` |
 | `KB_NAME` | `default` | 绑定领域**内**的默认知识库 id，如 `finance` / `patent` / `pharma` |
 | `KNOWHERE_BASE_URL` | `http://localhost:5005` | Knowhere HTTP 解析服务地址 |
 | `LLM_API_KEY` / `LLM_BASE_URL` | — | DeepSeek |
@@ -224,12 +223,12 @@ MCP Server（FastMCP，默认 streamable HTTP，挂载于 `/mcp`，可降级 std
 | `core_query` | `query`, `mode?`, `scope?`, `kb_name?`, `scope_filter?` | `{answer, sources, route, steps}` |
 | `core_retrieve_text` | `query`, `scope?`, `top_k=5`, `kb_name?` | `[{node_id, text, score, metadata}]` |
 | `core_retrieve_visual` | `query`, `scope?`, `top_k=5`, `kb_name?` | `[{image_id, document_id, page, position, score}]` |
-| `biomed_query_entities` | `entity`, `kb_name?` | 实体别名 / 通路（biomed profile） |
-| `biomed_retrieve_compounds` | `smiles_or_name`, `top_k?`, `kb_name?` | 化学 ANN 命中（biomed profile） |
-| `lakehouse_bi_query_semantic_context` | `question`, `kb_name?` | 语义上下文包（lakehouse-bi profile） |
-| `lakehouse_bi_retrieve_historical_analysis` | `topic`, `kb_name?` | 历史分析分块 |
+| `biomed_query_entities` | `entity`, `kb_name?` | 实体别名 / 通路（biomed profile，**实验性**） |
+| `biomed_retrieve_compounds` | `smiles_or_name`, `top_k?`, `kb_name?` | 化学 ANN 命中（biomed profile，**实验性**） |
+| `lakehouse_bi_query_semantic_context` | `question`, `kb_name?` | 语义上下文包（lakehouse-bi profile，**开发中**） |
+| `lakehouse_bi_retrieve_historical_analysis` | `topic`, `kb_name?` | 历史分析分块（**开发中**） |
 
-`kb_name` 缺省时回退 `settings.kb_name`。用 `EAGLE_RAG_PROFILE=biomed` 或 `lakehouse-bi` 启用领域（见 `eagle_rag/settings.yaml` 的 `profiles:`）。
+`kb_name` 缺省时回退 `settings.kb_name`。用 `EAGLE_RAG_PROFILE=biomed`（**实验性**）或 `lakehouse-bi`（**开发中**）启用领域（见 `eagle_rag/settings.yaml` 的 `profiles:`）。生产默认仍为 `core`。
 
 ## 目录结构
 
@@ -254,7 +253,7 @@ eagle-rag/
 │  ├─ tasks/             # Celery（celery_app / dead_letter / state）
 │  ├─ telemetry/         # 结构化日志 + OpenTelemetry
 │  └─ config.py  settings.yaml
-├─ plugins/              # 同仓垂类插件（biomed / lakehouse_bi / _template）
+├─ plugins/              # 同仓垂类插件（biomed 实验性 / lakehouse_bi 开发中 / _template）
 ├─ frontend/             # Next.js + Bun + HeroUI v3（仅 Core 橱窗）
 ├─ docker/               # Dockerfile（api / worker / frontend / docs / mcp）+ knowhere-self-hosted
 ├─ tests/  examples/  design/

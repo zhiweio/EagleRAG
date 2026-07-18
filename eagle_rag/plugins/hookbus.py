@@ -5,11 +5,14 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from eagle_rag.plugins.errors import HookInvocationError
 from eagle_rag.plugins.hooks import HOOK_MODES, Hook, HookMode
 from eagle_rag.telemetry import get_logger
+
+if TYPE_CHECKING:
+    from eagle_rag.plugins.audit import PluginAudit
 
 __all__ = ["HookBus", "HookContext", "HookSubscriber"]
 
@@ -43,8 +46,10 @@ class HookContext:
 class HookBus:
     """Process-wide hook dispatcher."""
 
-    def __init__(self) -> None:
+    def __init__(self, audit: PluginAudit | None = None) -> None:
         self._subscribers: dict[Hook, list[HookSubscriber]] = {}
+        self._audit = audit
+        # Kept for backward-compatible ``audit_failures()`` when no PluginAudit wired.
         self._audit_failures: list[dict[str, Any]] = []
 
     def subscribe(
@@ -128,7 +133,8 @@ class HookBus:
                 result = sub.fn(ctx, *args, **kwargs)
             except Exception as exc:
                 logger.warning(
-                    "QUERY_ASSEMBLE subscriber failed (degraded): %s",
+                    "%s subscriber failed (degraded): %s",
+                    hook_key.value,
                     exc,
                     extra={
                         "hook": hook_key.value,
@@ -136,14 +142,13 @@ class HookBus:
                         "namespace": sub.namespace,
                     },
                 )
-                self._audit_failures.append(
-                    {
-                        "hook": hook_key.value,
-                        "plugin": sub.plugin_name,
-                        "namespace": sub.namespace,
-                        "error": str(exc),
-                    }
-                )
+                failure = {
+                    "hook": hook_key.value,
+                    "plugin": sub.plugin_name,
+                    "namespace": sub.namespace,
+                    "error": str(exc),
+                }
+                self._record_hook_failure(failure)
                 continue
             if result is not None:
                 if isinstance(result, list):
@@ -163,5 +168,38 @@ class HookBus:
             return self.invoke_transform(hook_key, ctx, args[0], **kwargs)
         return self.invoke_first(hook_key, ctx, *args, **kwargs)
 
+    def _record_hook_failure(self, failure: dict[str, Any]) -> None:
+        """Record a degraded subscriber failure on PluginAudit (preferred) or local list."""
+        if self._audit is not None:
+            self._audit.log_decision(
+                category="hook_failure",
+                plugin_namespace=failure.get("namespace"),
+                error=failure.get("error"),
+                reason=failure.get("hook"),
+                extra={
+                    "hook": failure.get("hook"),
+                    "plugin": failure.get("plugin"),
+                },
+            )
+            return
+        self._audit_failures.append(failure)
+
     def audit_failures(self) -> list[dict[str, Any]]:
+        """Return recent hook failures (from PluginAudit when wired)."""
+        if self._audit is not None:
+            out: list[dict[str, Any]] = []
+            for entry in self._audit.recent(limit=100):
+                if entry.get("category") != "hook_failure":
+                    continue
+                raw_extra = entry.get("extra")
+                extra: dict[str, Any] = raw_extra if isinstance(raw_extra, dict) else {}
+                out.append(
+                    {
+                        "hook": entry.get("reason") or extra.get("hook"),
+                        "plugin": extra.get("plugin"),
+                        "namespace": entry.get("plugin_namespace"),
+                        "error": entry.get("error"),
+                    }
+                )
+            return out
         return list(self._audit_failures)

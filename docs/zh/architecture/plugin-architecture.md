@@ -216,7 +216,7 @@ class Plugin(Protocol):
 | Hook | 模式 | 典型用途 |
 | --- | --- | --- |
 | `PARSE` | transform | 丰富 Knowhere `ParseResult` |
-| `CHUNK` | transform | 行业分块 / typed metadata（orchestrator 前） |
+| `CHUNK` | transform | 在 Knowhere 节点上做领域 metadata enrich（保留 `path` / 正文 / `doc_nav`；禁止从零重切） |
 | `INGEST_VISUAL_EXTRACT` | first | 抽取视觉块 + 四锚点字段 |
 | `CLASSIFY_CHUNK` / `CLASSIFY_VISUAL` | first | 路由 chunk → collection + encoder |
 | `CLASSIFY_QUERY` | first | 生成多 collection `QueryRouteDecision` |
@@ -267,7 +267,7 @@ sequenceDiagram
   Note over Orch: On full success update collections_used catalog
 ```
 
-`IngestOrchestrator.classify` 走 `CLASSIFY_*`；`embed_and_upsert` 按 `ClassificationDecision.target_encoder` 经 `EncoderRegistry` / `encoder_runtime` 编码落库。
+`IngestOrchestrator.classify` 走 `CLASSIFY_*`；`embed_and_upsert` 按 `ClassificationDecision.target_encoder` 经 `EncoderRegistry` / `encoder_runtime` 编码落库。批量入口见 `ingest_helpers.py`（`ingest_text_nodes` / `ingest_visual_record`）。`EncoderRegistry.validate_plan(collection, encoder_name)` 在写入前拒绝维度不匹配。`ClassificationDecision.exclusive_group` 在同组内跳过 dual-write（防止专用 collection 与 base 重复写入）。
 
 ### Collection catalog（入库 ↔ 查询契约）
 
@@ -381,6 +381,7 @@ plugins:
   options:
     biomed:
       default_dual_text_search: false
+      exploratory_search_collections: []
       encoder_mode: auto   # auto | require_native | deterministic
 
 profiles:
@@ -404,24 +405,31 @@ profiles:
       db_name: lakehouse_bi
 ```
 
-默认 compose profile 为 `core`。启用 biomed / lakehouse-bi 需对应 profile 并重启。Docker 镜像打包 `plugins/`；compose override 挂载 `./plugins` 便于本地迭代。
+默认 compose profile 为 `core`（生产安全）。启用 biomed（**实验性**）/ lakehouse-bi（**开发中**）需对应 profile 并重启 — 二者均非生产默认，启用即接受成熟度风险。Docker 镜像打包 `plugins/`；compose override 挂载 `./plugins` 便于本地迭代。
 
 ---
 
 ## 已交付垂类插件
 
-### `plugins/biomed`
+| 插件 | 成熟度 |
+| --- | --- |
+| `plugins/biomed` | **实验性** — API/collection 可能变更；非生产稳定 |
+| `plugins/lakehouse_bi` | **开发中** — 参考骨架；尚不适合生产 |
+| `plugins/_template` | 新行业插件脚手架 |
+
+### `plugins/biomed`（实验性）
 
 | 能力 | 细节 |
 | --- | --- |
-| 专用 collection | `eagle_text_biomed`、`eagle_chemical`、`eagle_medical_radiology`、`eagle_medical_pathology` |
-| 文本编码器 | PubMedBERT（经 `EncoderRegistry`） |
-| 医学影像 | 放射 → MedImageInsight；病理 → UNI 2 — **永不**回落 Qwen3-VL |
-| 查询路由 | 规则 + 本地 UMLS 子集（`routing_rules.yaml` / `umls.py`）；不用 LLM 分类 |
+| 专用 collection | `eagle_text_biomed`（768）、`eagle_chemical`（768）、`eagle_medical_radiology`（1024）、`eagle_medical_pathology`（1536） |
+| 文本 / 化学编码器 | Label `pubmedbert` / `molformer`（经 `EncoderRegistry`，HF transformers） |
+| 医学影像 | Label `medimageinsight` → **BiomedCLIP + `open_clip`**（建议 `uv sync --extra biomed`）；病理 → `uni2`（UNI 2）— **永不**回落 Qwen3-VL |
+| CHUNK 富化 | 仅 IMRaD/专利章节标签（`biomed_section` / `biomed_doc_type`）；保留 Knowhere `path` / body / `chunk_id` |
+| 查询路由 | 规则 + 精选 UMLS 子集（`routing_rules.yaml` / `umls.py`）；可选 `EAGLE_BIOMED_UMLS_MRCONSO_PATH` 合并英文首选别名 |
 | MCP | 实体查询 + 化合物检索（MolFormer ANN → `eagle_chemical`） |
-| 编码器模式 | `auto` / `require_native` / `deterministic`（CI） |
+| 编码器模式 | `auto` / `require_native` / `deterministic`（CI）；checkpoint 可用 `EAGLE_BIOMED_*_MODEL` 覆盖 |
 
-### `plugins/lakehouse_bi`
+### `plugins/lakehouse_bi`（开发中）
 
 | 能力 | 细节 |
 | --- | --- |
@@ -443,11 +451,11 @@ profiles:
 | 路由 / 生成 LLM | Core | DeepSeek |
 | VLM | Core | Qwen-VL-Max |
 | 文本嵌入 | Core 默认 | Qwen `text-embedding-v4`（1536） |
-| 视觉嵌入 | Core 默认 | Qwen3-VL-Embedding-2B（2048） |
+| 视觉嵌入 | Core 默认 | `get_visual_encoder()` — `pixelrag` 本地 HF Qwen3-VL-Embedding-2B 或 `dashscope` 百炼 `qwen3-vl-embedding`（2048） |
 | 重排 | Core | Qwen `qwen3-rerank` |
-| 领域编码器 | 插件 | 如 PubMedBERT、MedImageInsight、UNI 2、MolFormer |
+| 领域编码器 | 插件 | Label `pubmedbert` / `molformer` / `medimageinsight`（BiomedCLIP/`open_clip`）/ `uni2` |
 
-垂类可注册额外编码器；Core 仍用 DeepSeek/Qwen 做全局路由与生成。
+垂类可注册额外编码器；Core 仍用 DeepSeek/Qwen 做全局路由与生成。Core 视觉留在 Qwen 空间；医学影像永不回落其上。
 
 ---
 
@@ -458,7 +466,18 @@ profiles:
 - `default_namespace`、已启用模块、manifests
 - 专用 collection、声明的 MCP 工具、Celery 模块
 
-KB stats / collection 列表会扇出绑定 namespace 的 `provides_specialized_collections`。Hook 与 ANN 分路失败记入 `PluginAudit` / HookBus 审计列表。
+KB stats / collection 列表会扇出绑定 namespace 的 `provides_specialized_collections`。
+
+**PluginAudit**（`eagle_rag/plugins/audit.py`，经 `PluginContext.audit.log_decision(...)`）：
+
+| Sink | 细节 |
+| --- | --- |
+| AI JSONL | `event=plugin_audit_decision`（`get_ai_logger`，持久） |
+| Redis LIST | `eagle:plugin_audit:{namespace}:recent`（`LPUSH`+`LTRIM`） |
+| 内存 ring | 上限 `telemetry.plugin_audit_ring_cap`（Redis 不可用时回退） |
+| Prometheus | `plugin_audit_decisions_total`、`plugin_audit_rrf_dedupe_total` |
+
+配置：`telemetry.plugin_audit_enabled` / `plugin_audit_redis_enabled` / `plugin_audit_health_limit`。各 sink 均为 best-effort，不拖垮热路径。示例 category：`classify_chunk`、`route_query`、`scope_routing_error`、`hook_failure`。`GET /health/plugins` 暴露 `recent_decisions` / `audit_stats`。
 
 ---
 
@@ -468,13 +487,16 @@ KB stats / collection 列表会扇出绑定 namespace 的 `provides_specialized_
 eagle_rag/plugins/          # 微内核
   manager.py
   hookbus.py / hooks.py / hotpath_hooks.py
-  contract.py / context.py
+  contract.py / context.py / audit.py
   ingest_orchestrator.py / retriever_orchestrator.py
+  ingest_helpers.py
   classifier.py / routing.py / scope_routing.py
   encoder_registry.py / encoder_runtime.py
   mcp_registry.py / milvus_ns.py
   core_defaults.py
   ingest_catalog.py / ingest_tracker.py / …
+eagle_rag/ingest/
+  visual_encoder.py         # Core get_visual_encoder()（pixelrag | dashscope）
 plugins/                    # 同仓垂类插件
   _template/
   biomed/

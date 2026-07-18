@@ -57,7 +57,7 @@ Override priority (high → low): filename prefix `knowhere:` / `pixelrag:` → 
 | Text LLM / routing | DeepSeek (`deepseek-v4-pro`) | — |
 | VLM | Qwen-VL-Max | — |
 | Text embedding | Qwen `text-embedding-v4` | 1536 |
-| Visual embedding | Qwen3-VL-Embedding-2B (`_Qwen3VLVisualEncoder` singleton) | 2048 |
+| Visual embedding | Qwen3-VL-Embedding-2B local HF (`provider=pixelrag`) **or** Bailian `qwen3-vl-embedding` (`provider=dashscope`) via `get_visual_encoder` | 2048 |
 | Rerank | Qwen `qwen3-rerank` | — |
 
 No OpenAI / Cohere / other vendor adapters. New models via LlamaIndex integration packages.
@@ -103,12 +103,12 @@ Parent-document retrieval: recall `type="section_summary"` first, drill down by 
 - **Core** registers as namespace `core` via `eagle_rag.plugins.core_defaults` — same hook/MCP extension path as domain plugins.
 - **PluginManager** (`eagle_rag/plugins/manager.py`): load from `settings.plugins.enabled` (in-repo modules only; no pip entry_points).
 - **Instance binding**: `settings.plugins.default_namespace` = Milvus Database + PG repository filter. Single-domain deploy — no runtime domain switching.
-- **HookBus** (`eagle_rag/plugins/hookbus.py`): `invoke_first` / `invoke_all` / `invoke_transform`. Hot-path `PARSE` / `CHUNK` / `QUERY_ASSEMBLE` via `eagle_rag/plugins/hotpath_hooks.py`.
+- **HookBus** (`eagle_rag/plugins/hookbus.py`): `invoke_first` / `invoke_all` / `invoke_transform`. Hot-path `PARSE` / `CHUNK` / `QUERY_ASSEMBLE` via `eagle_rag/plugins/hotpath_hooks.py`. **`CHUNK`/`PARSE` enrich only** — preserve Knowhere `doc_nav` / `path` / typed chunks; do not from-scratch re-chunk in Eagle (ADR-005).
 - **Config**: per-plugin knobs under `settings.plugins.options[<namespace>]` (`plugin_options()`); Core `source_type.rules` default empty.
 - **Ingest**: `IngestOrchestrator` + `CLASSIFY_*` / `EMBED_*` / `UPSERT_VECTORS` hooks (G22/G26).
 - **Query**: `RetrieverOrchestrator` + `QueryRouteClassifier` + RRF merge (`eagle_rag/router/rerank_fusion.py`). Core default never auto-queries specialized collections (G4).
-- **Models**: Core uses DeepSeek + Qwen for routing/generation; domain plugins may register domain encoders (e.g. PubMedBERT) via `EncoderRegistry`.
-- **Domain plugins**: `plugins/biomed`, `plugins/lakehouse_bi` — enable via profile / `settings.plugins.enabled` + matching `default_namespace`. Template: `plugins/_template/` + `docs/zh/guides/authoring-industry-plugin.md`.
+- **Models**: Core uses DeepSeek + Qwen for routing/generation; domain plugins may register domain encoders (e.g. PubMedBERT) via `EncoderRegistry`. Biomed labels: `pubmedbert` / `molformer` / `medimageinsight` (BiomedCLIP via `open_clip`, `uv sync --extra biomed`) / `uni2`. Medical imaging never falls back to Qwen3-VL; Core `eagle_visual` stays Qwen.
+- **Domain plugins**: `plugins/biomed` (**experimental**), `plugins/lakehouse_bi` (**under development**) — enable via profile / `settings.plugins.enabled` + matching `default_namespace`. Production default remains `core`. Template: `plugins/_template/` + `docs/zh/guides/authoring-industry-plugin.md`.
 
 ## Sync on architecture changes
 

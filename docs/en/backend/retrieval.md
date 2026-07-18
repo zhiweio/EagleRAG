@@ -171,7 +171,7 @@ Score defaults to 1.0 if Milvus returns None.
 
 ### 5.3 Cross-modal encoding
 
-`embed_query()` delegates to `_Qwen3VLVisualEncoder.embed_text()` — the same singleton used at ingest. This ensures query and tile vectors are in the same normalized space (last-token pooling + L2 norm).
+`embed_query()` delegates to `get_visual_encoder().embed_text()` — the same factory used at ingest. This ensures query and tile vectors are in the same normalized space (same `embedding.visual.provider`; last-token pooling + L2 on the local path).
 
 ---
 

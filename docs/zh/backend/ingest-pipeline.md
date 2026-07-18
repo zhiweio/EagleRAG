@@ -211,7 +211,7 @@ Knowhere 解析后，热路径钩子接入域定制：
 | 阶段 | 钩子 | 模块 |
 |-------|------|--------|
 | 解析增强 | `PARSE` | `eagle_rag/plugins/hotpath_hooks.py` |
-| 域分块 | `CHUNK` | `eagle_rag/plugins/hotpath_hooks.py` |
+| 领域 metadata enrich（保留 Knowhere 骨架） | `CHUNK` | `eagle_rag/plugins/hotpath_hooks.py` |
 | 视觉提取 | `INGEST_VISUAL_EXTRACT` | HookBus |
 | 分类 | `CLASSIFY_CHUNK` / `CLASSIFY_VISUAL` | `IngestOrchestrator.classify()` |
 | 嵌入 + upsert | `EMBED_*` → `UPSERT_VECTORS` | `IngestOrchestrator.embed_and_upsert()` |
@@ -239,14 +239,18 @@ PixelRAG **仅为库** — 无 `pixelrag serve`、无 FAISS、无 `pixelrag.buil
 
 输出：瓦片字典 `{image_bytes, page, position, width, height}`。
 
-#### 视觉编码器单例
+#### 视觉编码器（`get_visual_encoder`）
 
-`_Qwen3VLVisualEncoder` 惰性加载 Qwen3-VL-Embedding-2B：
+[`eagle_rag/ingest/visual_encoder.py`](../../../eagle_rag/ingest/visual_encoder.py) 按 `embedding.visual.provider` 选择后端：
 
-- 末 token 池化 + L2 归一化（与 `pixelrag_embed.embed_cpu` 一致）
-- 图像与文本查询共享向量空间
-- 提供者必须为 `embedding.visual.provider == "pixelrag"`（否则快速失败）
-- 设备：`auto` → cuda → mps → cpu
+| Provider | 后端 | 说明 |
+| --- | --- | --- |
+| `pixelrag`（默认） | 本地 HF Qwen3-VL-Embedding | 末 token 池化 + L2；设备 `auto` → cuda → mps → cpu |
+| `dashscope` | 百炼 `qwen3-vl-embedding` | DashScope `MultiModalEmbedding`；`dimension=2048`；需 `DASHSCOPE_API_KEY` |
+
+- 图像与文本查询共享同一向量空间（ingest 与 query 必须同一 provider）
+- 切换 provider 需**重建** `eagle_visual`（禁止混写不同后端向量）
+- 对外 API 不变：`embed_tiles` / `embed_query` / `embed_image_bytes`
 
 #### 任务 `pixelrag_build`（`pixelrag_queue`，并发 1）
 
@@ -393,8 +397,15 @@ pixelrag:
   viewport_width: 875
   pdf_dpi: 200
   backend: cdp          # cdp | playwright
-  embed_device: auto    # cuda | mps | cpu
+  embed_device: auto    # cuda | mps | cpu（仅本地 provider）
   embed_instruction: "Represent the user's input."
+
+embedding:
+  visual:
+    provider: pixelrag                 # 或 dashscope
+    model: Qwen/Qwen3-VL-Embedding-2B  # 或 qwen3-vl-embedding
+    dim: 2048
+    # api_key / batch_size 在 provider=dashscope 时使用
 ```
 
 ### 6.5 Celery 队列

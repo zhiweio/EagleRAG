@@ -111,7 +111,7 @@ flowchart TB
 
 | Principle | Implementation | Doc |
 | --- | --- | --- |
-| Lazy initialization | `get_settings()`, Milvus clients, `_Qwen3VLVisualEncoder` | [System design](system-design.md) |
+| Lazy initialization | `get_settings()`, Milvus clients, `get_visual_encoder()` | [System design](system-design.md) |
 | Graceful degradation | Retriever `try/except` → `[]`; non-blocking visual dispatch | [Reliability](reliability.md) |
 | Sync + async DB | `*_sync` / async store pairs | [System design](system-design.md) |
 | Adapter pattern | `knowhere_adapter`, `pixelrag_adapter` → LlamaIndex nodes | [System design](system-design.md) |

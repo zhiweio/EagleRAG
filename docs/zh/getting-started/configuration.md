@@ -142,7 +142,31 @@ pixelrag:
   embed_instruction: "Represent the user's input."
 ```
 
-**`embed_instruction`：** Qwen3-VL-Embedding 查询与文档向量共用的编码指令。
+**`embed_instruction`：** Qwen3-VL-Embedding 查询与文档向量共用的编码指令。**`embed_device`** 仅在 `embedding.visual.provider=pixelrag` 时生效。
+
+### `embedding.visual`
+
+Core `eagle_visual` 后端经 `get_visual_encoder()`：
+
+```yaml
+embedding:
+  visual:
+    provider: ${VISUAL_EMBEDDING_PROVIDER:-pixelrag}   # pixelrag | dashscope
+    model: ${VISUAL_EMBEDDING_MODEL:-Qwen/Qwen3-VL-Embedding-2B}
+    api_key: ${DASHSCOPE_API_KEY:-}                    # dashscope 路径
+    base_url: ${DASHSCOPE_API_BASE:-}                  # 原生 DashScope API（非 OpenAI 兼容）
+    dim: 2048
+    batch_size: ${VISUAL_EMBEDDING_BATCH_SIZE:-5}
+    timeout_s: ${VISUAL_EMBEDDING_TIMEOUT_S:-60}
+    max_retries: ${VISUAL_EMBEDDING_MAX_RETRIES:-3}
+```
+
+| Provider | 后端 | 说明 |
+| --- | --- | --- |
+| `pixelrag` | `LocalQwen3VLEncoder` | 本地 HF 权重；使用 `pixelrag.embed_device` |
+| `dashscope` | `DashScopeQwen3VLEncoder` | 百炼 `qwen3-vl-embedding`；无本地权重 |
+
+ingest 与 query 须共享同一 provider；切换后端需重建 `eagle_visual`。
 
 ### `pdf_probe`
 
@@ -233,7 +257,8 @@ plugins:
   options:                         # per-namespace knobs (not Core-typed)
     biomed:
       default_dual_text_search: false
-      encoder_mode: auto
+      exploratory_search_collections: []
+      encoder_mode: ${EAGLE_BIOMED_ENCODER_MODE:-auto}  # auto | require_native | deterministic
 
 # EAGLE_RAG_PROFILE=biomed|lakehouse-bi|core
 profiles:
@@ -246,6 +271,8 @@ profiles:
 ```
 
 二开：复制 `plugins/_template/`，见 [编写行业插件](../guides/authoring-industry-plugin.md)。
+
+**成熟度：** `biomed` 为**实验性**；`lakehouse-bi` **仍在开发中**。生产默认仍为 `core`。
 
 **部署说明：**
 
@@ -293,10 +320,13 @@ telemetry:
   op_log_file: logs/eagle_rag.log
   tracing_enabled: false
   otlp_endpoint: ""
+  plugin_audit_enabled: ${PLUGIN_AUDIT_ENABLED:-true}
+  plugin_audit_ring_cap: 1000
+  plugin_audit_redis_enabled: ${PLUGIN_AUDIT_REDIS_ENABLED:-true}
+  plugin_audit_health_limit: 50
 ```
 
-`eagle_rag/api/app.py` 中的 `TelemetryMiddleware` —— OTel 启用时每请求 SERVER span。
-
+`eagle_rag/api/app.py` 中的 `TelemetryMiddleware` —— OTel 启用时每请求 SERVER span。PluginAudit sinks（AI JSONL + Redis 近期窗口 + 内存 ring + Prometheus）供给 `GET /health/plugins`（`recent_decisions` / `audit_stats`）。
 ---
 
 ## 路由配置（查询时）
@@ -352,7 +382,7 @@ MILVUS_VISUAL_INDEX_TYPE=diskann task up:prod
 | 误配置 | 现象 | 修复 |
 | --- | --- | --- |
 | Compose 中 `MILVUS_HOST` 错误 | 所有查询返回空 | 用服务 DNS `milvus`，非 `localhost` |
-| `embedding.visual.provider` ≠ `pixelrag` | 视觉 ingest 在 `_ensure_loaded` 失败 | 保持 `provider: pixelrag` |
+| 未知 `embedding.visual.provider` | `get_visual_encoder()` 抛 `ValueError` | 使用 `pixelrag` 或 `dashscope`；ingest+query 须同 provider（切换需重建 `eagle_visual`） |
 | `pixelrag_queue` 并发 > 1 | OOM 杀死 worker | 在 `settings.yaml` 重置为 1 |
 | `poll_timeout` 过低 | 大 PDF 在 `RENDERING` 失败 | 增大 `knowhere.poll_timeout` |
 | 宿主机 dev 缺少 `KNOWHERE_BASE_URL` | ingest 上 `KnowhereError` | 指向运行中的 Knowhere |

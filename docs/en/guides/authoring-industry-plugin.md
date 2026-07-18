@@ -10,7 +10,7 @@ Chinese canonical copy: [`docs/zh/guides/authoring-industry-plugin.md`](../../zh
 | --- | --- |
 | Ingest / chunk / encode / multi-collection retrieve / RRF / provenance | Business workflows, multi-step Agent planning |
 | Return structured context packs + sources | Text-to-SQL execution, DB mutation, email, orders |
-| Domain chunking, specialized encoders, entity expansion | Domain Agent UI / demo pages |
+| Domain metadata enrich on Knowhere nodes, specialized encoders, entity expansion | Domain Agent UI / demo pages |
 
 **Built-in frontend = Core showcase** (knowhere semantic structure + pixelrag visual hybrid). Verticals are backend + MCP only.
 
@@ -29,14 +29,25 @@ Success metric = **recall quality and provenance**, not UI completeness.
 | Hook | Mode | Insert point | Typical use |
 | --- | --- | --- | --- |
 | `PARSE` | transform | After Knowhere parse | Parse enrich / DDL → typed |
-| `CHUNK` | transform | Before IngestOrchestrator | Domain chunking / metadata |
-| `CLASSIFY_CHUNK` / `CLASSIFY_VISUAL` | first | Orchestrator | Route to specialized collections |
+| `CHUNK` | transform | Before IngestOrchestrator | Domain metadata enrich only (preserve Knowhere `path` / body / `doc_nav` / `chunk_id`) |
+| `INGEST_VISUAL_EXTRACT` | first | Visual ingest | Extract visual chunks + four-anchor fields |
+| `CLASSIFY_CHUNK` / `CLASSIFY_VISUAL` | first | Orchestrator | Route to specialized collections; optional `exclusive_group` to skip dual-write |
 | `CLASSIFY_QUERY` | first | Query routing | Multi-collection plans |
 | `QUERY_ASSEMBLE` | all (degrade OK) | Before ANN | Query expand / entity hints |
-| `EMBED_*` / `UPSERT_VECTORS` | first / transform | Before write | Domain encoders |
-| `RERANK` | … | After recall | Domain rerank |
+| `EMBED_TEXT` / `EMBED_VISUAL` | first | Before write | Domain encoders via `EncoderRegistry` |
+| `UPSERT_VECTORS` | transform | Before write | Persist vectors (default writes Milvus) |
+| `RETRIEVE_VISUAL_FILTER` | first | Visual retrieve | Visual filter overrides |
+| `RERANK` | first | After recall | Domain rerank |
+| `CELERY_TASKS` | all | Worker boot | Extra Celery include modules |
+| `INGEST_ROUTE_SELECTORS` | first | Format router | Extra format → pipeline selectors |
 
 Core invokes `PARSE` / `CHUNK` / `QUERY_ASSEMBLE` on MCP/API hot paths (`eagle_rag/plugins/hotpath_hooks.py`).
+
+## Observability and audit
+
+From any hook handler, use `ctx.audit.log_decision(...)` (`PluginContext.audit` → `PluginAudit`). Decisions fan out to AI JSONL, Redis recent window, memory ring, and Prometheus (best-effort). Verify load + routing via `GET /health/plugins` (`recent_decisions` / `audit_stats`).
+
+See [ADR-007](../architecture/adr/007-plugin-implementation-status.md) for encoder labels, UMLS/MRCONSO, and PluginAudit sink details.
 
 ## MCP conventions (RAG-only)
 
@@ -53,6 +64,11 @@ plugins:
   options:
     acme:                    # not a Core-typed field; read via plugin_options("acme")
       some_knob: true
+    # biomed example knobs (when namespace=biomed):
+    # biomed:
+    #   default_dual_text_search: false
+    #   exploratory_search_collections: []
+    #   encoder_mode: auto   # auto | require_native | deterministic
 
 profiles:
   acme:
@@ -65,15 +81,18 @@ profiles:
 
 Enable with `EAGLE_RAG_PROFILE=acme`.
 
+Biomed-oriented env extras (reference): `EAGLE_BIOMED_ENCODER_MODE`, `EAGLE_BIOMED_*_MODEL`, `EAGLE_BIOMED_UMLS_MRCONSO_PATH`, `EAGLE_BIOMED_ALLOW_DETERMINISTIC`, and `uv sync --extra biomed` for BiomedCLIP/`open_clip`.
+
 ## Minimal steps
 
 1. `cp -r plugins/_template plugins/acme` and rename namespace / class / MCP prefix
-2. Implement classifiers or `QUERY_ASSEMBLE` as needed
+2. Implement classifiers or `QUERY_ASSEMBLE` as needed; enrich CHUNK metadata only (no from-scratch re-chunk)
 3. Add a profile; set `EAGLE_RAG_PROFILE=acme` in compose / env
-4. Verify recall via MCP or `/search` — **do not** add frontend for acceptance
+4. Verify recall via MCP or `/search`, and check `GET /health/plugins` — **do not** add frontend for acceptance
 
 ## Reference implementations
 
-- `plugins/biomed` — specialized collections + encoders + entity MCP
-- `plugins/lakehouse_bi` — semantic-layer context packs (read-only retrieval)
+- `plugins/biomed` (**experimental**) — specialized collections + encoders + entity MCP + IMRaD CHUNK enrich
+- `plugins/lakehouse_bi` (**under development**) — semantic-layer context packs (read-only retrieval skeleton)
+- ADR-007: [`docs/en/architecture/adr/007-plugin-implementation-status.md`](../architecture/adr/007-plugin-implementation-status.md)
 - ADR-008: [`docs/en/architecture/adr/008-rag-only-plugin-platform.md`](../architecture/adr/008-rag-only-plugin-platform.md)

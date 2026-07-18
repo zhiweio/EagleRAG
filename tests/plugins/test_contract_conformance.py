@@ -9,9 +9,9 @@ import pytest
 
 from eagle_rag.plugins.contract import PluginManifest
 from eagle_rag.plugins.errors import PluginLoadError
-from eagle_rag.plugins.hotpath_hooks import apply_chunk_hook, apply_parse_hook, apply_query_assemble
 from eagle_rag.plugins.hookbus import HookBus, HookContext
 from eagle_rag.plugins.hooks import Hook
+from eagle_rag.plugins.hotpath_hooks import apply_chunk_hook, apply_parse_hook, apply_query_assemble
 from eagle_rag.plugins.manager import PluginManager
 from eagle_rag.plugins.mcp_registry import (
     FORBIDDEN_MCP_TOOL_FRAGMENTS,

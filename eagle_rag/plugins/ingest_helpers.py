@@ -67,6 +67,10 @@ def ingest_text_nodes(
             parent_section=str(meta.get("path") or ""),
             source_chunk_id=source_id,
             file_ext=str(meta.get("file_path") or ""),
+            extra={
+                "section": meta.get("biomed_section") or meta.get("section") or "",
+                "doc_type": meta.get("biomed_doc_type") or meta.get("doc_type") or "",
+            },
         )
         decision = orchestrator.classify(hook_ctx, class_ctx)
 

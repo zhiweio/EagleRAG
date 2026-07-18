@@ -211,7 +211,7 @@ After Knowhere parse, hot-path hooks wire domain customization:
 | Stage | Hook | Module |
 |-------|------|--------|
 | Parse enrich | `PARSE` | `eagle_rag/plugins/hotpath_hooks.py` |
-| Domain chunking | `CHUNK` | `eagle_rag/plugins/hotpath_hooks.py` |
+| Domain metadata enrich (Knowhere-preserving) | `CHUNK` | `eagle_rag/plugins/hotpath_hooks.py` |
 | Visual extract | `INGEST_VISUAL_EXTRACT` | HookBus |
 | Classify | `CLASSIFY_CHUNK` / `CLASSIFY_VISUAL` | `IngestOrchestrator.classify()` |
 | Embed + upsert | `EMBED_*` → `UPSERT_VECTORS` | `IngestOrchestrator.embed_and_upsert()` |
@@ -239,14 +239,18 @@ PixelRAG is a **library only** — no `pixelrag serve`, no FAISS, no `pixelrag.b
 
 Output: tile dicts `{image_bytes, page, position, width, height}`.
 
-#### Visual encoder singleton
+#### Visual encoder (`get_visual_encoder`)
 
-`_Qwen3VLVisualEncoder` loads Qwen3-VL-Embedding-2B lazily:
+[`eagle_rag/ingest/visual_encoder.py`](../../../eagle_rag/ingest/visual_encoder.py) selects a backend from `embedding.visual.provider`:
 
-- Last-token pooling + L2 normalization (matches `pixelrag_embed.embed_cpu`)
-- Image and text queries share vector space
-- Provider must be `embedding.visual.provider == "pixelrag"` (fail-fast otherwise)
-- Device: `auto` → cuda → mps → cpu
+| Provider | Backend | Notes |
+| --- | --- | --- |
+| `pixelrag` (default) | Local HF Qwen3-VL-Embedding | Last-token pool + L2; device `auto` → cuda → mps → cpu |
+| `dashscope` | Bailian `qwen3-vl-embedding` | DashScope `MultiModalEmbedding`; `dimension=2048`; needs `DASHSCOPE_API_KEY` |
+
+- Image and text queries share one vector space (same provider for ingest + query)
+- Switching providers requires **rebuilding** `eagle_visual` (do not mix backends)
+- Public API unchanged: `embed_tiles` / `embed_query` / `embed_image_bytes`
 
 #### Task `pixelrag_build` (`pixelrag_queue`, concurrency 1)
 
@@ -393,8 +397,15 @@ pixelrag:
   viewport_width: 875
   pdf_dpi: 200
   backend: cdp          # cdp | playwright
-  embed_device: auto    # cuda | mps | cpu
+  embed_device: auto    # cuda | mps | cpu (local provider only)
   embed_instruction: "Represent the user's input."
+
+embedding:
+  visual:
+    provider: pixelrag                 # or dashscope
+    model: Qwen/Qwen3-VL-Embedding-2B  # or qwen3-vl-embedding
+    dim: 2048
+    # api_key / batch_size used when provider=dashscope
 ```
 
 ### 6.5 Celery queues

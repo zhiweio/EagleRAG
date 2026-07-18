@@ -1,7 +1,16 @@
-"""Local UMLS-subset ontology helpers shared by routing, QUERY_ASSEMBLE, and MCP."""
+"""Local UMLS-subset ontology helpers shared by routing, QUERY_ASSEMBLE, and MCP.
+
+The curated subset (``routing_rules.yaml``) ships ~70 entities covering common
+genes / proteins / drugs / diseases / pathways. For higher recall, point the
+``EAGLE_BIOMED_UMLS_MRCONSO_PATH`` env var at a real UMLS MRCONSO RRF file
+(requires an NLM UMLS Metathesaurus license); the loader merges additional
+English (LAT=ENG) aliases and CUIs into the index. When the file is absent or
+unreadable, only the curated subset is used (graceful, no error).
+"""
 
 from __future__ import annotations
 
+import os
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -12,24 +21,122 @@ import yaml
 __all__ = [
     "expand_query_with_entities",
     "load_umls_index",
+    "load_umls_metathesaurus",
     "match_entities",
     "resolve_entity",
     "resolve_compound_query",
 ]
 
 _RULES_PATH = Path(__file__).resolve().parent / "routing_rules.yaml"
+_MRCONSO_ENV = "EAGLE_BIOMED_UMLS_MRCONSO_PATH"
+# MRCONSO columns (pipe-separated RRF). We only use the fields we need.
+# CUI|LAT|TS|LUI|SAB|TTY|CODE|STR|SUI|ISPREF|...
+_MRCONSO_CUI = 0
+_MRCONSO_LAT = 1
+_MRCONSO_STR = 7
+_MRCONSO_ISPREF = 9
 
 
 @lru_cache(maxsize=1)
 def load_umls_index() -> dict[str, Any]:
+    """Load the curated YAML entity index (the base for all matching)."""
     with _RULES_PATH.open(encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
     return data if isinstance(data, dict) else {}
 
 
+def _normalize_alias(name: str) -> str:
+    return re.sub(r"\s+", " ", name.strip().lower())
+
+
+def load_umls_metathesaurus(path: str | Path | None = None) -> dict[str, dict[str, Any]]:
+    """Parse a UMLS MRCONSO RRF file into ``{canonical_name: {aliases, cui}}``.
+
+    Only English (LAT=ENG), preferred-term (ISPREF=Y) rows are kept. Returns an
+    empty dict when the path is None / missing / unreadable so callers can use
+    the curated subset alone. This is an enrichment layer, never a hard dep.
+
+    The returned dict is keyed by a normalized canonical STR; values carry the
+    CUI and the set of alias strings. Callers merge this into the curated index.
+    """
+    mrconso_path = Path(path or os.environ.get(_MRCONSO_ENV, "") or "")
+    if not mrconso_path or not mrconso_path.is_file():
+        return {}
+
+    merged: dict[str, dict[str, Any]] = {}
+    try:
+        with mrconso_path.open(encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                parts = line.rstrip("\n").split("|")
+                if len(parts) <= _MRCONSO_ISPREF:
+                    continue
+                if parts[_MRCONSO_LAT] != "ENG":
+                    continue
+                if parts[_MRCONSO_ISPREF] != "Y":
+                    continue
+                cui = parts[_MRCONSO_CUI].strip()
+                term = parts[_MRCONSO_STR].strip()
+                if not term:
+                    continue
+                key = _normalize_alias(term)
+                entry = merged.setdefault(
+                    key,
+                    {"canonical": term, "cui": cui, "aliases": set()},
+                )
+                if cui and not entry["cui"]:
+                    entry["cui"] = cui
+                entry["aliases"].add(term)
+    except OSError:
+        return {}
+
+    # Convert sets to sorted lists for JSON-friendliness.
+    for entry in merged.values():
+        entry["aliases"] = sorted(entry["aliases"])
+    return merged
+
+
+@lru_cache(maxsize=1)
+def _merged_index() -> dict[str, Any]:
+    """Curated YAML base, augmented with MRCONSO aliases/CUIs when available."""
+    base = load_umls_index()
+    entities: dict[str, Any] = dict(base.get("umls_entities", {}) or {})
+
+    mrconso = load_umls_metathesaurus()
+    if mrconso:
+        # Merge MRCONSO aliases into existing curated entities (by normalized
+        # canonical name match), and add new entities not already present.
+        for norm_key, entry in mrconso.items():
+            # Find a curated entity whose canonical or alias matches this MRCONSO term.
+            matched_key: str | None = None
+            for cur_key, cur_meta in entities.items():
+                cur_names = [cur_key, *(cur_meta.get("aliases") or [])]
+                if norm_key in {_normalize_alias(n) for n in cur_names}:
+                    matched_key = cur_key
+                    break
+            if matched_key is not None:
+                meta = entities[matched_key]
+                existing = set(_normalize_alias(a) for a in (meta.get("aliases") or []))
+                for alias in entry["aliases"]:
+                    if _normalize_alias(alias) not in existing:
+                        meta.setdefault("aliases", []).append(alias)
+                        existing.add(_normalize_alias(alias))
+                if not meta.get("cui") and entry.get("cui"):
+                    meta["cui"] = entry["cui"]
+            else:
+                entities[entry["canonical"]] = {
+                    "aliases": entry["aliases"],
+                    "cui": entry.get("cui", ""),
+                    "pathways": [],
+                    "related_drugs": [],
+                }
+
+    base["umls_entities"] = entities
+    return base
+
+
 def match_entities(query: str) -> list[str]:
     """Return canonical entity keys matched in ``query`` (substring + keyword)."""
-    rules = load_umls_index()
+    rules = _merged_index()
     hits: list[str] = []
     lowered = query.lower()
     for entity, meta in rules.get("umls_entities", {}).items():
@@ -45,7 +152,7 @@ def match_entities(query: str) -> list[str]:
 
 def resolve_entity(entity: str) -> dict[str, Any]:
     """Resolve a single entity to aliases / pathways / related drugs."""
-    rules = load_umls_index()
+    rules = _merged_index()
     umls = rules.get("umls_entities", {})
     key = next((k for k in umls if k.lower() == entity.strip().lower()), None)
     if key is None:

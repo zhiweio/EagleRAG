@@ -305,8 +305,8 @@ def test_router_kb_name_passthrough():
         mock_kr.return_value = MagicMock()
         mock_pr.return_value = MagicMock()
         EagleRouterQueryEngine(kb_name="pharma")
-        mock_kr.assert_called_once_with(top_k=5, kb_name="pharma")
-        mock_pr.assert_called_once_with(top_k=5, kb_name="pharma")
+        mock_kr.assert_called_once_with(top_k=5, kb_name="pharma", plugin_namespace="core")
+        mock_pr.assert_called_once_with(top_k=5, kb_name="pharma", plugin_namespace="core")
 
 
 # ---------------------------------------------------------------------------

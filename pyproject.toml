@@ -75,6 +75,13 @@ dependencies = [
     "prometheus-client",  # MCP /metrics
 ]
 
+# Optional feature extras: `uv sync --extra biomed`
+[project.optional-dependencies]
+biomed = [
+    # BiomedCLIP (radiology text↔image) via open_clip; Core Qwen path does not need this.
+    "open-clip-torch>=2.23.0",
+]
+
 # Dev / docs dependency groups: `uv sync --group dev` / `uv sync --group docs`
 [dependency-groups]
 dev = [
@@ -82,6 +89,7 @@ dev = [
     "pytest-asyncio",
     "ruff",
     "mypy",
+    "fakeredis",
 ]
 # Docs site build deps: `uv sync --group docs`.
 # mkdocs-static-i18n provides bilingual folder layout (en/zh).

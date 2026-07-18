@@ -39,8 +39,7 @@
 > Search knowledge by what documents *mean* and how they *look* — not one or the other.  
 > Weaving Knowhere semantic chunks with PixelRAG pixel-native perception into a multi-tenant data layer — built to ignite Agent intelligence.
 
-Eagle-RAG uses a **microkernel + in-repo plugins** architecture: Core (`namespace=core`) provides ingest, multimodal retrieval, and MCP tools (`core_*`); domain plugins (`plugins/biomed`, `plugins/lakehouse_bi`) extend hooks, encoders, and MCP via `EAGLE_RAG_PROFILE` / `settings.plugins.enabled` + `default_namespace`. **Built-in UI = Core knowhere+pixelrag showcase only**; verticals are **backend + MCP** for downstream Agents. See [Plugin architecture](docs/en/architecture/plugin-architecture.md), [ADR-008](docs/en/architecture/adr/008-rag-only-plugin-platform.md), and [Authoring guide](docs/en/guides/authoring-industry-plugin.md).
-
+Eagle-RAG uses a **microkernel + in-repo plugins** architecture: Core (`namespace=core`) provides ingest, multimodal retrieval, and MCP tools (`core_*`); domain plugins extend hooks, encoders, and MCP via `EAGLE_RAG_PROFILE` / `settings.plugins.enabled` + `default_namespace`. **`plugins/biomed` is experimental**; **`plugins/lakehouse_bi` is under development**. **Built-in UI = Core knowhere+pixelrag showcase only**; verticals are **backend + MCP** for downstream Agents. See [Plugin architecture](docs/en/architecture/plugin-architecture.md), [ADR-008](docs/en/architecture/adr/008-rag-only-plugin-platform.md), and [Authoring guide](docs/en/guides/authoring-industry-plugin.md).
 Feed it PDFs, Office files, scans, or web pages — Eagle-RAG understands both the words and the visuals. Answers stream back with citations you can check, and multiple teams can each run their own knowledge base without mixing data.
 
 ## How It Work
@@ -120,7 +119,7 @@ Infrastructure: Milvus (one **Database** per `plugin_namespace`) + PostgreSQL (n
 | --- | --- |
 | **Backend** | Python ≥ 3.12, FastAPI, Celery 5, LlamaIndex, Pydantic v2, SQLModel, Alembic |
 | **Frontend** | Next.js 16 (App Router), React 19, TypeScript 5, HeroUI v3, Tailwind v4, TanStack Query, Zustand 5, next-intl (zh / en, light-only) |
-| **AI models** | DeepSeek-V4-Pro (text LLM / routing), Qwen-VL-Max (VLM), `text-embedding-v4` (text 1536-d), Qwen3-VL-Embedding-2B (visual 2048-d, carried by a self-implemented `_Qwen3VLVisualEncoder` singleton encoder), `qwen3-rerank` (rerank). DeepSeek + Qwen only, no OpenAI / Cohere. |
+| **AI models** | DeepSeek-V4-Pro (text LLM / routing), Qwen-VL-Max (VLM), `text-embedding-v4` (text 1536-d), Qwen3-VL visual embedding 2048-d via `get_visual_encoder()` (`provider=pixelrag` local HF or `dashscope` Bailian), `qwen3-rerank` (rerank). DeepSeek + Qwen only, no OpenAI / Cohere. |
 | **Infrastructure** | Milvus 2.6 (DB per `plugin_namespace`; base `eagle_text` + `eagle_visual`), PostgreSQL 16, Redis 7, MinIO, Docker Compose |
 | **Integration** | MCP (Model Context Protocol) over HTTP (default `/mcp`) + stdio fallback, OpenAPI-generated TypeScript SDK |
 
@@ -169,7 +168,7 @@ DeepSeek + Qwen only:
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `EAGLE_RAG_PROFILE` | `core` | Deploy profile: `core` / `biomed` / `lakehouse-bi` (sets `default_namespace` + Milvus `db_name`) |
+| `EAGLE_RAG_PROFILE` | `core` | Deploy profile: `core` / `biomed` (experimental) / `lakehouse-bi` (in development); sets `default_namespace` + Milvus `db_name` |
 | `KB_NAME` | `default` | Default knowledge-base id **inside** the bound domain, e.g. `finance` / `patent` / `pharma` |
 | `KNOWHERE_MODE` | `api` | Knowhere backend: `api` (HTTP `:5005` via `knowhere-python-sdk`) or `parser` (in-process `knowhere-parse-sdk`) |
 | `KNOWHERE_BASE_URL` | `http://localhost:5005` | Knowhere HTTP parsing service URL (`api` mode only) |
@@ -229,12 +228,12 @@ The MCP Server (FastMCP, default streamable HTTP transport mounted at `/mcp`, wi
 | `core_query` | `query`, `mode?`, `scope?`, `kb_name?`, `scope_filter?` | `{answer, sources, route, steps}` |
 | `core_retrieve_text` | `query`, `scope?`, `top_k=5`, `kb_name?` | `[{node_id, text, score, metadata}]` |
 | `core_retrieve_visual` | `query`, `scope?`, `top_k=5`, `kb_name?` | `[{image_id, document_id, page, position, score}]` |
-| `biomed_query_entities` | `entity`, `kb_name?` | entity aliases / pathways (biomed profile) |
-| `biomed_retrieve_compounds` | `smiles_or_name`, `top_k?`, `kb_name?` | chemical ANN hits (biomed profile) |
-| `lakehouse_bi_query_semantic_context` | `question`, `kb_name?` | semantic context pack (lakehouse-bi profile) |
-| `lakehouse_bi_retrieve_historical_analysis` | `topic`, `kb_name?` | historical analysis chunks |
+| `biomed_query_entities` | `entity`, `kb_name?` | entity aliases / pathways (biomed profile, **experimental**) |
+| `biomed_retrieve_compounds` | `smiles_or_name`, `top_k?`, `kb_name?` | chemical ANN hits (biomed profile, **experimental**) |
+| `lakehouse_bi_query_semantic_context` | `question`, `kb_name?` | semantic context pack (lakehouse-bi profile, **in development**) |
+| `lakehouse_bi_retrieve_historical_analysis` | `topic`, `kb_name?` | historical analysis chunks (**in development**) |
 
-When `kb_name` is omitted it falls back to `settings.kb_name`. Enable a domain with `EAGLE_RAG_PROFILE=biomed` or `EAGLE_RAG_PROFILE=lakehouse-bi` (see `eagle_rag/settings.yaml` `profiles:`).
+When `kb_name` is omitted it falls back to `settings.kb_name`. Enable a domain with `EAGLE_RAG_PROFILE=biomed` (**experimental**) or `EAGLE_RAG_PROFILE=lakehouse-bi` (**in development**) — see `eagle_rag/settings.yaml` `profiles:`. Production default remains `core`.
 
 ## Directory structure
 
@@ -259,7 +258,7 @@ eagle-rag/
 │  ├─ tasks/             # Celery (celery_app / dead_letter / state)
 │  ├─ telemetry/         # structured logging + OpenTelemetry
 │  └─ config.py  settings.yaml
-├─ plugins/              # in-repo domain plugins (biomed / lakehouse_bi / _template)
+├─ plugins/              # in-repo domain plugins (biomed experimental / lakehouse_bi in-dev / _template)
 ├─ frontend/             # Next.js + Bun + HeroUI v3 (Core showcase only)
 ├─ docker/               # Dockerfiles (api / worker / frontend / docs / mcp) + knowhere-self-hosted
 ├─ tests/  examples/  design/

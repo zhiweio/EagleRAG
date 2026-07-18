@@ -15,7 +15,7 @@ Copy this directory to `plugins/<your_namespace>/`, rename the package, and set
 
 ## Allowed
 
-- Domain chunking, typed metadata, specialized encoders/collections
+- Domain metadata enrich on Knowhere nodes (preserve path/doc_nav), specialized encoders/collections
 - Query expansion / entity hints via `QUERY_ASSEMBLE`
 - Read-only MCP tools that return context packs + sources
 

@@ -7,12 +7,15 @@ from typing import TYPE_CHECKING
 from eagle_rag.config import get_settings
 from eagle_rag.db.repositories.catalog import get_document_collections, get_kb_collections
 from eagle_rag.plugins.routing import CollectionQueryPlan, QueryRouteDecision
+from eagle_rag.telemetry import get_logger
 
 if TYPE_CHECKING:
     from eagle_rag.plugins.context import PluginAudit
     from eagle_rag.plugins.encoder_registry import EncoderRegistry
 
 __all__ = ["apply_scope_aware_union"]
+
+_LOGGER = get_logger(__name__)
 
 
 def _encoder_for_collection(
@@ -80,8 +83,26 @@ def apply_scope_aware_union(
                     plugin_namespace=plugin_namespace,
                 )
                 reason = "scope_aware_union"
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            # Best-effort: tag resolution failure must not break the query.
+            # Log + audit so the failure is observable (not silently swallowed).
+            _LOGGER.warning(
+                "scope tag resolution failed (non-blocking): %s",
+                exc,
+                extra={
+                    "plugin_namespace": plugin_namespace,
+                    "tags": list(scope_tags),
+                    "error": str(exc),
+                },
+            )
+            if audit is not None:
+                audit.log_decision(
+                    category="scope_routing_error",
+                    reason="tag_resolution_failed",
+                    plugin_namespace=plugin_namespace,
+                    error=str(exc),
+                    extra={"tags": list(scope_tags)},
+                )
 
     if not catalog_collections:
         return decision, False

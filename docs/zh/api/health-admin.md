@@ -19,12 +19,12 @@
 
 | 名称 | 检查 |
 |------|-------|
-| `postgresql` | 异步 DB ping |
+| `postgres` | 异步 DB ping（`SELECT 1`） |
 | `redis` | Broker 连通性 |
 | `milvus` | 实例绑定 Database 中列出集合（`eagle_text`、`eagle_visual`、…） |
 | `minio` | Bucket head |
-| `knowhere` | HTTP GET `settings.knowhere.base_url` |
-| `pixelrag` | 导入 `pixelrag_render` / `pixelrag_embed`（库，非 serve） |
+| `knowhere` | `mode=api`：HTTP GET `settings.knowhere.base_url`。`mode=parser`：进程内 `KnowhereParser` + 可写 `tmp_path` |
+| `pixelrag` | 渲染库可导入；当 `embedding.visual.provider=dashscope` 时还需 `DASHSCOPE_API_KEY`（detail 含 `visual=dashscope\|pixelrag`） |
 | `vlm` | Qwen-VL 可达性 |
 | `celery` | 检查活跃 worker |
 
@@ -52,7 +52,7 @@ Milvus 探测使用 `settings.milvus.db_name`（来自 `EAGLE_RAG_PROFILE` / `pl
 
 ## `GET /health/plugins`
 
-`PluginsHealthResponse` — 已加载插件清单与 Celery 模块列表（worker 一致性探测）。
+`PluginsHealthResponse` — 已加载插件清单、Celery 模块列表，以及近期 PluginAudit 决策（worker 一致性 + 路由遥测探测）。
 
 ```json
 {
@@ -68,7 +68,22 @@ Milvus 探测使用 `settings.milvus.db_name`（来自 `EAGLE_RAG_PROFILE` / `pl
       "provides_mcp_tools": ["core_ingest", "core_query", "core_retrieve_text", "core_retrieve_visual"]
     }
   ],
-  "celery_modules": ["eagle_rag.plugins.core_defaults", "..."]
+  "celery_modules": ["eagle_rag.plugins.core_defaults", "..."],
+  "recent_decisions": [
+    {
+      "event": "plugin_audit_decision",
+      "ts": "2026-07-18T04:00:00Z",
+      "category": "retrieve_plan",
+      "plugin_namespace": "core",
+      "reason": "plan_failed"
+    }
+  ],
+  "audit_stats": {
+    "buffer_size": 1000,
+    "source": "redis",
+    "enabled": true,
+    "redis_enabled": true
+  }
 }
 ```
 
@@ -78,6 +93,10 @@ Milvus 探测使用 `settings.milvus.db_name`（来自 `EAGLE_RAG_PROFILE` / `pl
 | `enabled_modules` | 来自 `settings.plugins.enabled` 的 Python 模块路径 |
 | `manifests` | 每插件 `PluginManifest` 摘要 |
 | `celery_modules` | worker 应导入以保持任务注册一致的模块 |
+| `recent_decisions` | 按时间从旧到新的 PluginAudit 事件（优先 Redis 近期窗口，否则内存；受 `telemetry.plugin_audit_health_limit` 限制） |
+| `audit_stats` | ring 容量，以及最近一次读取来源是 `redis` 还是 `memory` |
+
+示例 audit category：`classify_chunk`、`route_query`、`retrieve_plan`、`scope_routing_error`、`hook_failure`。环境变量：`PLUGIN_AUDIT_ENABLED`、`PLUGIN_AUDIT_REDIS_ENABLED`（YAML：`telemetry.plugin_audit_*`）。
 
 在更改 `EAGLE_RAG_PROFILE`、添加仓库内插件或调试命名空间 / MCP 工具暴露不一致后使用。
 

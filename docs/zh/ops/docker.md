@@ -88,7 +88,11 @@ Workers 共享 `x-worker-build` context `.` 与 `docker/Dockerfile.worker`。环
 | `worker-knowhere` | `knowhere_queue` | `8` | `cpus: 2.0` |
 | `worker-pixelrag` | `pixelrag_queue` | `1` | `memory: 4g`，`cpus: 2.0` |
 
-`worker-pixelrag` 挂载 `./data:/app/data` 存放上传与本地产物。Qwen3-VL-Embedding-2B 在 **`docker build`** 的独立 `model-prefetch` 阶段写入镜像 `/opt/huggingface/model`（与 `eagle_rag` 源码变更解耦）。BuildKit 缓存挂载 `eagle-rag-visual-model-cache` 在阶段重跑时复用本地约 4 GB 权重，避免重复下载。默认 `MODEL_DOWNLOAD_SOURCE=modelscope`（国内更稳）；可设 `huggingface` 或 `auto` 走 `HF_ENDPOINT`（如 hf-mirror.com），失败时 `auto` 回退 ModelScope。运行时 `VISUAL_EMBEDDING_MODEL=/opt/huggingface/model`，容器启动不再拉 Hub。
+`worker-pixelrag` 挂载 `./data:/app/data` 存放上传与本地产物。
+
+**本地视觉嵌入（`VISUAL_EMBEDDING_PROVIDER=pixelrag`，默认）：** Qwen3-VL-Embedding-2B 在 **`docker build`** 的独立 `model-prefetch` 阶段写入镜像 `/opt/huggingface/model`（与 `eagle_rag` 源码变更解耦）。BuildKit 缓存挂载 `eagle-rag-visual-model-cache` 在阶段重跑时复用本地约 4 GB 权重，避免重复下载。默认 `MODEL_DOWNLOAD_SOURCE=modelscope`（国内更稳）；可设 `huggingface` 或 `auto` 走 `HF_ENDPOINT`（如 hf-mirror.com），失败时 `auto` 回退 ModelScope。运行时 `VISUAL_EMBEDDING_MODEL=/opt/huggingface/model`，容器启动不再拉 Hub。
+
+**百炼视觉嵌入（`VISUAL_EMBEDDING_PROVIDER=dashscope`）：** 设置 `VISUAL_EMBEDDING_MODEL=qwen3-vl-embedding` 与 `DASHSCOPE_API_KEY`。Worker 仍需 `pixelrag_render`（Chrome）做切片，但**不再加载本地 HF 权重** — 可跳过 `model-prefetch` / 不烘焙 `/opt/huggingface/model` 以缩小镜像。保持 `dim: 2048`；从本地 HF 切到百炼时需重建 `eagle_visual`。
 
 ## Healthcheck 依赖链 {#healthcheck-dependency-chain}
 
@@ -143,8 +147,8 @@ API healthcheck 调用 [`eagle_rag/api/health.py`](https://github.com/fintax-ai/
 | 探测 | 通过条件 |
 | --- | --- |
 | `milvus` | `MilvusClient.list_collections()` 成功 |
-| `knowhere` | HTTP GET `settings.knowhere.base_url` 任意响应 |
-| `pixelrag` | `pixelrag_render` / `pixelrag_embed` 可导入，否则 `unknown` |
+| `knowhere` | `mode=api`：HTTP GET `settings.knowhere.base_url`。`mode=parser`：进程内 parser + 可写 tmp |
+| `pixelrag` | 渲染库可导入；`provider=dashscope` 时还需 `DASHSCOPE_API_KEY`（detail 含 `visual=…`） |
 | `vlm` | `GET {base_url}/models` 带 Bearer → 200 |
 | `redis` | 代理 URL 上 `PING` |
 | `minio` | `list_buckets()` |
@@ -158,12 +162,12 @@ API healthcheck 调用 [`eagle_rag/api/health.py`](https://github.com/fintax-ai/
 PixelRAG 不再是独立 serve 进程。`worker-pixelrag` 加载重型进程内依赖：
 
 1. **`pixelrag_render`** —— Chrome/CDP 或 Playwright HTML/PDF 光栅；大页瓦片（默认瓦片高度 8192 px）。
-2. **`pixelrag_embed`** + **`_Qwen3VLVisualEncoder` 单例** —— 经 `transformers` + `torch` 的 Qwen3-VL-Embedding-2B；2048 维向量写入 Milvus `eagle_visual`。
+2. **视觉编码** —— 本地 HF `LocalQwen3VLEncoder`（`provider=pixelrag`：`transformers` + `torch`）或百炼 `DashScopeQwen3VLEncoder`（`provider=dashscope`：仅 API，RSS 显著更低）。2048 维向量写入 Milvus `eagle_visual`。
 
 每容器超过一个并发任务会导致：
 
-- **内存压力** —— 多 Chrome 实例 + GPU/CPU 张量分配；compose 设 `deploy.resources.limits.memory: 4g`。
-- **编码器单例争用** —— 视觉编码器为进程级单例；并行嵌入任务争抢同一设备。
+- **内存压力** —— 多 Chrome 实例（`provider=pixelrag` 时另加 GPU/CPU 张量）；compose 设 `deploy.resources.limits.memory: 4g`。
+- **编码器 / 设备争用** —— 本地编码器为进程级；并行嵌入争抢同一设备（DashScope 则压力转为 API 限流）。
 - **Milvus 写入突发** —— 视觉插入体量大；串行平滑 segment flush。
 
 `settings.yaml` 明确意图：

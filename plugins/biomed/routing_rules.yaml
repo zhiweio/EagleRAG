@@ -1,5 +1,10 @@
 # Biomed query routing rules (G15). Loaded by BiomedQueryRouteClassifier + UMLS index.
+# Curated UMLS subset (genes / proteins / drugs / diseases / pathways).
+# Extend this file to add domain entities, or point EAGLE_BIOMED_UMLS_MRCONSO_PATH
+# at a real UMLS MRCONSO file to merge aliases/CUIs from the full Metathesaurus
+# (requires an NLM UMLS license; see docs/zh/guides/authoring-industry-plugin.md).
 umls_entities:
+  # --- Receptor tyrosine kinases / oncogenes ---
   HER2:
     aliases: ["ERBB2", "HER-2", "CD340", "neu"]
     cui: "C1706866"
@@ -26,25 +31,162 @@ umls_entities:
     pathways: ["apoptosis", "cell cycle"]
     related_drugs: []
   KRAS:
-    aliases: ["Kirsten rat sarcoma", "K-Ras"]
+    aliases: ["Kirsten rat sarcoma", "K-Ras", "KRAS2"]
     cui: "C0022730"
     pathways: ["MAPK", "RAF-MEK-ERK"]
     related_drugs: ["sotorasib", "adagrasib"]
+  NRAS:
+    aliases: ["neuroblastoma RAS", "N-Ras"]
+    cui: "C0206740"
+    pathways: ["MAPK", "RAF-MEK-ERK"]
+    related_drugs: []
   ALK:
     aliases: ["anaplastic lymphoma kinase", "CD246"]
     cui: "C1332106"
     pathways: ["RAS", "PI3K"]
     related_drugs: ["crizotinib", "alectinib", "lorlatinib"]
-  PD-L1:
-    aliases: ["CD274", "PDL1", "B7-H1"]
-    cui: "C3887640"
-    pathways: ["immune checkpoint"]
-    related_drugs: ["atezolizumab", "pembrolizumab", "nivolumab"]
+  ROS1:
+    aliases: ["c-ros-1", "ROS"]
+    cui: "C1334708"
+    pathways: ["MAPK", "PI3K-AKT"]
+    related_drugs: ["crizotinib", "entrectinib"]
+  BRAF:
+    aliases: ["B-Raf", "v-Raf"]
+    cui: "C0053333"
+    pathways: ["MAPK", "RAF-MEK-ERK"]
+    related_drugs: ["vemurafenib", "dabrafenib", "encorafenib"]
+  MET:
+    aliases: ["c-Met", "hepatocyte growth factor receptor", "HGFR"]
+    cui: "C1332879"
+    pathways: ["MAPK", "PI3K-AKT", "RAS"]
+    related_drugs: ["capmatinib", "tepotinib"]
+  RET:
+    aliases: ["rearranged during transfection"]
+    cui: "C1332174"
+    pathways: ["MAPK", "PI3K-AKT"]
+    related_drugs: ["selpercatinib", "pralsetinib"]
+  PIK3CA:
+    aliases: ["PI3K-alpha", "p110alpha"]
+    cui: "C0278590"
+    pathways: ["PI3K-AKT"]
+    related_drugs: ["alpelisib"]
+  PTEN:
+    aliases: ["phosphatase and tensin homolog"]
+    cui: "C0600085"
+    pathways: ["PI3K-AKT"]
+    related_drugs: []
+  AKT:
+    aliases: ["protein kinase B", "PKB", "AKT1"]
+    cui: "C0278541"
+    pathways: ["PI3K-AKT"]
+    related_drugs: []
+  mTOR:
+    aliases: ["mammalian target of rapamycin", "MTOR", "FRAP"]
+    cui: "C0535195"
+    pathways: ["mTOR", "PI3K-AKT"]
+    related_drugs: ["everolimus", "temsirolimus"]
+  MEK:
+    aliases: ["MAP2K1", "MAP2K2", "MAPK/ERK kinase"]
+    cui: "C1367312"
+    pathways: ["RAF-MEK-ERK", "MAPK"]
+    related_drugs: ["trametinib", "cobimetinib"]
+  JAK2:
+    aliases: ["Janus kinase 2"]
+    cui: "C0238474"
+    pathways: ["JAK-STAT"]
+    related_drugs: ["ruxolitinib", "fedratinib"]
   VEGF:
     aliases: ["VEGFA", "vascular endothelial growth factor"]
     cui: "C0078058"
     pathways: ["angiogenesis"]
     related_drugs: ["bevacizumab", "ramucirumab"]
+  PD-L1:
+    aliases: ["CD274", "PDL1", "B7-H1"]
+    cui: "C3887640"
+    pathways: ["immune checkpoint"]
+    related_drugs: ["atezolizumab", "pembrolizumab", "nivolumab"]
+  PD-1:
+    aliases: ["PDCD1", "CD279", "programmed cell death protein 1"]
+    cui: "C0278540"
+    pathways: ["immune checkpoint"]
+    related_drugs: ["pembrolizumab", "nivolumab", "cemiplimab"]
+  CTLA4:
+    aliases: ["CTLA-4", "CD152"]
+    cui: "C0271485"
+    pathways: ["immune checkpoint"]
+    related_drugs: ["ipilimumab", "tremelimumab"]
+  BCL2:
+    aliases: ["B-cell lymphoma 2", "Bcl-2"]
+    cui: "C0282648"
+    pathways: ["apoptosis"]
+    related_drugs: ["venetoclax", "navitoclax"]
+  MYC:
+    aliases: ["c-Myc", "MYCC"]
+    cui: "C0284096"
+    pathways: ["cell cycle", "apoptosis"]
+    related_drugs: []
+  CDK4:
+    aliases: ["cyclin-dependent kinase 4"]
+    cui: "C0057691"
+    pathways: ["cell cycle"]
+    related_drugs: ["palbociclib", "ribociclib", "abemaciclib"]
+  CDK6:
+    aliases: ["cyclin-dependent kinase 6"]
+    cui: "C0057692"
+    pathways: ["cell cycle"]
+    related_drugs: ["palbociclib", "ribociclib", "abemaciclib"]
+  FGFR:
+    aliases: ["fibroblast growth factor receptor", "FGFR1"]
+    cui: "C0282627"
+    pathways: ["MAPK", "PI3K-AKT"]
+    related_drugs: ["erdafitinib", "pemigatinib"]
+  NOTCH1:
+    aliases: ["Notch", "Notch-1"]
+    cui: "C0284097"
+    pathways: ["Notch signaling"]
+    related_drugs: []
+  WNT:
+    aliases: ["Wnt", "wingless-type"]
+    cui: "C1332629"
+    pathways: ["Wnt/beta-catenin"]
+    related_drugs: []
+  ERK:
+    aliases: ["extracellular signal-regulated kinase", "MAPK1", "MAPK3"]
+    cui: "C1367117"
+    pathways: ["RAF-MEK-ERK", "MAPK"]
+    related_drugs: []
+  CD20:
+    aliases: ["MS4A1", "B-lymphocyte antigen CD20"]
+    cui: "C0238475"
+    pathways: ["B-cell activation"]
+    related_drugs: ["rituximab", "obinutuzumab"]
+  KIT:
+    aliases: ["c-Kit", "CD117", "stem cell factor receptor"]
+    cui: "C0039871"
+    pathways: ["MAPK", "PI3K-AKT"]
+    related_drugs: ["imatinib", "sunitinib"]
+  FLT3:
+    aliases: ["CD135", "fms-like tyrosine kinase 3"]
+    cui: "C0282755"
+    pathways: ["MAPK", "PI3K-AKT"]
+    related_drugs: ["midostaurin", "gilteritinib"]
+  IDH1:
+    aliases: ["isocitrate dehydrogenase 1"]
+    cui: "C0285148"
+    pathways: ["metabolism", "epigenetics"]
+    related_drugs: ["ivosidenib"]
+  IDH2:
+    aliases: ["isocitrate dehydrogenase 2"]
+    cui: "C0285149"
+    pathways: ["metabolism", "epigenetics"]
+    related_drugs: ["enasidenib"]
+  PARP:
+    aliases: ["poly(ADP-ribose) polymerase", "PARP1"]
+    cui: "C0282597"
+    pathways: ["DNA repair", "HRR"]
+    related_drugs: ["olaparib", "talazoparib", "rucaparib"]
+
+  # --- Drugs / small molecules ---
   imatinib:
     aliases: ["Gleevec", "STI-571", "CGP57148"]
     cui: "C0935989"
@@ -60,6 +202,130 @@ umls_entities:
     cui: "C0004057"
     pathways: ["COX"]
     related_drugs: []
+  trastuzumab:
+    aliases: ["Herceptin"]
+    cui: "C0728747"
+    pathways: ["ERBB"]
+    related_drugs: ["pertuzumab", "lapatinib"]
+  pembrolizumab:
+    aliases: ["Keytruda", "MK-3475"]
+    cui: "C1579442"
+    pathways: ["immune checkpoint"]
+    related_drugs: ["nivolumab", "atezolizumab"]
+  nivolumab:
+    aliases: ["Opdivo", "BMS-936558"]
+    cui: "C1530134"
+    pathways: ["immune checkpoint"]
+    related_drugs: ["pembrolizumab", "ipilimumab"]
+  olaparib:
+    aliases: ["Lynparza", "AZD2281"]
+    cui: "C1533050"
+    pathways: ["PARP", "HRR"]
+    related_drugs: ["talazoparib", "rucaparib"]
+  osimertinib:
+    aliases: ["Tagrisso", "AZD9291"]
+    cui: "C000434323"
+    pathways: ["EGFR"]
+    related_drugs: ["gefitinib", "erlotinib"]
+  sotorasib:
+    aliases: ["Lumakras", "AMG 510"]
+    cui: "C000619593"
+    pathways: ["KRAS", "MAPK"]
+    related_drugs: ["adagrasib"]
+  vemurafenib:
+    aliases: ["Zelboraf", "PLX4032"]
+    cui: "C1533049"
+    pathways: ["BRAF", "MAPK"]
+    related_drugs: ["dabrafenib", "encorafenib"]
+  palbociclib:
+    aliases: ["Ibrance", "PD-0332991"]
+    cui: "C1533032"
+    pathways: ["CDK4/6", "cell cycle"]
+    related_drugs: ["ribociclib", "abemaciclib"]
+  bevacizumab:
+    aliases: ["Avastin"]
+    cui: "C0728841"
+    pathways: ["angiogenesis", "VEGF"]
+    related_drugs: ["ramucirumab"]
+  everolimus:
+    aliases: ["Afinitor", "RAD001"]
+    cui: "C1579441"
+    pathways: ["mTOR"]
+    related_drugs: ["temsirolimus"]
+  venetoclax:
+    aliases: ["Venclexta", "ABT-199"]
+    cui: "C000434374"
+    pathways: ["BCL2", "apoptosis"]
+    related_drugs: ["navitoclax"]
+
+  # --- Diseases ---
+  "breast cancer":
+    aliases: ["breast carcinoma", "mammary carcinoma"]
+    cui: "C0006142"
+    pathways: ["ERBB", "hormone receptor"]
+    related_drugs: ["trastuzumab", "tamoxifen", "palbociclib"]
+  "lung cancer":
+    aliases: ["lung carcinoma", "NSCLC", "non-small cell lung cancer", "SCLC"]
+    cui: "C0242379"
+    pathways: ["EGFR", "ALK", "KRAS"]
+    related_drugs: ["osimertinib", "crizotinib", "pembrolizumab"]
+  "colorectal cancer":
+    aliases: ["CRC", "colon cancer", "rectal cancer"]
+    cui: "C0009402"
+    pathways: ["EGFR", "BRAF", "KRAS"]
+    related_drugs: ["cetuximab", "bevacizumab"]
+  melanoma:
+    aliases: ["malignant melanoma", "skin melanoma"]
+    cui: "C0025202"
+    pathways: ["BRAF", "immune checkpoint"]
+    related_drugs: ["vemurafenib", "pembrolizumab", "ipilimumab"]
+  leukemia:
+    aliases: ["leukaemia", "CML", "AML", "chronic myeloid leukemia"]
+    cui: "C0023418"
+    pathways: ["BCR-ABL", "apoptosis"]
+    related_drugs: ["imatinib", "venetoclax"]
+  lymphoma:
+    aliases: ["non-Hodgkin lymphoma", "NHL", "Hodgkin lymphoma"]
+    cui: "C0024299"
+    pathways: ["BCL2", "CD20"]
+    related_drugs: ["rituximab", "venetoclax"]
+  diabetes:
+    aliases: ["diabetes mellitus", "T2DM", "type 2 diabetes", "T1DM"]
+    cui: "C0011847"
+    pathways: ["insulin signaling", "AMPK"]
+    related_drugs: ["metformin", "insulin"]
+  "COVID-19":
+    aliases: ["COVID19", "SARS-CoV-2 infection", "coronavirus disease 2019"]
+    cui: "C5203670"
+    pathways: ["immune response", "inflammation"]
+    related_drugs: ["remdesivir", "dexamethasone"]
+
+  # --- Pathways ---
+  "PI3K-AKT":
+    aliases: ["PI3K/AKT", "phosphoinositide 3-kinase", "PI3K pathway"]
+    cui: ""
+    pathways: []
+    related_drugs: ["alpelisib", "everolimus"]
+  MAPK:
+    aliases: ["MAP kinase", "RAF-MEK-ERK", "ERK pathway"]
+    cui: ""
+    pathways: []
+    related_drugs: ["trametinib", "vemurafenib"]
+  "JAK-STAT":
+    aliases: ["JAK/STAT", "Janus kinase-signal transducer"]
+    cui: ""
+    pathways: []
+    related_drugs: ["ruxolitinib", "tocilizumab"]
+  apoptosis:
+    aliases: ["programmed cell death", "apoptotic pathway"]
+    cui: "C0003600"
+    pathways: []
+    related_drugs: ["venetoclax"]
+  angiogenesis:
+    aliases: ["neovascularization", "vascular proliferation"]
+    cui: "C0002976"
+    pathways: ["VEGF"]
+    related_drugs: ["bevacizumab"]
 
 entity_keywords:
   - kinase
@@ -74,6 +340,22 @@ entity_keywords:
   - biomarker
   - monoclonal antibody
   - pharmacokinetics
+  - gene expression
+  - clinical trial
+  - inhibitor
+  - antagonist
+  - agonist
+  - ligand
+  - downregulation
+  - upregulation
+  - proliferation
+  - metastasis
+  - prognosis
+  - overall survival
+  - progression-free survival
+  - adverse event
+  - in vitro
+  - in vivo
 
 chemical:
   smiles_patterns:

@@ -102,7 +102,7 @@ External document semantic parser ([Ontos-AI/knowhere](https://github.com/Ontos-
 
 Visual encoder + slicer library ([StarTrail-org/PixelRAG](https://github.com/StarTrail-org/PixelRAG)).
 
-**Eagle-RAG usage:** `pixelrag_render` slices pages; `_Qwen3VLVisualEncoder` embeds tiles. **No** `pixelrag-serve`, **no** FAISS — vectors go to Milvus.
+**Eagle-RAG usage:** `pixelrag_render` slices pages; `get_visual_encoder()` embeds tiles (`pixelrag` local HF or `dashscope` Bailian). **No** `pixelrag-serve`, **no** FAISS — vectors go to Milvus.
 
 **Code:** `eagle_rag/ingest/pixelrag_adapter.py` — `pixelrag_build`, `knowhere_visual_chunks`.
 
@@ -238,7 +238,7 @@ Celery queue `dead_letter` for messages that exhausted retries. Inspectable via 
 
 ### Lazy initialization
 
-No service connects at import. `get_settings()`, Milvus clients, `_Qwen3VLVisualEncoder` construct on first use — `@lru_cache` or module-level singletons.
+No service connects at import. `get_settings()`, Milvus clients, `get_visual_encoder()` construct on first use — `@lru_cache` or module-level singletons.
 
 ### Graceful degradation
 

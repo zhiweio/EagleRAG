@@ -343,7 +343,7 @@ replay_dead_letter("job-uuid")  # re-dispatch
 | Error | Likely cause | Fix |
 |-------|-------------|-----|
 | KnowhereError | SDK/service down | Check Knowhere :5005 |
-| ValueError embed provider | Wrong visual provider config | Set `embedding.visual.provider: pixelrag` |
+| ValueError embed provider | Unknown visual provider | Set `embedding.visual.provider` to `pixelrag` or `dashscope` |
 | SoftTimeLimitExceeded | Large document | Increase time limit or split document |
 | MinIO download failure | Object key missing | Check upload from API runner |
 

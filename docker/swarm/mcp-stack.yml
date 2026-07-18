@@ -1,52 +1,52 @@
-# Eagle-RAG MCP 服务 Docker Swarm 高可用部署栈。
+# Eagle-RAG MCP service Docker Swarm HA deployment stack.
 #
-# 用法：
+# Usage:
 #   docker stack deploy -c docker/swarm/mcp-stack.yml mcp
 #
-# 前置：
-#   1. 初始化 Swarm（若未初始化）：docker swarm init
-#   2. 创建基础设施 overlay 网络（供 MCP 连接 postgres/redis/milvus/minio）：
+# Prerequisites:
+#   1. Initialize Swarm (if not already): docker swarm init
+#   2. Create infrastructure overlay network (for MCP to reach postgres/redis/milvus/minio):
 #      docker network create --driver overlay --attachable eagle-infra
-#      （基础设施服务需加入该网络，或在同一 Swarm stack 中部署）
-#   3. 创建 Swarm secrets：
+#      (Infrastructure services must join this network, or deploy in the same Swarm stack)
+#   3. Create Swarm secrets:
 #      printf "<api-key>" | docker secret create mcp_api_key -
-#      docker secret create mcp_tls_cert ./fullchain.pem   # 含证书+私钥的合并 PEM
-#   4. 基础设施就绪（postgres/redis/milvus/minio/knowhere），且已加入 eagle-infra 网络
-#   5. 镜像就绪：docker build -f docker/Dockerfile.mcp -t eagle-rag-mcp .
-#      （生产用 ghcr.io 私有镜像，Swarm manager 需 docker login ghcr.io）
+#      docker secret create mcp_tls_cert ./fullchain.pem   # Combined PEM with cert + private key
+#   4. Infrastructure ready (postgres/redis/milvus/minio/knowhere), joined to eagle-infra network
+#   5. Image ready: docker build -f docker/Dockerfile.mcp -t eagle-rag-mcp .
+#      (Production: ghcr.io private image; Swarm manager needs docker login ghcr.io)
 #
-# 多环境：经环境变量覆盖（.env 或 shell export），如 MCP_REPLICAS、MCP_WORKERS、
-#   MCP_IMAGE、POSTGRES_DSN、CELERY_BROKER_URL 等。
+# Multi-environment: override via env vars (.env or shell export), e.g. MCP_REPLICAS, MCP_WORKERS,
+#   MCP_IMAGE, POSTGRES_DSN, CELERY_BROKER_URL, etc.
 #
-# 架构：
-#   - mcp：MCP HTTP 服务（stateless + JSON-only），水平扩展 N 副本
-#   - haproxy：HAProxy 3.0 负载均衡器，经 server-template 动态发现 tasks.mcp_mcp 副本
-#   - 流量：client → haproxy:443 (TLS) → mcp:8081 (roundrobin)
+# Architecture:
+#   - mcp: MCP HTTP service (stateless + JSON-only), horizontally scaled N replicas
+#   - haproxy: HAProxy 3.0 load balancer, dynamic discovery of tasks.mcp_mcp replicas via server-template
+#   - Traffic: client → haproxy:443 (TLS) → mcp:8081 (roundrobin)
 #
-# 说明：MCP 独立镜像经 eagle_rag.metrics 暴露 /health + /metrics 端点，
-#   healthcheck 与 haproxy httpchk 均探测 /health（返回 200 表示存活）。
+# Note: MCP standalone image exposes /health + /metrics via eagle_rag.metrics;
+#   healthcheck and haproxy httpchk both probe /health (200 = alive).
 
 version: "3.8"
 
 services:
-  # ======================== MCP HTTP 服务 ========================
+  # ======================== MCP HTTP Service ========================
   mcp:
     image: ${MCP_IMAGE:-eagle-rag-mcp:latest}
     environment:
-      # fastmcp 无状态模式（任意副本可处理任意请求，无粘性路由）。
+      # fastmcp stateless mode (any replica can handle any request, no sticky routing).
       FASTMCP_STATELESS_HTTP: "true"
       MCP_TRANSPORT: "http"
       MCP_HOST: "0.0.0.0"
       MCP_PORT: "8081"
       MCP_WORKERS: ${MCP_WORKERS:-4}
       MCP_AUTH_PROVIDER: ${MCP_AUTH_PROVIDER:-static-token}
-      # 鉴权：当前 settings.yaml 经 ${AUTH_API_KEY} 占位符展开注入 auth.api_key。
-      # AuthSettings 不支持 _FILE 后缀（继承 pydantic.BaseModel 非 BaseSettings），
-      # 故直接用环境变量；secrets 挂载供未来应用层 _FILE 支持启用。
+      # Auth: settings.yaml injects auth.api_key via ${AUTH_API_KEY} placeholder expansion.
+      # AuthSettings does not support _FILE suffix (inherits pydantic.BaseModel, not BaseSettings),
+      # so use env vars directly; secrets mount reserved for future app-layer _FILE support.
       AUTH_ENABLED: ${AUTH_ENABLED:-true}
       AUTH_API_KEY: ${AUTH_API_KEY:-}
       AUTH_API_KEY_FILE: /run/secrets/mcp_api_key
-      # 基础设施连接（settings.yaml 经 ${VAR} 占位符展开）。
+      # Infrastructure connections (settings.yaml expands ${VAR} placeholders).
       POSTGRES_DSN: ${POSTGRES_DSN:-postgresql://eagle:eagle@postgres:5432/eagle_rag}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       MCP_REDIS_URL: ${MCP_REDIS_URL:-redis://redis:6379/0}
@@ -58,17 +58,22 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET:-eagle-rag}
       KNOWHERE_BASE_URL: ${KNOWHERE_BASE_URL:-http://knowhere:5005}
       KNOWHERE_API_KEY: ${KNOWHERE_API_KEY:-}
-      # LLM / VLM / Embedding 凭证。
+      # LLM / VLM / Embedding credentials.
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       VLM_API_KEY: ${VLM_API_KEY:-}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
-      # 应用环境。
+      # Application environment.
       KB_NAME: ${KB_NAME:-default}
       APP_ENV: ${APP_ENV:-prod}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # PluginAudit multi-sink (AI JSONL + Redis recent window shared across MCP replicas).
+      TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-true}
+      AI_TELEMETRY_LOG_FILE: ${AI_TELEMETRY_LOG_FILE:-logs/ai_telemetry.jsonl}
+      PLUGIN_AUDIT_ENABLED: ${PLUGIN_AUDIT_ENABLED:-true}
+      PLUGIN_AUDIT_REDIS_ENABLED: ${PLUGIN_AUDIT_REDIS_ENABLED:-true}
     healthcheck:
-      # MCP 独立镜像经 eagle_rag.metrics 暴露 /health 端点，返回 200 表示存活。
+      # MCP standalone image exposes /health via eagle_rag.metrics; 200 = alive.
       test:
         - CMD-SHELL
         - "curl -sf http://localhost:8081/health || exit 1"
@@ -95,8 +100,8 @@ services:
         reservations:
           cpus: "0.5"
           memory: 512m
-      # 节点标签调度（可选）：docker node update --label-add eagle_role=mcp <node>
-      # 若无标签节点，可移除约束让 Swarm 自由调度。
+      # Node label scheduling (optional): docker node update --label-add eagle_role=mcp <node>
+      # Remove constraints if no labeled nodes; Swarm will schedule freely.
       placement:
         constraints:
           - node.labels.eagle_role == mcp
@@ -106,20 +111,20 @@ services:
     secrets:
       - mcp_api_key
 
-  # ======================== HAProxy 负载均衡器 ========================
+  # ======================== HAProxy Load Balancer ========================
   haproxy:
     image: haproxy:3.0
     ports:
       - "443:443"
       - "80:80"
-      - "8404:8404"  # stats 统计页面
+      - "8404:8404"  # stats page
     configs:
       - source: haproxy_cfg
         target: /usr/local/etc/haproxy/haproxy.cfg
     secrets:
       - mcp_tls_cert
     deploy:
-      # 单实例简化；生产可跑 2 副本 + keepalived/VRRP 做 HA 入口。
+      # Single replica for simplicity; production can run 2 replicas + keepalived/VRRP for HA entry.
       replicas: 1
       placement:
         constraints:
@@ -132,7 +137,7 @@ services:
         order: start-first
         failure_action: rollback
     healthcheck:
-      # 校验 HAProxy 配置语法（不实际转发流量）。
+      # Validate HAProxy config syntax (does not forward traffic).
       test: ["CMD", "haproxy", "-c", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
       interval: 30s
       timeout: 10s
@@ -141,23 +146,23 @@ services:
       - eagle-net
 
 networks:
-  # MCP 与 HAProxy 间的 overlay 网络（encrypted: true 启用 IPsec 加密跨节点流量）。
+  # Overlay network between MCP and HAProxy (encrypted: true enables IPsec for cross-node traffic).
   eagle-net:
     driver: overlay
     encrypted: true
-  # 外部基础设施网络：供 MCP 连接 postgres/redis/milvus/minio。
-  # 需先创建：docker network create --driver overlay --attachable eagle-infra
-  # 若基础设施也在同一 Swarm，可加入同一 stack 或此外部网络。
+  # External infrastructure network: MCP connects to postgres/redis/milvus/minio.
+  # Create first: docker network create --driver overlay --attachable eagle-infra
+  # If infrastructure is in the same Swarm, join the same stack or this external network.
   eagle-infra:
     external: true
 
 secrets:
-  # MCP 鉴权 API key：printf "<api-key>" | docker secret create mcp_api_key -
+  # MCP auth API key: printf "<api-key>" | docker secret create mcp_api_key -
   mcp_api_key:
     external: true
-  # TLS 证书（含 fullchain + privkey 的合并 PEM）：
+  # TLS certificate (combined PEM with fullchain + privkey):
   # docker secret create mcp_tls_cert ./fullchain.pem
-  # 生产推荐 Let's Encrypt + 定期轮换。
+  # Production: Let's Encrypt + periodic rotation recommended.
   mcp_tls_cert:
     external: true
 

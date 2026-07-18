@@ -88,7 +88,7 @@ flowchart TB
     end
     subgraph Flesh["PixelRAG — visual flesh"]
         REN["pixelrag_render tiles"]
-        EMB["_Qwen3VLVisualEncoder 2048d"]
+        EMB["get_visual_encoder 2048d"]
     end
     subgraph Store["Milvus 2.6"]
         ET[("eagle_text 1536d<br/>LlamaIndex")]
@@ -163,14 +163,19 @@ schema.add_field("source_chunk_id", DataType.VARCHAR, max_length=128, nullable=T
 
 ## 创新 2：Qwen3-VL 视觉编码
 
-`eagle_rag/ingest/pixelrag_adapter.py` 中 `_Qwen3VLVisualEncoder` 单例：
+`eagle_rag/ingest/visual_encoder.py` 中的 `get_visual_encoder()` 根据 `embedding.visual.provider` 选择后端。渲染仍在 `pixelrag_adapter`（`pixelrag_render`）；嵌入经工厂调用。
+
+| Provider | 后端 | 说明 |
+| --- | --- | --- |
+| `pixelrag`（默认） | `LocalQwen3VLEncoder` | 本地 HF Qwen3-VL-Embedding-2B；设备 `auto` → cuda → mps → cpu |
+| `dashscope` | `DashScopeQwen3VLEncoder` | 百炼 `qwen3-vl-embedding`（DashScope `MultiModalEmbedding`）；需 `DASHSCOPE_API_KEY` |
 
 ### 架构直觉
 
 - **双塔** — 查询文本与文档图像映射到共享 2048 维空间
-- **末 token 池化** — 在聊天模板后 `<|endoftext|>`（EOS）取表示；捕获完整图像+指令上下文
+- **末 token 池化**（本地） — 在聊天模板后的 EOS 取表示；捕获完整图像+指令上下文
 - **L2 归一化** — upsert 前 \(\|\mathbf{v}\|_2 = 1\) → IP 搜索 = 余弦
-- **`provider == "pixelrag"`** — 配置错误时 `_ensure_loaded()` 抛错；**无 mock 嵌入**
+- **Provider 锁定** — ingest 与 query 须使用同一 provider；未知值抛 `ValueError`；**无 mock 嵌入**。切换后端需重建 `eagle_visual`。
 
 ### 预处理
 
@@ -180,23 +185,24 @@ schema.add_field("source_chunk_id", DataType.VARCHAR, max_length=128, nullable=T
 | `pixelrag.tile_height` | 8192 px | 每页垂直切片 |
 | `pixelrag.quality` | 85 | 切片 JPEG 质量 |
 | `pixelrag.embed_instruction` | `"Represent the user's input."` | 查询/文档共享指令 |
+| `pixelrag.embed_device` | `auto` | 仅本地 HF（`provider=pixelrag`） |
 
 Qwen3-VL-Embedding 的截图微调相对通用 CLIP 编码器提升文档版式召回（[PixelRAG 论文](https://github.com/StarTrail-org/PixelRAG)）。
 
-### 懒单例模式
+### 懒工厂模式
 
 ```python
-# pixelrag_adapter.py 中的模式
-_encoder: _Qwen3VLVisualEncoder | None = None
+# eagle_rag/ingest/visual_encoder.py
+def get_visual_encoder() -> VisualEncoder:
+    # 缓存 (provider, model) → LocalQwen3VLEncoder | DashScopeQwen3VLEncoder
+    ...
 
-def _get_encoder() -> _Qwen3VLVisualEncoder:
-    global _encoder
-    if _encoder is None:
-        _encoder = _Qwen3VLVisualEncoder(...)
-    return _encoder
+# pixelrag_adapter.embed_tiles / embed_query
+encoder = get_visual_encoder()
+vectors = encoder.embed_images(tile_bytes)  # 或 encoder.embed_text(query)
 ```
 
-API 进程在 worker 或处理器调用 `embed()` 前不加载 GPU 权重。
+`provider=pixelrag` 时，API 进程在 worker/handler 调用 `embed_*()` 前不加载 GPU 权重。`provider=dashscope` 时无本地权重加载 — 仅 API 调用。
 
 ---
 
@@ -354,7 +360,7 @@ flowchart LR
 flowchart LR
     DOC --> PB["pixelrag_build"]
     PB --> REN["pixelrag_render tiles"]
-    REN --> EMB["_Qwen3VLVisualEncoder"]
+    REN --> EMB["get_visual_encoder"]
     EMB --> UV["upsert_visual_batch<br/>chunk_type=tile"]
     UV --> EV[("eagle_visual")]
 ```
@@ -401,7 +407,7 @@ sequenceDiagram
 
 | 张力 | 代码 / 设置 | 为何重要 |
 | --- | --- | --- |
-| 池化几何 | `_Qwen3VLVisualEncoder` 中 `<\|im_end\|>` 末 token | 须匹配 Qwen3-VL-Embedding 训练；均值池化会改变查询–切片几何 |
+| 池化几何 | `LocalQwen3VLEncoder`（本地路径）中 EOS 末 token | 须匹配 Qwen3-VL-Embedding 训练；均值池化会改变查询–切片几何 |
 | 度量 vs 归一化 | L2 归一化 2048 维向量上 `metric_type=IP` | 内积等于余弦；未归一化向量破坏排序 |
 | 切片粒度 | `pixelrag.tile_height`、`viewport_width`（875 → 28px patch） | 更小切片 ↑ 脚注召回；摄入嵌入成本近似线性 ↑ |
 | 锚定字段基数 | `upsert_visual` 上四个字段 | 无 `chunk_type` 的 `parent_section LIKE` 会混表格切片与图切片 |
@@ -419,14 +425,17 @@ sequenceDiagram
 | `milvus.visual_index_type` | `hnsw` vs `diskann` |
 | `pixelrag.tile_height` | 每页切片数 — 召回粒度 |
 | `pixelrag.viewport_width` | Patch 对齐（875 → 28px 倍数） |
-| `pixelrag.embed_device` | `auto` / `cuda` / `mps` / `cpu` |
-| `embedding.visual.provider` | 须为 `pixelrag` |
+| `pixelrag.embed_device` | `auto` / `cuda` / `mps` / `cpu`（仅本地 HF） |
+| `embedding.visual.provider` | `pixelrag`（本地 HF）或 `dashscope`（百炼）；ingest+query 须一致；切换需重建 `eagle_visual` |
+| `embedding.visual.model` | 本地路径/HF id 或百炼模型名（`qwen3-vl-embedding`） |
 | `router.structure_max_nodes` | PostgreSQL 中 `doc_nav` 树上限 |
 | `kb.visual_entity_limit` | 视觉向量容量规划 |
 
 ```bash
 MILVUS_VISUAL_INDEX_TYPE=diskann
-PIXELRAG_EMBED_DEVICE=cuda
+PIXELRAG_EMBED_DEVICE=cuda          # provider=pixelrag
+# VISUAL_EMBEDDING_PROVIDER=dashscope
+# VISUAL_EMBEDDING_MODEL=qwen3-vl-embedding
 ```
 
 ---
@@ -439,7 +448,7 @@ PIXELRAG_EMBED_DEVICE=cuda
 | `knowhere_visual_chunks` OOM | Worker 崩溃；重试 → 死信 | 保持 `pixelrag_queue` c=1；加内存 |
 | Milvus upsert 失败 | 记录；可能缺视觉 | 检查 Milvus；重新摄入 |
 | 缺 `parent_section` | 视觉命中仍可全局搜 | `pixelrag_build` 切片预期行为 |
-| 编码器加载失败 | `pixelrag_build` `FAILED` | 验证 `pixelrag_embed` 安装、GPU 驱动 |
+| 编码器加载失败 | `pixelrag_build` `FAILED` | 本地：检查 `pixelrag_embed` / HF 权重 / GPU。百炼：检查 `DASHSCOPE_API_KEY` 与模型名 |
 | 维度不匹配 | Milvus 插入错误 | 确保 `dim_visual: 2048` 与模型一致 |
 | 遗留 collection 无 `kb_name` | `ensure_collection` 自动删建 | **数据丢失** — 升级前备份 |
 

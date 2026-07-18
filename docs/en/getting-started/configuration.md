@@ -142,7 +142,31 @@ pixelrag:
   embed_instruction: "Represent the user's input."
 ```
 
-**`embed_instruction`:** Shared encoding instruction for Qwen3-VL-Embedding query and document vectors.
+**`embed_instruction`:** Shared encoding instruction for Qwen3-VL-Embedding query and document vectors. **`embed_device`** applies only when `embedding.visual.provider=pixelrag`.
+
+### `embedding.visual`
+
+Core `eagle_visual` backend via `get_visual_encoder()`:
+
+```yaml
+embedding:
+  visual:
+    provider: ${VISUAL_EMBEDDING_PROVIDER:-pixelrag}   # pixelrag | dashscope
+    model: ${VISUAL_EMBEDDING_MODEL:-Qwen/Qwen3-VL-Embedding-2B}
+    api_key: ${DASHSCOPE_API_KEY:-}                    # dashscope path
+    base_url: ${DASHSCOPE_API_BASE:-}                  # native DashScope API (not OpenAI-compat)
+    dim: 2048
+    batch_size: ${VISUAL_EMBEDDING_BATCH_SIZE:-5}
+    timeout_s: ${VISUAL_EMBEDDING_TIMEOUT_S:-60}
+    max_retries: ${VISUAL_EMBEDDING_MAX_RETRIES:-3}
+```
+
+| Provider | Backend | Notes |
+| --- | --- | --- |
+| `pixelrag` | `LocalQwen3VLEncoder` | Local HF weights; uses `pixelrag.embed_device` |
+| `dashscope` | `DashScopeQwen3VLEncoder` | Bailian `qwen3-vl-embedding`; no local weights |
+
+Ingest and query must share the same provider; switching backends requires rebuilding `eagle_visual`.
 
 ### `pdf_probe`
 
@@ -233,7 +257,8 @@ plugins:
   options:                         # per-namespace knobs (not Core-typed)
     biomed:
       default_dual_text_search: false
-      encoder_mode: auto
+      exploratory_search_collections: []
+      encoder_mode: ${EAGLE_BIOMED_ENCODER_MODE:-auto}  # auto | require_native | deterministic
 
 # EAGLE_RAG_PROFILE=biomed|lakehouse-bi|core
 profiles:
@@ -246,6 +271,8 @@ profiles:
 ```
 
 Authoring: copy `plugins/_template/`; see [Authoring an industry plugin](../guides/authoring-industry-plugin.md).
+
+**Maturity:** `biomed` is **experimental**; `lakehouse-bi` is **under development**. Production default remains `core`.
 
 **Deploy notes:**
 
@@ -293,9 +320,13 @@ telemetry:
   op_log_file: logs/eagle_rag.log
   tracing_enabled: false
   otlp_endpoint: ""
+  plugin_audit_enabled: ${PLUGIN_AUDIT_ENABLED:-true}
+  plugin_audit_ring_cap: 1000
+  plugin_audit_redis_enabled: ${PLUGIN_AUDIT_REDIS_ENABLED:-true}
+  plugin_audit_health_limit: 50
 ```
 
-`TelemetryMiddleware` in `eagle_rag/api/app.py` — per-request SERVER spans when OTel enabled.
+`TelemetryMiddleware` in `eagle_rag/api/app.py` — per-request SERVER spans when OTel enabled. PluginAudit sinks (AI JSONL + Redis recent window + memory ring + Prometheus) feed `GET /health/plugins` (`recent_decisions` / `audit_stats`).
 
 ---
 
@@ -352,7 +383,7 @@ MILVUS_VISUAL_INDEX_TYPE=diskann task up:prod
 | Misconfiguration | Symptom | Fix |
 | --- | --- | --- |
 | Wrong `MILVUS_HOST` in Compose | All queries return empty | Use service DNS `milvus`, not `localhost` |
-| `embedding.visual.provider` ≠ `pixelrag` | Visual ingest fails at `_ensure_loaded` | Keep `provider: pixelrag` |
+| Unknown `embedding.visual.provider` | `get_visual_encoder()` raises `ValueError` | Use `pixelrag` or `dashscope`; keep ingest+query on the same provider (switch ⇒ rebuild `eagle_visual`) |
 | `pixelrag_queue` concurrency > 1 | OOM kills worker | Reset to 1 in `settings.yaml` |
 | `poll_timeout` too low | Large PDFs fail in `RENDERING` | Increase `knowhere.poll_timeout` |
 | Missing `KNOWHERE_BASE_URL` in host dev | `KnowhereError` on ingest | Point to running Knowhere instance |

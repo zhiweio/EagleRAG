@@ -191,6 +191,7 @@ class RetrieverOrchestrator:
                 scope_doc_ids=scope_doc_ids,
                 use_scope_filter=use_scope_filter,
                 top_k=top_k,
+                plugin_namespace=plugin_namespace,
             )
 
         if plan.collection == settings.milvus.visual_collection:
@@ -204,6 +205,7 @@ class RetrieverOrchestrator:
                 use_scope_filter=use_scope_filter,
                 query_image_bytes=query_image_bytes,
                 top_k=top_k,
+                plugin_namespace=plugin_namespace,
             )
 
         db_name = milvus_db_name(plugin_namespace)
@@ -240,6 +242,7 @@ class RetrieverOrchestrator:
         scope_doc_ids: list[str] | None,
         use_scope_filter: bool,
         top_k: int,
+        plugin_namespace: str | None = None,
     ) -> list[NodeWithScore]:
         if use_scope_filter:
             retriever = KnowhereGraphRetriever(
@@ -248,6 +251,7 @@ class RetrieverOrchestrator:
                 document_ids=scope_doc_ids,
                 source_type=source_type,
                 year=year,
+                plugin_namespace=plugin_namespace,
             )
         elif kb_name or source_type is not None or year is not None:
             retriever = KnowhereGraphRetriever(
@@ -255,11 +259,14 @@ class RetrieverOrchestrator:
                 kb_name=kb_name,
                 source_type=source_type,
                 year=year,
+                plugin_namespace=plugin_namespace,
             )
         elif self._text_retriever is not None:
             retriever = self._text_retriever
         else:
-            retriever = KnowhereGraphRetriever(top_k=top_k, kb_name=kb_name)
+            retriever = KnowhereGraphRetriever(
+                top_k=top_k, kb_name=kb_name, plugin_namespace=plugin_namespace
+            )
 
         return list(retriever.retrieve(query) or [])
 
@@ -275,6 +282,7 @@ class RetrieverOrchestrator:
         use_scope_filter: bool,
         query_image_bytes: bytes | None,
         top_k: int,
+        plugin_namespace: str | None = None,
     ) -> list[NodeWithScore]:
         if use_scope_filter:
             retriever = PixelRAGVisualRetriever(
@@ -283,6 +291,7 @@ class RetrieverOrchestrator:
                 document_ids=scope_doc_ids,
                 source_type=source_type,
                 year=year,
+                plugin_namespace=plugin_namespace,
             )
         elif kb_name or source_type is not None or year is not None:
             retriever = PixelRAGVisualRetriever(
@@ -290,11 +299,14 @@ class RetrieverOrchestrator:
                 kb_name=kb_name,
                 source_type=source_type,
                 year=year,
+                plugin_namespace=plugin_namespace,
             )
         elif self._visual_retriever is not None:
             retriever = self._visual_retriever
         else:
-            retriever = PixelRAGVisualRetriever(top_k=top_k, kb_name=kb_name)
+            retriever = PixelRAGVisualRetriever(
+                top_k=top_k, kb_name=kb_name, plugin_namespace=plugin_namespace
+            )
 
         return list(
             retriever.retrieve(
@@ -371,10 +383,15 @@ class RetrieverOrchestrator:
 
         enc_info = self._manager.encoder_registry.get(encoder_name)
         encoder = enc_info.encoder
+        # Domain visual encoders (e.g. BiomedCLIP via open_clip): image query
+        # uses the vision tower; text query uses the CLIP text tower.
+        if query_image_bytes and hasattr(encoder, "encode_image"):
+            if not query.strip() or enc_info.modality == "visual":
+                return list(encoder.encode_image(query_image_bytes))
         if hasattr(encoder, "encode_text"):
-            return encoder.encode_text(query)
+            return list(encoder.encode_text(query))
         if hasattr(encoder, "get_query_embedding"):
-            return encoder.get_query_embedding(query)
+            return list(encoder.get_query_embedding(query))
         msg = f"encoder {encoder_name} cannot encode queries"
         raise TypeError(msg)
 

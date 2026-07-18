@@ -154,7 +154,7 @@ flowchart TD
 For scanned PDFs, images, URLs, HTML:
 
 1. Render pages to tiles (`pixelrag_render`) — settings: `tile_height`, `viewport_width`, `pdf_dpi`
-2. `INGEST_VISUAL_EXTRACT` → `IngestOrchestrator` classifies and embeds tiles (`_Qwen3VLVisualEncoder`) — 2048-d, L2-normalized
+2. `INGEST_VISUAL_EXTRACT` → `IngestOrchestrator` classifies and embeds tiles (`get_visual_encoder()`) — 2048-d, L2-normalized
 3. `UPSERT_VECTORS` → `eagle_visual` — `chunk_type=tile`
 4. `update_status(ready)`; `collections_used` catalog; `dedup.register()` on success
 
@@ -239,7 +239,7 @@ When plans target base collections, behavior matches the original dual-index pat
 
 **`eagle_visual` (via `PixelRAGVisualRetriever` or orchestrator plan):**
 
-1. Embed query via `_Qwen3VLVisualEncoder` (same space as tiles)
+1. Embed query via `get_visual_encoder()` (same provider/space as tiles)
 2. `search_visual()` in `milvus_visual_store.py` — IP search, `ef=64`
 3. Scalar expr: `kb_name`, `document_id`, optional `chunk_type`, `parent_section`
 

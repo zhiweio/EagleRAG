@@ -78,7 +78,7 @@ class MilvusClientPool:
 
 **Visual encoder singleton:**
 
-`_Qwen3VLVisualEncoder` in `eagle_rag/ingest/pixelrag_adapter.py` — loads Qwen3-VL-Embedding-2B on first `embed()` call. Keeps API process free of GPU memory unless it handles visual tasks directly. Domain encoders (PubMedBERT, MedImageInsight, UNI 2) lazy-load via `EncoderRegistry` in plugin `on_load`.
+`get_visual_encoder()` in `eagle_rag/ingest/visual_encoder.py` — `provider=pixelrag` loads local Qwen3-VL-Embedding-2B on first encode; `provider=dashscope` calls Bailian `qwen3-vl-embedding` (no local weights). Keeps API process free of GPU memory unless it handles visual tasks directly. Domain encoders (`pubmedbert`, `molformer`, `medimageinsight` BiomedCLIP/`open_clip`, `uni2`) lazy-load via `EncoderRegistry` in plugin `on_load`.
 
 **FastAPI app:**
 
@@ -110,7 +110,8 @@ RAG systems depend on parsers, vector DBs, model APIs, workers, and optional dom
 | Failure | Code location | Behavior |
 | --- | --- | --- |
 | Knowhere SDK unreachable | `parse_with_knowhere_sdk()` | `KnowhereError` → task `FAILED`; **no mock parse** |
-| PixelRAG provider ≠ `pixelrag` | `pixelrag_adapter._ensure_loaded()` | `ValueError`; no random vectors |
+| Unknown visual embed provider | `visual_encoder.get_visual_encoder()` | `ValueError`; no random vectors |
+| DashScope visual embed missing key / API error | `DashScopeQwen3VLEncoder` | Fail-fast `ValueError` / `RuntimeError`; no empty vectors |
 | VLM API key missing | `multimodal_engine.py` | Error string in response; no unhandled 500 |
 | Milvus write fails during ingest | `upsert_text_nodes` / `upsert_visual` | May log and continue (ingest availability) |
 | Tag resolution fails | `_resolve_scope_filter()` | Log warning; ignore tag dimension |
@@ -205,7 +206,7 @@ flowchart LR
 | --- | --- |
 | `pixelrag_build` | Full visual document ingest |
 | `knowhere_visual_chunks` | Knowhere image/table → tiles → vectors |
-| `_Qwen3VLVisualEncoder.embed()` | 2048-d L2-normalized vector |
+| `get_visual_encoder().embed_*()` | 2048-d L2-normalized vector |
 
 !!! note "Single Knowhere document → dual index"
     After `knowhere_parse`, text chunks and section summaries land in `eagle_text`. Image/table chunks dispatch to `knowhere_visual_chunks` on `pixelrag_queue` with four anchor fields into `eagle_visual`. Domain plugins may add specialized collections via `IngestOrchestrator`. See [Multimodal fusion](multimodal-fusion.md).
@@ -239,7 +240,7 @@ Industry-specific recall (biomedical encoders, lakehouse metadata, entity expans
 | Surface | Scope |
 | --- | --- |
 | Built-in Next.js UI | **Core only** — Knowhere + PixelRAG hybrid |
-| Domain plugins (biomed, lakehouse-bi, …) | **Backend + MCP only** — no domain UI in this repo |
+| Domain plugins (biomed **experimental**, lakehouse-bi **under development**, …) | **Backend + MCP only** — no domain UI in this repo |
 
 Full hook catalog, manifest fields, and authoring guide: [Plugin architecture](plugin-architecture.md) · [ADR-008](adr/008-rag-only-plugin-platform.md).
 
@@ -291,12 +292,12 @@ Deployment layers: infrastructure → Knowhere sub-stack → application. Detail
 | LLM / routing | DeepSeek-V4-Pro | — | `settings.llm` |
 | VLM generation | Qwen-VL-Max | — | `settings.vlm` |
 | Text embedding | `text-embedding-v4` | 1536 | `settings.embedding.text` |
-| Visual embedding | Qwen3-VL-Embedding-2B | 2048 | `settings.embedding.visual` |
+| Visual embedding | Local Qwen3-VL-Embedding-2B or Bailian `qwen3-vl-embedding` | 2048 | `settings.embedding.visual` |
 | Rerank | `qwen3-rerank` | — | `settings.rerank.text` |
 
 **Core only** — no OpenAI / Cohere adapters. New Core models via LlamaIndex integration packages.
 
-**Domain plugins** may register additional encoders via `EncoderRegistry` (e.g. PubMedBERT 768-d, MedImageInsight 1024-d, UNI 2 1536-d in `plugins/biomed`). Medical imaging encoders never fall back to Qwen3-VL; load failures raise `EncoderLoadError` unless test-mode deterministic is explicitly enabled.
+**Domain plugins** may register additional encoders via `EncoderRegistry` (e.g. `pubmedbert` 768-d, `molformer` 768-d, `medimageinsight` BiomedCLIP/`open_clip` 1024-d, `uni2` 1536-d in `plugins/biomed`). Medical imaging encoders never fall back to Qwen3-VL; load failures raise `EncoderLoadError` unless test-mode deterministic is explicitly enabled.
 
 **Routing LLM:** `route_query()` uses DeepSeek with `router.llm.prompt_template` when `router.llm.enabled=true`. Heuristic fallback: `router.heuristic.rules` in YAML. Domain plugins may supply `QueryRouteClassifier` for specialized collection plans.
 
@@ -333,7 +334,7 @@ app.mount(settings.mcp.streamable_http_path, mcp_app)
 | `plugins.default_namespace` | Milvus Database + PG repository filter for this instance |
 | `plugins.options[<namespace>]` | Per-plugin knobs via `plugin_options()` — not Core-typed industry settings |
 | `milvus.visual_index_type` | HNSW vs DiskANN |
-| `embedding.visual.provider` | Must be `pixelrag` — fail-fast otherwise |
+| `embedding.visual.provider` | `pixelrag` (local HF) or `dashscope` (Bailian); same provider for ingest+query; switch requires `eagle_visual` rebuild |
 | `router.llm.enabled` | LLM vs heuristic query routing |
 | `celery.queues.pixelrag_queue.concurrency` | Must be 1 — OOM prevention |
 | `mcp.standalone` | Separate uvicorn on `:8081` vs API mount |
@@ -390,7 +391,7 @@ flowchart TD
 
 | Tension | Where | Tuning |
 | --- | --- | --- |
-| Cold start vs fast import | `get_settings()`, `get_text_index()`, `_Qwen3VLVisualEncoder`, domain encoders | First query after deploy pays connection + model load; warm workers with smoke retrieve |
+| Cold start vs fast import | `get_settings()`, `get_text_index()`, `get_visual_encoder()`, domain encoders | First query after deploy pays connection + model/API setup; warm workers with smoke retrieve |
 | Config immutability per process | `@lru_cache` on settings | Restart API + workers after `settings.yaml` / `.env` / profile change |
 | Degradation vs silent wrong answers | Retriever `[]`, VLM `None`, skipped RRF plans | Prefer explicit error strings in generation over hallucinating without context |
 | Adapter normalization cost | Knowhere `ParseResult` → many `TextNode`s | Large docs = high embed API cost linear in chunk count |

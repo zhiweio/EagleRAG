@@ -216,7 +216,7 @@ Subscribers with `namespace=None` run for every context; others only when `HookC
 | Hook | Mode | Typical use |
 | --- | --- | --- |
 | `PARSE` | transform | Enrich Knowhere `ParseResult` |
-| `CHUNK` | transform | Domain chunking / typed metadata before orchestrator |
+| `CHUNK` | transform | Domain metadata enrich on Knowhere nodes (preserve `path` / body / `doc_nav`; no from-scratch split) |
 | `INGEST_VISUAL_EXTRACT` | first | Extract visual chunks + four-anchor fields |
 | `CLASSIFY_CHUNK` / `CLASSIFY_VISUAL` | first | Route chunk → collection + encoder |
 | `CLASSIFY_QUERY` | first | Build multi-collection `QueryRouteDecision` |
@@ -267,7 +267,7 @@ sequenceDiagram
   Note over Orch: On full success update collections_used catalog
 ```
 
-`IngestOrchestrator.classify` uses `CLASSIFY_*` hooks; `embed_and_upsert` honors `ClassificationDecision.target_encoder` through `EncoderRegistry` / `encoder_runtime`.
+`IngestOrchestrator.classify` uses `CLASSIFY_*` hooks; `embed_and_upsert` honors `ClassificationDecision.target_encoder` through `EncoderRegistry` / `encoder_runtime`. Batch helpers in `ingest_helpers.py` (`ingest_text_nodes` / `ingest_visual_record`) feed the orchestrator. `EncoderRegistry.validate_plan(collection, encoder_name)` rejects dim mismatches before write. `ClassificationDecision.exclusive_group` skips dual-write within the same group (anti-duplicate specialized + base writes).
 
 ### Collection catalog (ingest ↔ query contract)
 
@@ -381,6 +381,7 @@ plugins:
   options:
     biomed:
       default_dual_text_search: false
+      exploratory_search_collections: []
       encoder_mode: auto   # auto | require_native | deterministic
 
 profiles:
@@ -404,24 +405,31 @@ profiles:
       db_name: lakehouse_bi
 ```
 
-Default compose profile is `core`. Enabling biomed / lakehouse-bi requires the matching profile and restart. Docker images package `plugins/`; compose override mounts `./plugins` for local iteration.
+Default compose profile is `core` (production-safe). Enabling biomed (**experimental**) / lakehouse-bi (**under development**) requires the matching profile and restart — treat both as non-production unless you accept the maturity risk. Docker images package `plugins/`; compose override mounts `./plugins` for local iteration.
 
 ---
 
 ## Shipped domain plugins
 
-### `plugins/biomed`
+| Plugin | Maturity |
+| --- | --- |
+| `plugins/biomed` | **Experimental** — APIs/collections may change; not production-stable |
+| `plugins/lakehouse_bi` | **Under development** — reference skeleton; not ready for production use |
+| `plugins/_template` | Scaffold for new industry plugins |
+
+### `plugins/biomed` (experimental)
 
 | Capability | Detail |
 | --- | --- |
-| Specialized collections | `eagle_text_biomed`, `eagle_chemical`, `eagle_medical_radiology`, `eagle_medical_pathology` |
-| Text encoder | PubMedBERT (via `EncoderRegistry`) |
-| Medical imaging | Radiology → MedImageInsight; pathology → UNI 2 — **never** fall back to Qwen3-VL |
-| Query routing | Rules + local UMLS subset (`routing_rules.yaml` / `umls.py`); no LLM classifier |
+| Specialized collections | `eagle_text_biomed` (768), `eagle_chemical` (768), `eagle_medical_radiology` (1024), `eagle_medical_pathology` (1536) |
+| Text / chemical encoders | Labels `pubmedbert` / `molformer` via `EncoderRegistry` (HF transformers) |
+| Medical imaging | Label `medimageinsight` → **BiomedCLIP via `open_clip`** (prefer `uv sync --extra biomed`); pathology → `uni2` (UNI 2) — **never** fall back to Qwen3-VL |
+| CHUNK enrich | IMRaD/patent section tags only (`biomed_section` / `biomed_doc_type`); preserves Knowhere `path` / body / `chunk_id` |
+| Query routing | Rules + curated UMLS subset (`routing_rules.yaml` / `umls.py`); optional `EAGLE_BIOMED_UMLS_MRCONSO_PATH` merges ENG preferred aliases |
 | MCP | Entity query + compound retrieve (MolFormer ANN on `eagle_chemical`) |
-| Encoder modes | `auto` / `require_native` / `deterministic` (CI) |
+| Encoder modes | `auto` / `require_native` / `deterministic` (CI); override checkpoints via `EAGLE_BIOMED_*_MODEL` |
 
-### `plugins/lakehouse_bi`
+### `plugins/lakehouse_bi` (under development)
 
 | Capability | Detail |
 | --- | --- |
@@ -443,11 +451,11 @@ Minimal skeleton for a new industry plugin: manifest, hooks, MCP registration, R
 | Routing / generation LLM | Core | DeepSeek |
 | VLM | Core | Qwen-VL-Max |
 | Text embedding | Core default | Qwen `text-embedding-v4` (1536) |
-| Visual embedding | Core default | Qwen3-VL-Embedding-2B (2048) |
+| Visual embedding | Core default | `get_visual_encoder()` — `pixelrag` local HF Qwen3-VL-Embedding-2B or `dashscope` Bailian `qwen3-vl-embedding` (2048) |
 | Rerank | Core | Qwen `qwen3-rerank` |
-| Domain encoders | Plugins | e.g. PubMedBERT, MedImageInsight, UNI 2, MolFormer |
+| Domain encoders | Plugins | Labels `pubmedbert` / `molformer` / `medimageinsight` (BiomedCLIP/`open_clip`) / `uni2` |
 
-Domain plugins may register additional encoders; Core keeps DeepSeek/Qwen for global routing and generation.
+Domain plugins may register additional encoders; Core keeps DeepSeek/Qwen for global routing and generation. Core visual stays on Qwen space; medical imaging never falls back to it.
 
 ---
 
@@ -458,7 +466,18 @@ Domain plugins may register additional encoders; Core keeps DeepSeek/Qwen for gl
 - `default_namespace`, enabled modules, manifests
 - Specialized collections, declared MCP tools, Celery modules
 
-KB stats / collection listings fan out `provides_specialized_collections` for the bound namespace. Hook and ANN plan failures are recorded on `PluginAudit` / HookBus audit lists.
+KB stats / collection listings fan out `provides_specialized_collections` for the bound namespace.
+
+**PluginAudit** (`eagle_rag/plugins/audit.py`, via `PluginContext.audit.log_decision(...)`):
+
+| Sink | Detail |
+| --- | --- |
+| AI JSONL | `event=plugin_audit_decision` via `get_ai_logger` (durable) |
+| Redis LIST | `eagle:plugin_audit:{namespace}:recent` (`LPUSH`+`LTRIM`) |
+| Memory ring | Cap `telemetry.plugin_audit_ring_cap` (fallback if Redis down) |
+| Prometheus | `plugin_audit_decisions_total`, `plugin_audit_rrf_dedupe_total` |
+
+Config: `telemetry.plugin_audit_enabled` / `plugin_audit_redis_enabled` / `plugin_audit_health_limit`. Sinks are best-effort and never fail the hot path. Example categories: `classify_chunk`, `route_query`, `scope_routing_error`, `hook_failure`. `GET /health/plugins` exposes `recent_decisions` / `audit_stats`.
 
 ---
 
@@ -468,13 +487,16 @@ KB stats / collection listings fan out `provides_specialized_collections` for th
 eagle_rag/plugins/          # Microkernel
   manager.py
   hookbus.py / hooks.py / hotpath_hooks.py
-  contract.py / context.py
+  contract.py / context.py / audit.py
   ingest_orchestrator.py / retriever_orchestrator.py
+  ingest_helpers.py
   classifier.py / routing.py / scope_routing.py
   encoder_registry.py / encoder_runtime.py
   mcp_registry.py / milvus_ns.py
   core_defaults.py
   ingest_catalog.py / ingest_tracker.py / …
+eagle_rag/ingest/
+  visual_encoder.py         # Core get_visual_encoder() (pixelrag | dashscope)
 plugins/                    # In-repo domain plugins
   _template/
   biomed/

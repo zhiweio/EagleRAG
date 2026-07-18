@@ -171,7 +171,7 @@ Milvus 返回 None 时分数默认为 1.0。
 
 ### 5.3 跨模态编码
 
-`embed_query()` 委托给 `_Qwen3VLVisualEncoder.embed_text()` — 与摄取相同的单例。保证查询与瓦片向量在同一归一化空间（末 token 池化 + L2 范数）。
+`embed_query()` 委托给 `get_visual_encoder().embed_text()` — 与摄取相同的工厂。保证查询与瓦片向量在同一归一化空间（同一 `embedding.visual.provider`；本地路径为末 token 池化 + L2）。
 
 ---
 

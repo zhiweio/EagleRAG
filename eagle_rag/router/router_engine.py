@@ -117,15 +117,23 @@ class EagleRouterQueryEngine:
         top_k: int = 5,
         kb_name: str | None = None,
     ) -> None:
+        # Bind default retrievers to the instance's default namespace (G1 single-domain
+        # deployment). Explicit retrievers passed by the caller are used as-is.
+        try:
+            from eagle_rag.plugins import get_plugin_manager
+
+            default_ns = get_plugin_manager().default_namespace
+        except Exception:  # noqa: BLE001
+            default_ns = get_settings().plugins.default_namespace
         self.text_retriever = (
             text_retriever
             if text_retriever is not None
-            else KnowhereGraphRetriever(top_k=top_k, kb_name=kb_name)
+            else KnowhereGraphRetriever(top_k=top_k, kb_name=kb_name, plugin_namespace=default_ns)
         )
         self.visual_retriever = (
             visual_retriever
             if visual_retriever is not None
-            else PixelRAGVisualRetriever(top_k=top_k, kb_name=kb_name)
+            else PixelRAGVisualRetriever(top_k=top_k, kb_name=kb_name, plugin_namespace=default_ns)
         )
         self.mode = mode or get_settings().router.mode
         self.top_k = top_k

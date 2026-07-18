@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from eagle_rag.plugins.hookbus import HookContext
 from plugins.lakehouse_bi.example_connector import (
     FileExportLakehouseConnector,
     export_connector_to_dir,
 )
 from plugins.lakehouse_bi.ingest_hooks import _yaml_nodes_from_text, lakehouse_chunk_transform
-from eagle_rag.plugins.hookbus import HookContext
 
 
 def test_yaml_asset_chunking_splits_top_level_keys() -> None:

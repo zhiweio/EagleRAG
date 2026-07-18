@@ -77,9 +77,16 @@ embedding:
     base_url: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
     dim: 1536
   visual:
-    provider: pixelrag
+    # pixelrag = local HF Qwen3-VL-Embedding; dashscope = Bailian qwen3-vl-embedding
+    provider: ${VISUAL_EMBEDDING_PROVIDER:-pixelrag}
     model: ${VISUAL_EMBEDDING_MODEL:-Qwen/Qwen3-VL-Embedding-2B}
+    api_key: ${DASHSCOPE_API_KEY:-}
+    # Native DashScope API base (not OpenAI-compatible). Empty = SDK default.
+    base_url: ${DASHSCOPE_API_BASE:-}
     dim: 2048
+    batch_size: ${VISUAL_EMBEDDING_BATCH_SIZE:-5}
+    timeout_s: ${VISUAL_EMBEDDING_TIMEOUT_S:-60}
+    max_retries: ${VISUAL_EMBEDDING_MAX_RETRIES:-3}
 
 rerank:
   text:
@@ -288,3 +295,8 @@ telemetry:
   otlp_endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
   otlp_insecure: ${OTEL_EXPORTER_OTLP_INSECURE:-true}
   redis_log_channel: ${REDIS_LOG_CHANNEL:-logs}
+  # PluginAudit: AI JSONL (durable) + Redis recent window + memory fallback + Prometheus.
+  plugin_audit_enabled: ${PLUGIN_AUDIT_ENABLED:-true}
+  plugin_audit_ring_cap: 1000
+  plugin_audit_redis_enabled: ${PLUGIN_AUDIT_REDIS_ENABLED:-true}
+  plugin_audit_health_limit: 50
