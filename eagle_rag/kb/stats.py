@@ -162,11 +162,18 @@ async def _active_ingestions(
     return int(row["cnt"] or 0) if row else 0
 
 
-def _count_visual_safe(kb_name: str) -> int:
+def _count_visual_safe(
+    kb_name: str,
+    *,
+    plugin_namespace: str | None = None,
+) -> int:
     try:
         from eagle_rag.index.milvus_visual_store import count_visual
 
-        return count_visual(kb_name=kb_name)
+        return count_visual(
+            kb_name=kb_name,
+            plugin_namespace=instance_namespace(plugin_namespace),
+        )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Milvus visual count failed kb=%s: %s", kb_name, exc)
         return 0
@@ -217,16 +224,17 @@ def _milvus_collections_for_kb(
 
 async def get_kb_stats(kb_name: str) -> dict[str, Any]:
     """Per-KB list-item stats: documents/graph_nodes/visual_slices/active_ingestions."""
-    doc = await _doc_stats(kb_name)
-    visual = _count_visual_safe(kb_name)
+    ns = instance_namespace()
+    doc = await _doc_stats(kb_name, plugin_namespace=ns)
+    visual = _count_visual_safe(kb_name, plugin_namespace=ns)
     if visual == 0:
         visual = doc["visual_slices_fallback"]
     return {
         "documents": doc["documents"],
         "graph_nodes": doc["graph_nodes"],
         "visual_slices": visual,
-        "active_ingestions": await _active_ingestions(kb_name),
-        "collections": _milvus_collections_for_kb(kb_name),
+        "active_ingestions": await _active_ingestions(kb_name, plugin_namespace=ns),
+        "collections": _milvus_collections_for_kb(kb_name, plugin_namespace=ns),
     }
 
 
@@ -249,15 +257,16 @@ async def get_overview() -> dict[str, Any]:
     total_documents = int(doc_row["total_documents"] or 0) if doc_row else 0
     total_graph_nodes = int(doc_row["total_graph_nodes"] or 0) if doc_row else 0
 
+    ns = instance_namespace()
     total_vectors = 0
     kbs = await async_fetch("SELECT kb_name FROM knowledge_bases")
     for r in kbs:
         kn = r["kb_name"]
-        total_vectors += _count_text_safe(kn) + _count_visual_safe(kn)
+        total_vectors += _count_text_safe(kn) + _count_visual_safe(kn, plugin_namespace=ns)
 
     return {
         "kb_count": kb_count,
-        "active_ingestions": await _active_ingestions(),
+        "active_ingestions": await _active_ingestions(plugin_namespace=ns),
         "total_documents": total_documents,
         "total_graph_nodes": total_graph_nodes,
         "total_vectors": total_vectors,
@@ -361,7 +370,7 @@ async def get_collections(kb_name: str) -> dict[str, Any]:
         if name == text_coll:
             entities = _count_text_safe(kb_name)
         elif name == visual_coll:
-            entities = _count_visual_safe(kb_name)
+            entities = _count_visual_safe(kb_name, plugin_namespace=ns)
         else:
             from eagle_rag.index.milvus_kb_ops import count_entities_by_kb
 
