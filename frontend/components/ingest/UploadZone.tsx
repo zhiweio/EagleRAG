@@ -1,6 +1,7 @@
 "use client";
 
 import type { RoutingMode } from "@/components/ingest/RoutingModeCards";
+import { Chip } from "@/components/ui";
 import { errorMessage, parseIngestLimitError, useIngestFile } from "@/lib/hooks/useIngest";
 import {
   INGEST_MAX_FILE_BYTES,
@@ -10,7 +11,7 @@ import {
 } from "@/lib/ingest/limits";
 import type { IngestResponse } from "@/lib/types";
 import { Button } from "@heroui/react";
-import { Snowflake, UploadCloud, X } from "lucide-react";
+import { ScanSearch, UploadCloud, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useRef, useState } from "react";
 
@@ -120,10 +121,9 @@ export function UploadZone({ onIngested, onError, onBatch, kbName, mode }: Uploa
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <h2 className="text-sm font-semibold text-foreground">{t("upload.title")}</h2>
-          <span className="inline-flex items-center gap-1 rounded-full bg-success-soft px-2 py-0.5 text-[11px] font-semibold text-success">
-            <Snowflake className="h-3 w-3" aria-hidden />
+          <Chip tone="success" size="sm" icon={ScanSearch}>
             {t("upload.autoDetect")}
-          </span>
+          </Chip>
         </div>
         <span className="text-[11px] font-medium text-foreground-tertiary">
           {t("upload.step", { current: 1, total: 2 })}
@@ -200,7 +200,7 @@ export function UploadZone({ onIngested, onError, onBatch, kbName, mode }: Uploa
         isDisabled={staged.length === 0 || busy}
         onPress={() => void handleSubmit()}
       >
-        <Snowflake className="h-4 w-4" aria-hidden />
+        <UploadCloud className="h-4 w-4" aria-hidden />
         {busy ? t("upload.submitting") : t("upload.submit")}
       </Button>
     </div>

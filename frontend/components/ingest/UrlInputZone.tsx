@@ -1,5 +1,6 @@
 "use client";
 
+import { Chip } from "@/components/ui";
 import {
   type UrlIngestError,
   errorMessage,
@@ -8,7 +9,7 @@ import {
 } from "@/lib/hooks/useIngest";
 import type { IngestResponse } from "@/lib/types";
 import { Button } from "@heroui/react";
-import { AlertCircle, Globe, Link2, Snowflake } from "lucide-react";
+import { AlertCircle, Globe, Link2, ScanSearch } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 
@@ -90,10 +91,9 @@ export function UrlInputZone({ onIngested, onError, kbName }: UrlInputZoneProps)
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <h2 className="text-sm font-semibold text-foreground">{t("url.title")}</h2>
-          <span className="inline-flex items-center gap-1 rounded-full bg-success-soft px-2 py-0.5 text-[11px] font-semibold text-success">
-            <Snowflake className="h-3 w-3" aria-hidden />
+          <Chip tone="success" size="sm" icon={ScanSearch}>
             {t("upload.autoDetect")}
-          </span>
+          </Chip>
         </div>
       </div>
 

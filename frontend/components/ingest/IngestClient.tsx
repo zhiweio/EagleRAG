@@ -269,10 +269,12 @@ export function IngestClient() {
           <div className="p-5">
             {/* Target KB selector (shared) */}
             <div className="flex flex-col gap-2">
-              <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground-secondary">
+              <span className="flex items-center gap-2 text-xs font-semibold text-foreground-secondary">
                 <LibraryBig className="h-3.5 w-3.5" aria-hidden />
                 {t("upload.targetKB")}
-                <span className="font-medium text-danger">{t("upload.required")}</span>
+                <Chip tone="danger" size="sm">
+                  {t("upload.required")}
+                </Chip>
               </span>
               <TargetKBSelector items={kbOptions} value={kbName} onChange={setKbName} />
             </div>
