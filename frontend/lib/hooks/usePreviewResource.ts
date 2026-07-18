@@ -1,6 +1,7 @@
 "use client";
 
 import { previewContentUrl } from "@/components/document-preview/preview-urls";
+import { isExternalFilePreview } from "@/components/document-preview/resolve-renderer";
 import type { PreviewTarget } from "@/components/document-preview/types";
 import { previewCacheKey } from "@/lib/preview/preview-cache-key";
 import {
@@ -33,6 +34,14 @@ async function fetchPreviewBlob(url: string): Promise<PreviewResourceBlob> {
   return { blob: typedBlob, mimeType };
 }
 
+function shouldSkipPreviewFetch(target: PreviewTarget | null): boolean {
+  if (!target) return true;
+  if (target.kind === "table" && Boolean(target.html)) return true;
+  // Live URL corpus: /file 307s to an external origin; fetch body hits CORS.
+  if (isExternalFilePreview(target)) return true;
+  return false;
+}
+
 /**
  * Load preview bytes through TanStack Query (deduped fetch + in-memory cache).
  * Consumers receive a blob: URL; revoke happens on unmount while query data persists.
@@ -40,7 +49,7 @@ async function fetchPreviewBlob(url: string): Promise<PreviewResourceBlob> {
 export function usePreviewResource(target: PreviewTarget | null) {
   const cacheKey = target ? previewCacheKey(target) : null;
   const remoteUrl = target ? previewContentUrl(target) : undefined;
-  const skipFetch = target?.kind === "table" && Boolean(target.html);
+  const skipFetch = shouldSkipPreviewFetch(target);
 
   const query = useQuery({
     queryKey: [...PREVIEW_QUERY_ROOT, cacheKey],
@@ -72,6 +81,8 @@ export function usePreviewResource(target: PreviewTarget | null) {
 
   return {
     src: skipFetch ? undefined : objectUrl,
+    blob: skipFetch ? undefined : query.data?.blob,
+    mimeType: skipFetch ? undefined : query.data?.mimeType,
     resourceKey: cacheKey,
     isLoading: needsNetwork && query.isPending && !query.data,
     isFetching: needsNetwork && query.isFetching,
@@ -90,6 +101,8 @@ export function invalidatePreviewResource(queryClient: QueryClient, documentId: 
 
 /** Warm the cache before opening the modal (optional). */
 export function prefetchPreviewResource(queryClient: QueryClient, target: PreviewTarget) {
+  if (shouldSkipPreviewFetch(target)) return;
+
   const cacheKey = previewCacheKey(target);
   const remoteUrl = previewContentUrl(target);
   if (!cacheKey || !remoteUrl) return;

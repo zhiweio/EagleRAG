@@ -127,7 +127,8 @@
       "empty": "无步骤信息",
       "collectionPlans": "检索集合",
       "planEncoder": "编码器 {encoder}",
-      "planTopK": "top_k {topK}"
+      "planTopK": "top_k {topK}",
+      "planTopKUnit": "k"
     },
     "search": {
       "ask": "问答",

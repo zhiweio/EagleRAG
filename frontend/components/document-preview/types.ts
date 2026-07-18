@@ -17,6 +17,8 @@ export type PreviewTarget =
       title?: string;
       mimeType?: string | null;
       sourceType?: string | null;
+      /** Original ingest URI (MinIO key or http(s) URL). Used to route web/URL previews. */
+      sourceUri?: string | null;
     }
   | {
       kind: "attachment";
@@ -26,4 +28,13 @@ export type PreviewTarget =
       mimeType?: string;
     };
 
-export type RendererKind = "image" | "table" | "pdf" | "docx" | "xlsx" | "csv" | "iframe";
+export type RendererKind =
+  | "image"
+  | "table"
+  | "pdf"
+  | "docx"
+  | "xlsx"
+  | "csv"
+  | "markdown"
+  | "html"
+  | "iframe";

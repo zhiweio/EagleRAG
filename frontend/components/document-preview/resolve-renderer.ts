@@ -23,6 +23,12 @@ function isImageMime(mime: string | undefined | null): boolean {
   return Boolean(mime?.startsWith("image/"));
 }
 
+function isHttpUri(value: string | undefined | null): boolean {
+  if (!value) return false;
+  const lower = value.trim().toLowerCase();
+  return lower.startsWith("http://") || lower.startsWith("https://");
+}
+
 function fileHints(target: Extract<PreviewTarget, { kind: "file" }>) {
   const ext = extensionOf(target.title);
   const mime = target.mimeType?.toLowerCase() ?? "";
@@ -47,8 +53,16 @@ function fileHints(target: Extract<PreviewTarget, { kind: "file" }>) {
     mime === "text/tab-separated-values" ||
     source === "csv";
   const isImage = IMAGE_EXTENSIONS.has(ext) || isImageMime(mime);
+  const isMarkdown =
+    ext === "md" || ext === "markdown" || mime === "text/markdown" || mime === "text/x-markdown";
+  const isHtml =
+    ext === "html" ||
+    ext === "htm" ||
+    mime === "text/html" ||
+    isHttpUri(target.sourceUri) ||
+    isHttpUri(target.title);
 
-  return { ext, isPdf, isDocx, isXlsx, isCsv, isImage };
+  return { ext, isPdf, isDocx, isXlsx, isCsv, isImage, isMarkdown, isHtml };
 }
 
 /** Pick the viewer implementation for a preview target. */
@@ -63,5 +77,12 @@ export function resolveRenderer(target: PreviewTarget): RendererKind {
   if (hints.isXlsx) return "xlsx";
   if (hints.isCsv) return "csv";
   if (hints.isImage) return "image";
+  if (hints.isMarkdown) return "markdown";
+  if (hints.isHtml) return "html";
   return "iframe";
+}
+
+/** True when the file preview should iframe a live http(s) URL (no blob cache). */
+export function isExternalFilePreview(target: PreviewTarget | null | undefined): boolean {
+  return target?.kind === "file" && isHttpUri(target.sourceUri);
 }

@@ -464,6 +464,7 @@ function KBDetailInner({ kbName }: { kbName: string }) {
                   documentId: doc.document_id,
                   title: doc.name,
                   sourceType: doc.source_type ?? null,
+                  sourceUri: doc.source_uri ?? null,
                 };
                 prefetchPreviewResource(queryClient, target);
                 openPreview(target, queryClient);

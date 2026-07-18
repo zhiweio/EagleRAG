@@ -126,8 +126,9 @@
       "count": "items",
       "empty": "No step information",
       "collectionPlans": "Collections",
-      "planEncoder": "encoder {encoder}",
-      "planTopK": "top_k {topK}"
+      "planEncoder": "Encoder {encoder}",
+      "planTopK": "top_k {topK}",
+      "planTopKUnit": "k"
     },
     "search": {
       "ask": "Ask",

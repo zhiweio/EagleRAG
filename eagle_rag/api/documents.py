@@ -34,6 +34,17 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 images_router = APIRouter(prefix="/images", tags=["images"])
 
 
+def _guess_document_media_type(name: str) -> str:
+    """Guess Content-Type for inline preview; prefer text/markdown for .md files."""
+    guessed = mimetypes.guess_type(name)[0]
+    lower = name.lower()
+    if lower.endswith((".md", ".markdown")) and (
+        guessed is None or guessed == "application/octet-stream"
+    ):
+        return "text/markdown; charset=utf-8"
+    return guessed or "application/octet-stream"
+
+
 @router.get("", response_model=DocumentListResponse)
 async def list_documents_api(
     q: str | None = Query(default=None, description="Fuzzy match on document name"),
@@ -107,7 +118,7 @@ async def get_document_file_api(document_id: str) -> Response:
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"file read failed: {exc}") from exc
     name = doc.get("name") or document_id
-    media_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    media_type = _guess_document_media_type(name)
     headers = {"Content-Disposition": f"inline; filename*=UTF-8''{quote(name)}"}
     return Response(content=data, media_type=media_type, headers=headers)
 
