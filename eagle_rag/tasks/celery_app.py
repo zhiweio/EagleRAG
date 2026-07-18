@@ -111,34 +111,54 @@ from eagle_rag.telemetry import (  # noqa: E402
 )
 
 
+def _ensure_app_on_sys_path() -> None:
+    """Guarantee repo root ``/app`` is importable for in-repo ``plugins.*`` modules."""
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]  # /app/eagle_rag/tasks -> /app
+    root_s = str(root)
+    if root_s not in sys.path:
+        sys.path.insert(0, root_s)
+
+
 @worker_init.connect
 def _on_worker_init(**kwargs) -> None:  # noqa: ANN001
     """Import plugin Celery modules in the worker main process before consuming."""
+    import logging
+
+    _ensure_app_on_sys_path()
     try:
         from eagle_rag.plugins import get_plugin_manager
 
         get_plugin_manager()
         autodiscover_tasks()
     except Exception:  # noqa: BLE001
-        pass
+        logging.getLogger(__name__).exception("worker_init plugin bootstrap failed")
 
 
 @worker_process_init.connect
 def _init_worker(**kwargs) -> None:  # noqa: ANN001
     """Configure telemetry (dual logger + tracing) on worker subprocess startup."""
+    import logging
+
     from eagle_rag.config import get_settings
 
+    _ensure_app_on_sys_path()
     try:
         configure_telemetry(get_settings())
     except Exception:  # noqa: BLE001
-        pass
+        logging.getLogger(__name__).exception("worker_process_init telemetry failed")
     try:
-        from eagle_rag.plugins import get_plugin_manager
+        from eagle_rag.plugins import get_plugin_manager, reset_plugin_manager
 
+        # Prefork children must not reuse a parent-cached manager built before
+        # sys.path / profile env were fully settled.
+        reset_plugin_manager()
         get_plugin_manager()
         autodiscover_tasks()
     except Exception:  # noqa: BLE001
-        pass
+        logging.getLogger(__name__).exception("worker_process_init plugin bootstrap failed")
 
 
 @task_prerun.connect

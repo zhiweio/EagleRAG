@@ -184,6 +184,8 @@
         "type": "Type",
         "pipeline": "Pipeline",
         "nodes": "Graph nodes",
+        "status": "Status",
+        "actions": "Actions",
         "updated": "Updated",
         "count": "{count} documents",
         "empty": "No documents in this knowledge base yet.",
@@ -192,6 +194,16 @@
         "delete": "Delete",
         "preview": "Preview document",
         "deleteDocConfirm": "Delete document \"{name}\"? This will remove its vectors and graph data."
+      },
+      "docStatus": {
+        "ready": "READY",
+        "active": "ACTIVE",
+        "failed": "FAILED",
+        "idle": "IDLE"
+      },
+      "pagination": {
+        "total": "{count} documents",
+        "perPage": "Per page:"
       },
       "docDeleteModal": {
         "title": "Delete Document",
@@ -214,9 +226,13 @@
       "rebuildStarted": "Rebuild job submitted",
       "maintenance": {
         "title": "Danger zone",
-        "desc": "Rebuilding re-parses and re-vectorizes all documents; purging deletes all vectors and graph data for this knowledge base.",
+        "desc": "These actions change index data for this knowledge base. Confirm each step carefully.",
         "rebuild": "Rebuild index",
-        "purge": "Purge knowledge base"
+        "rebuildDesc": "Re-parse and re-vectorize every document. Original files stay; search may be incomplete while the job runs.",
+        "rebuildHint": "Track progress in Ingest Logs",
+        "purge": "Purge knowledge base",
+        "purgeDesc": "Permanently delete vectors, graph nodes, and registry entries. Original files stay, but search is cleared until you re-ingest.",
+        "purgeHint": "This cannot be undone"
       },
       "rebuildModal": {
         "title": "Rebuild Index",

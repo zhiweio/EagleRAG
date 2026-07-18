@@ -2973,6 +2973,12 @@ export type TaskListResponse = {
      */
     items: Array<TaskAuditOut>;
     /**
+     * Total
+     *
+     * Total number of matching task audit records
+     */
+    total?: number;
+    /**
      * Error
      *
      * Degraded hint when the database is unavailable
@@ -3858,7 +3864,7 @@ export type ListTasksTasksGetData = {
         /**
          * Q
          *
-         * Fuzzy match on job_id or document_id
+         * Fuzzy match on job_id, document_id, or document name
          */
         q?: string | null;
         /**

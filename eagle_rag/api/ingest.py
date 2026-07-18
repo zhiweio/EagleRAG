@@ -165,40 +165,36 @@ async def ingest_queue_metrics() -> IngestQueueMetricsResponse:
 async def list_tasks(
     pipeline: str | None = Query(None),
     status: str | None = Query(None),
-    q: str | None = Query(None, description="Fuzzy match on job_id or document_id"),
+    q: str | None = Query(None, description="Fuzzy match on job_id, document_id, or document name"),
     kb_name: str | None = Query(None, description="Filter by knowledge base (multi-tenant)"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ) -> TaskListResponse:
-    """List task audit records."""
+    """List task audit records with server-side pagination."""
+    filters = {
+        "status": status,
+        "pipeline": pipeline,
+        "kb_name": kb_name,
+        "q": q,
+    }
     try:
-        items = await _run_sync(
-            task_state.list_audits,
-            status=status,
-            pipeline=pipeline,
-            kb_name=kb_name,
-            limit=limit,
-            offset=offset,
+        items, total = await asyncio.gather(
+            _run_sync(task_state.list_audits, **filters, limit=limit, offset=offset),
+            _run_sync(task_state.count_audits, **filters),
         )
     except Exception:  # noqa: BLE001
         logger.exception("list_audits failed; database may be unavailable")
         return TaskListResponse(
             items=[],
+            total=0,
             limit=limit,
             offset=offset,
             error="database unavailable",
         )
 
-    if q:
-        ql = q.lower()
-        items = [
-            it
-            for it in items
-            if ql in (it.get("job_id") or "").lower() or ql in (it.get("document_id") or "").lower()
-        ]
-
     return TaskListResponse(
         items=[TaskAuditOut.from_store(it) for it in items],
+        total=total,
         limit=limit,
         offset=offset,
     )

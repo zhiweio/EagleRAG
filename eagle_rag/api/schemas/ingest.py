@@ -123,6 +123,7 @@ class TaskAuditOut(BaseModel):
 
 class TaskListResponse(PaginatedMeta):
     items: list[TaskAuditOut]
+    total: int = Field(default=0, description="Total number of matching task audit records")
     error: str | None = Field(
         default=None, description="Degraded hint when the database is unavailable"
     )

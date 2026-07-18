@@ -138,7 +138,7 @@ export const ingestQueueMetricsIngestQueueMetricsGet = <ThrowOnError extends boo
 /**
  * List Tasks
  *
- * List task audit records.
+ * List task audit records with server-side pagination.
  */
 export const listTasksTasksGet = <ThrowOnError extends boolean = false>(options?: Options<ListTasksTasksGetData, ThrowOnError>): RequestResult<ListTasksTasksGetResponses, ListTasksTasksGetErrors, ThrowOnError> => (options?.client ?? client).get<ListTasksTasksGetResponses, ListTasksTasksGetErrors, ThrowOnError>({ url: '/tasks', ...options });
 

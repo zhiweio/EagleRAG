@@ -349,17 +349,16 @@ def get_audit(job_id: str) -> dict[str, Any] | None:
     return _row_to_dict(row) if row is not None else None
 
 
-def list_audits(
+def _audit_filter_clause(
     *,
     status: TaskState | str | None = None,
     pipeline: str | None = None,
     document_id: str | None = None,
     kb_name: str | None = None,
-    limit: int = 50,
-    offset: int = 0,
+    q: str | None = None,
     plugin_namespace: str | None = None,
-) -> list[dict[str, Any]]:
-    """List audit records matching the filters (newest first, paginated)."""
+) -> tuple[str, list[Any]]:
+    """Build ``WHERE`` clause + params shared by ``list_audits`` / ``count_audits``."""
     from eagle_rag.db.repositories.base import instance_namespace
 
     ns = instance_namespace(plugin_namespace)
@@ -377,11 +376,59 @@ def list_audits(
     if kb_name is not None:
         where.append("kb_name = %s")
         params.append(kb_name)
-    where_clause = " WHERE " + " AND ".join(where)
+    if q:
+        pattern = f"%{q}%"
+        where.append("(job_id ILIKE %s OR document_id ILIKE %s OR COALESCE(name, '') ILIKE %s)")
+        params.extend([pattern, pattern, pattern])
+    return " WHERE " + " AND ".join(where), params
+
+
+def list_audits(
+    *,
+    status: TaskState | str | None = None,
+    pipeline: str | None = None,
+    document_id: str | None = None,
+    kb_name: str | None = None,
+    q: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    plugin_namespace: str | None = None,
+) -> list[dict[str, Any]]:
+    """List audit records matching the filters (newest first, paginated)."""
+    where_clause, params = _audit_filter_clause(
+        status=status,
+        pipeline=pipeline,
+        document_id=document_id,
+        kb_name=kb_name,
+        q=q,
+        plugin_namespace=plugin_namespace,
+    )
     sql = f"{_SELECT_SQL}{where_clause} ORDER BY created_at DESC LIMIT %s OFFSET %s"
     params.extend([limit, offset])
     rows = sync_fetchall(sql, tuple(params))
     return [_row_to_dict(r) for r in rows]
+
+
+def count_audits(
+    *,
+    status: TaskState | str | None = None,
+    pipeline: str | None = None,
+    document_id: str | None = None,
+    kb_name: str | None = None,
+    q: str | None = None,
+    plugin_namespace: str | None = None,
+) -> int:
+    """Count audit records matching the same filters as ``list_audits``."""
+    where_clause, params = _audit_filter_clause(
+        status=status,
+        pipeline=pipeline,
+        document_id=document_id,
+        kb_name=kb_name,
+        q=q,
+        plugin_namespace=plugin_namespace,
+    )
+    row = sync_fetchone(f"SELECT COUNT(*) FROM task_audit{where_clause}", tuple(params))
+    return int(row[0]) if row is not None else 0
 
 
 def delete_audit(job_id: str) -> int:

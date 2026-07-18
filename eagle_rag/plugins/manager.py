@@ -113,7 +113,7 @@ class PluginManager:
         try:
             mod = importlib.import_module(module_path)
         except ImportError as exc:
-            raise PluginLoadError(f"cannot import plugin module {module_path}") from exc
+            raise PluginLoadError(f"cannot import plugin module {module_path}: {exc}") from exc
         plugin = getattr(mod, "plugin", None)
         if plugin is None:
             raise PluginLoadError(f"module {module_path} must export `plugin`")

@@ -184,6 +184,8 @@
         "type": "类型",
         "pipeline": "分流链路",
         "nodes": "图谱节点",
+        "status": "状态",
+        "actions": "操作",
         "updated": "更新时间",
         "count": "{count} 篇文档",
         "empty": "该知识库暂无文档。",
@@ -192,6 +194,16 @@
         "delete": "删除",
         "preview": "预览文档",
         "deleteDocConfirm": "确定删除文档「{name}」？将移除其向量与图谱数据。"
+      },
+      "docStatus": {
+        "ready": "READY",
+        "active": "ACTIVE",
+        "failed": "FAILED",
+        "idle": "IDLE"
+      },
+      "pagination": {
+        "total": "共 {count} 篇文档",
+        "perPage": "每页显示:"
       },
       "docDeleteModal": {
         "title": "删除文档",
@@ -214,9 +226,13 @@
       "rebuildStarted": "重建任务已提交",
       "maintenance": {
         "title": "危险操作",
-        "desc": "重建索引会重新解析并向量化该知识库全部文档；清空会删除该知识库下所有向量与图谱数据。",
+        "desc": "以下操作会改动该知识库的索引数据，请确认后再执行。",
         "rebuild": "重建索引",
-        "purge": "清空知识库"
+        "rebuildDesc": "重新解析并向量化全部文档。原始文件保留；任务进行中检索可能不完整。",
+        "rebuildHint": "可在「摄入日志」中查看进度",
+        "purge": "清空知识库",
+        "purgeDesc": "永久删除向量、图谱节点与登记记录。原始文件保留，但检索需重新摄入后才能恢复。",
+        "purgeHint": "此操作不可撤销"
       },
       "rebuildModal": {
         "title": "重建索引",

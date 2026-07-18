@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpIcon, Loader2Icon, SquareIcon, XIcon } from "lucide-react";
+import { Loader2Icon, SendIcon, SquareIcon, XIcon } from "lucide-react";
 import {
   type ComponentProps,
   type KeyboardEvent,
@@ -157,14 +157,15 @@ export function PromptInputSubmit({
   children,
   ...props
 }: PromptInputSubmitProps) {
-  let icon = <ArrowUpIcon className="size-4" />;
-  if (status === "submitted") icon = <Loader2Icon className="size-4 animate-spin" />;
-  else if (status === "streaming") icon = <SquareIcon className="size-3.5" />;
-  else if (status === "error") icon = <XIcon className="size-4" />;
+  // Send's glyph mass sits top-right; nudge so it reads centered in the circle.
+  let icon = <SendIcon className="size-4 -translate-x-px translate-y-px" aria-hidden />;
+  if (status === "submitted") icon = <Loader2Icon className="size-4 animate-spin" aria-hidden />;
+  else if (status === "streaming") icon = <SquareIcon className="size-3.5" aria-hidden />;
+  else if (status === "error") icon = <XIcon className="size-4" aria-hidden />;
 
   return (
     <Button
-      className={cn("size-9 rounded-full", className)}
+      className={cn("size-9 shrink-0 gap-0 rounded-full p-0", className)}
       size={size}
       type="submit"
       variant={variant}

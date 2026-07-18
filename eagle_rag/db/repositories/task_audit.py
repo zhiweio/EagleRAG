@@ -11,6 +11,7 @@ __all__ = [
     "create_audit",
     "get_audit",
     "list_audits",
+    "count_audits",
     "update_state",
     "append_log",
     "delete_audit",
@@ -48,6 +49,7 @@ def list_audits(
     pipeline: str | None = None,
     document_id: str | None = None,
     kb_name: str | None = None,
+    q: str | None = None,
     limit: int = 50,
     offset: int = 0,
     plugin_namespace: str | None = None,
@@ -57,8 +59,28 @@ def list_audits(
         pipeline=pipeline,
         document_id=document_id,
         kb_name=kb_name,
+        q=q,
         limit=limit,
         offset=offset,
+        plugin_namespace=plugin_namespace,
+    )
+
+
+def count_audits(
+    *,
+    status: TaskState | str | None = None,
+    pipeline: str | None = None,
+    document_id: str | None = None,
+    kb_name: str | None = None,
+    q: str | None = None,
+    plugin_namespace: str | None = None,
+) -> int:
+    return task_state.count_audits(
+        status=status,
+        pipeline=pipeline,
+        document_id=document_id,
+        kb_name=kb_name,
+        q=q,
         plugin_namespace=plugin_namespace,
     )
 

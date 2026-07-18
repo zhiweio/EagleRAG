@@ -316,6 +316,26 @@ class RetrieverOrchestrator:
             or []
         )
 
+    @staticmethod
+    def _collection_field_names(client: Any, collection: str) -> set[str]:
+        """Return scalar/vector field names for ``collection`` (best-effort)."""
+        try:
+            desc = client.describe_collection(collection)
+        except Exception:  # noqa: BLE001
+            return set()
+        fields = desc.get("fields") if isinstance(desc, dict) else None
+        if fields is None and hasattr(desc, "fields"):
+            fields = desc.fields
+        names: set[str] = set()
+        for field in fields or []:
+            if isinstance(field, dict):
+                name = field.get("name")
+            else:
+                name = getattr(field, "name", None)
+            if name:
+                names.add(str(name))
+        return names
+
     def _retrieve_generic_milvus(
         self,
         plan: CollectionQueryPlan,
@@ -340,19 +360,25 @@ class RetrieverOrchestrator:
         if not query_vector:
             return []
 
+        db_name = milvus_db_name(plugin_namespace)
+        client = get_milvus_pool().get(db_name)
+        schema_fields = self._collection_field_names(client, plan.collection)
+        # Specialized schemas (biomed) omit Core-only scalars like ``year`` / ``type``.
+        year_filter = year if (not schema_fields or "year" in schema_fields) else None
         expr = self._build_milvus_expr(
             kb_name=kb_name,
-            source_type=source_type,
-            year=year,
+            source_type=source_type
+            if (not schema_fields or "source_type" in schema_fields)
+            else None,
+            year=year_filter,
             scope_kb_names=scope_kb_names,
             scope_doc_ids=scope_doc_ids,
             use_scope_filter=use_scope_filter,
         )
-        db_name = milvus_db_name(plugin_namespace)
-        client = get_milvus_pool().get(db_name)
-        output_fields = (
-            _VISUAL_OUTPUT_FIELDS if enc_info.modality == "visual" else _TEXT_OUTPUT_FIELDS
-        )
+        wanted = _VISUAL_OUTPUT_FIELDS if enc_info.modality == "visual" else _TEXT_OUTPUT_FIELDS
+        output_fields = [f for f in wanted if not schema_fields or f in schema_fields]
+        if not output_fields:
+            output_fields = ["document_id", "kb_name"]
         raw = client.search(
             collection_name=plan.collection,
             data=[query_vector],

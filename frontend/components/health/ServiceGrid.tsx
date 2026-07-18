@@ -117,10 +117,12 @@ export function ServiceGrid() {
       return {
         kind,
         i18nKey,
+        // Knowhere copy is nested under api|parser — keep the variant even while loading.
+        ...(kind === "knowhere" ? { i18nVariant: knowhereMode } : {}),
         icon,
         tone,
         drawer,
-        status: "online",
+        status: "online" as const,
         chips: [],
         uptime: "—",
       };

@@ -422,21 +422,18 @@ def ingest_router(  # type: ignore[no-untyped-def]
             "plugin_namespace": plugin_ns,
         }
 
+        from eagle_rag.tasks.state import append_log
+
         for pipeline in pipelines:
             try:
                 _dispatch_pipeline(pipeline, downstream_kwargs)
             except KeyError:
-                update_state(
-                    job_id,
-                    TaskState.INDEXING,
-                    log_entry=f"Unknown pipeline skipped: {pipeline}",
-                )
+                append_log(job_id, f"Unknown pipeline skipped: {pipeline}")
 
-        update_state(
-            job_id,
-            TaskState.SUCCESS,
-            log_entry=f"Dispatched to {pipelines}",
-        )
+        # Downstream adapters own the job lifecycle (RENDERING→…→SUCCESS).
+        # Marking SUCCESS here races with knowhere/pixelrag and is illegal once
+        # the audit has already entered RENDERING.
+        append_log(job_id, f"Dispatched to {pipelines}")
         return {
             "job_id": job_id,
             "document_id": document_id,

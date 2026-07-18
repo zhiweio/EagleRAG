@@ -242,6 +242,10 @@ def _upsert_text_nodes_direct(
 
             vector = encode_text_for_encoder(encoder_name, text)
         row_id = node.node_id
+        # Specialized collections (e.g. biomed ``eagle_text_biomed``) use
+        # ``chunk_type``; Core ``eagle_text`` historically used ``type``. Prefer
+        # ``chunk_type`` and omit bare ``type`` so non-dynamic schemas accept rows.
+        chunk_type = meta.get("chunk_type") or meta.get("type") or "text"
         rows.append(
             {
                 "id": row_id,
@@ -250,7 +254,7 @@ def _upsert_text_nodes_direct(
                 "document_id": meta.get("document_id", ""),
                 "kb_name": meta.get("kb_name", get_settings().kb_name),
                 "path": meta.get("path", ""),
-                "type": meta.get("type", "text"),
+                "chunk_type": chunk_type,
                 "source_type": meta.get("source_type"),
                 "source_chunk_id": meta.get("source_chunk_id"),
             }
