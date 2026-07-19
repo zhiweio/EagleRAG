@@ -8,6 +8,7 @@ from eagle_rag.telemetry import get_logger
 
 if TYPE_CHECKING:
     from eagle_rag.plugins.context import PluginAudit
+    from eagle_rag.plugins.hookbus import HookBus
 
 from llama_index.core.schema import ImageNode, NodeWithScore
 
@@ -92,6 +93,29 @@ def dedupe_cross_collection(
     return [seen[key] for key in order]
 
 
+def _qwen3_rerank(
+    text_nodes: list[NodeWithScore],
+    query: str,
+    *,
+    top_n: int,
+) -> list[NodeWithScore]:
+    try:
+        from eagle_rag.generation.multimodal_engine import _default_text_reranker
+
+        reranker = _default_text_reranker()
+        if reranker is None:
+            return text_nodes[:top_n]
+        reranked = reranker.postprocess_nodes(text_nodes, query_str=query)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("post-RRF qwen3 rerank failed; returning RRF order: %s", exc)
+        return text_nodes[:top_n]
+
+    if not reranked:
+        return text_nodes[:top_n]
+    reranked = sorted(reranked, key=lambda n: n.score or 0.0, reverse=True)[:top_n]
+    return reranked
+
+
 def rerank_merged(
     nodes: list[NodeWithScore],
     *,
@@ -99,83 +123,69 @@ def rerank_merged(
     top_n: int,
     plugin_namespace: str | None = None,
     audit: PluginAudit | None = None,
+    hook_bus: HookBus | None = None,
 ) -> list[NodeWithScore]:
-    """Post-RRF cross-encoder rerank on text nodes; visual nodes pass through.
+    """Post-RRF rerank on text nodes; visual nodes pass through.
 
-      Applies DashScope ``qwen3-rerank`` to the fused text hits so that noise
-      injected by weakly-related collections (e.g. deterministic-embedding
-      fallbacks) is filtered after RRF. ``ImageNode`` hits are appended unchanged
-      (no visual reranker is wired). On any failure the RRF order is returned so
-      retrieval never breaks due to the rerank service.
-
-    Biomed deployments may disable the general reranker via
-    ``settings.plugins.options.biomed.use_general_rerank`` (default ``false``) so
-    domain PubMedBERT rerank from the ``RERANK`` hook is preserved.
+    Policy-driven: domain plugins use ``RERANK_MERGED`` hook; core uses
+    DashScope ``qwen3-rerank`` when ``rerank_policy=general``.
     """
+    from eagle_rag.plugins.hookbus import HookContext
+    from eagle_rag.plugins.hooks import Hook
+    from eagle_rag.plugins.rerank_policy import RerankPolicy, resolve_rerank_policy
+
     text_nodes = [n for n in nodes if not isinstance(n.node, ImageNode)]
     image_nodes = [n for n in nodes if isinstance(n.node, ImageNode)]
     if not text_nodes:
         return nodes
 
-    if not _use_general_rerank(plugin_namespace):
-        if plugin_namespace == "biomed":
-            from eagle_rag.router.biomed_post_rerank import biomed_post_rrf_rerank
+    policy = resolve_rerank_policy(plugin_namespace, hook_bus)
 
-            reranked = biomed_post_rrf_rerank(
-                text_nodes,
-                query,
-                top_n=top_n,
-                plugin_namespace=plugin_namespace or "biomed",
-            )
+    if policy == RerankPolicy.DOMAIN and hook_bus is not None and plugin_namespace:
+        hook_ctx = HookContext(plugin_namespace=plugin_namespace)
+        reranked = hook_bus.invoke_first(
+            Hook.RERANK_MERGED,
+            hook_ctx,
+            text_nodes,
+            query=query,
+            top_n=top_n,
+        )
+        if reranked is not None:
             if audit is not None:
                 audit.log_decision(
                     category="rerank",
-                    reason="post_rrf_biomed",
+                    reason="rerank_t2_domain",
                     plugin_namespace=plugin_namespace,
                     extra={"text_in": len(text_nodes), "text_out": len(reranked)},
                 )
-            return reranked + image_nodes
-        trimmed = text_nodes[:top_n] + image_nodes
+            return list(reranked) + image_nodes
+        trimmed = text_nodes[:top_n]
         if audit is not None:
             audit.log_decision(
                 category="rerank",
-                reason="post_rrf_domain_only",
+                reason="rerank_t2_passthrough",
                 plugin_namespace=plugin_namespace,
                 extra={"text_in": len(text_nodes), "text_out": len(trimmed)},
             )
-        return trimmed
+        return trimmed + image_nodes
 
-    try:
-        from eagle_rag.generation.multimodal_engine import _default_text_reranker
+    if policy == RerankPolicy.GENERAL:
+        reranked = _qwen3_rerank(text_nodes, query, top_n=top_n)
+        if audit is not None:
+            audit.log_decision(
+                category="rerank",
+                reason="rerank_t2_general",
+                plugin_namespace=plugin_namespace,
+                extra={"text_in": len(text_nodes), "text_out": len(reranked)},
+            )
+        return reranked + image_nodes
 
-        reranker = _default_text_reranker()
-        if reranker is None:
-            return nodes
-        reranked = reranker.postprocess_nodes(text_nodes, query_str=query)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("post-RRF rerank failed; returning RRF order: %s", exc)
-        return nodes
-
-    if not reranked:
-        return nodes
-    reranked = sorted(reranked, key=lambda n: n.score or 0.0, reverse=True)[:top_n]
+    trimmed = text_nodes[:top_n]
     if audit is not None:
         audit.log_decision(
             category="rerank",
-            reason="post_rrf_qwen3",
+            reason="rerank_t2_passthrough",
             plugin_namespace=plugin_namespace,
-            extra={"text_in": len(text_nodes), "text_out": len(reranked)},
+            extra={"text_in": len(text_nodes), "text_out": len(trimmed)},
         )
-    return reranked + image_nodes
-
-
-def _use_general_rerank(plugin_namespace: str | None) -> bool:
-    if plugin_namespace != "biomed":
-        return True
-    try:
-        from eagle_rag.config import get_settings, plugin_options
-
-        biomed_cfg = plugin_options("biomed", get_settings())
-        return bool(biomed_cfg.get("use_general_rerank", False))
-    except Exception:  # noqa: BLE001
-        return False
+    return trimmed + image_nodes

@@ -94,6 +94,7 @@ class RetrieverOrchestrator:
         final_top_k = top_k or settings.router.final_top_k
         plan_results: list[list[NodeWithScore]] = []
         visual_query_text = visual_query if visual_query is not None else query
+        retrieval_hints = dict(route_decision.retrieval_hints or {})
 
         for plan in route_decision.plans:
             plan_top_k = plan.top_k or recall_top_k
@@ -113,6 +114,7 @@ class RetrieverOrchestrator:
                         top_k=plan_top_k,
                         plugin_namespace=plugin_namespace,
                         recall_top_k=recall_top_k,
+                        retrieval_hints=retrieval_hints,
                     )
                     nodes = self._apply_rerank(
                         nodes,
@@ -136,15 +138,24 @@ class RetrieverOrchestrator:
                 )
                 continue
 
-        if plugin_namespace == "biomed":
-            plan_results.append(
-                self._supplement_drug_document_hits(
-                    query,
-                    kb_name=kb_name,
-                    plugin_namespace=plugin_namespace,
-                    recall_top_k=recall_top_k,
-                )
-            )
+        hook_ctx = HookContext(
+            plugin_namespace=plugin_namespace,
+            extra={"kb_name": kb_name},
+        )
+        supplement_nodes: list[NodeWithScore] = []
+        for item in self._manager.bus.invoke_all(
+            Hook.RETRIEVE_SUPPLEMENT,
+            hook_ctx,
+            query,
+            kb_name=kb_name,
+            recall_top_k=recall_top_k,
+        ):
+            if isinstance(item, NodeWithScore):
+                supplement_nodes.append(item)
+            elif isinstance(item, list):
+                supplement_nodes.extend(n for n in item if isinstance(n, NodeWithScore))
+        if supplement_nodes:
+            plan_results.append(supplement_nodes)
 
         merged = merge_rrf(plan_results, k=settings.router.rrf_k)
         successful_plans = sum(1 for lst in plan_results if lst)
@@ -156,6 +167,7 @@ class RetrieverOrchestrator:
             top_n=final_top_k,
             plugin_namespace=plugin_namespace,
             audit=self._manager.audit,
+            hook_bus=self._manager.bus,
         )
         return merged
 
@@ -199,6 +211,7 @@ class RetrieverOrchestrator:
         top_k: int,
         plugin_namespace: str,
         recall_top_k: int | None = None,
+        retrieval_hints: dict[str, Any] | None = None,
     ) -> list[NodeWithScore]:
         settings = get_settings()
         self._manager.encoder_registry.validate_plan(plan.collection, plan.encoder)
@@ -215,6 +228,7 @@ class RetrieverOrchestrator:
                 use_scope_filter=use_scope_filter,
                 top_k=effective_recall,
                 plugin_namespace=plugin_namespace,
+                parent_doc_retrieval=(retrieval_hints or {}).get("parent_doc_retrieval"),
             )
 
         if plan.collection == settings.milvus.visual_collection:
@@ -267,6 +281,7 @@ class RetrieverOrchestrator:
         use_scope_filter: bool,
         top_k: int,
         plugin_namespace: str | None = None,
+        parent_doc_retrieval: bool | None = None,
     ) -> list[NodeWithScore]:
         if use_scope_filter:
             retriever = KnowhereGraphRetriever(
@@ -276,6 +291,7 @@ class RetrieverOrchestrator:
                 source_type=source_type,
                 year=year,
                 plugin_namespace=plugin_namespace,
+                parent_doc_retrieval=parent_doc_retrieval,
             )
         elif kb_name or source_type is not None or year is not None:
             retriever = KnowhereGraphRetriever(
@@ -284,12 +300,16 @@ class RetrieverOrchestrator:
                 source_type=source_type,
                 year=year,
                 plugin_namespace=plugin_namespace,
+                parent_doc_retrieval=parent_doc_retrieval,
             )
         elif self._text_retriever is not None:
             retriever = self._text_retriever
         else:
             retriever = KnowhereGraphRetriever(
-                top_k=top_k, kb_name=kb_name, plugin_namespace=plugin_namespace
+                top_k=top_k,
+                kb_name=kb_name,
+                plugin_namespace=plugin_namespace,
+                parent_doc_retrieval=parent_doc_retrieval,
             )
 
         return list(retriever.retrieve(query) or [])
@@ -380,20 +400,19 @@ class RetrieverOrchestrator:
         enc_info = self._manager.encoder_registry.get(plan.encoder)
         dense_query = query
         drug_entities: list[str] = []
-        if plugin_namespace == "biomed":
-            try:
-                from plugins.biomed.umls import (
-                    expand_query_for_dense_retrieval,
-                    match_drug_entities,
-                )
-
-                drug_entities = match_drug_entities(query)
-                if plan.encoder == "pubmedbert":
-                    expanded = expand_query_for_dense_retrieval(query)
-                    if expanded:
-                        dense_query = expanded
-            except Exception:  # noqa: BLE001
-                drug_entities = []
+        hook_ctx = HookContext(
+            plugin_namespace=plugin_namespace,
+            extra={"collection": plan.collection, "encoder": plan.encoder},
+        )
+        expanded = self._manager.bus.invoke_first(
+            Hook.QUERY_DENSE_EXPAND,
+            hook_ctx,
+            query,
+            encoder=plan.encoder,
+        )
+        if expanded is not None:
+            dense_query = expanded.dense_query
+            drug_entities = list(expanded.sparse_terms)
 
         query_vector = self._encode_query(
             plan.encoder,
@@ -511,73 +530,6 @@ class RetrieverOrchestrator:
         if not conditions:
             return None
         return " and ".join(conditions)
-
-    def _supplement_drug_document_hits(
-        self,
-        query: str,
-        *,
-        kb_name: str | None,
-        plugin_namespace: str,
-        recall_top_k: int,
-    ) -> list[NodeWithScore]:
-        """Targeted ANN within registry documents whose names match query drug entities."""
-        from eagle_rag.index.registry import lookup_document_ids_by_name_terms
-        from plugins.biomed.umls import match_drug_entities, match_entities, resolve_entity
-
-        terms = list(match_drug_entities(query))
-        if not terms:
-            for entity in match_entities(query):
-                resolved = resolve_entity(entity)
-                related = [str(d) for d in (resolved.get("related_drugs") or [])[:4]]
-                if related:
-                    terms = related
-                    break
-        terms = list(dict.fromkeys(terms))
-        if not terms:
-            return []
-
-        doc_ids = lookup_document_ids_by_name_terms(
-            terms,
-            kb_name=kb_name,
-            plugin_namespace=plugin_namespace,
-        )
-        if not doc_ids:
-            return []
-
-        nodes: list[NodeWithScore] = []
-        for collection, encoder in (
-            ("eagle_text_biomed", "pubmedbert"),
-            ("eagle_chemical", "molformer"),
-        ):
-            plan = CollectionQueryPlan(
-                collection=collection,
-                encoder=encoder,
-                top_k=recall_top_k,
-            )
-            try:
-                nodes.extend(
-                    self._retrieve_generic_milvus(
-                        plan,
-                        query,
-                        plugin_namespace=plugin_namespace,
-                        kb_name=kb_name,
-                        source_type=None,
-                        year=None,
-                        scope_kb_names=None,
-                        scope_doc_ids=doc_ids,
-                        use_scope_filter=True,
-                        query_image_bytes=None,
-                        top_k=min(recall_top_k, max(len(doc_ids) * 4, 8)),
-                        recall_top_k=recall_top_k,
-                    )
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.debug(
-                    "drug document supplement failed for %s: %s",
-                    collection,
-                    exc,
-                )
-        return nodes
 
     @staticmethod
     def _hits_to_nodes(raw: Any, *, modality: str) -> list[NodeWithScore]:

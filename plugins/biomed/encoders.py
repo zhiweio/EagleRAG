@@ -49,6 +49,7 @@ COLLECTION_DIMS: dict[str, int] = {
 _DEFAULT_HF_MODELS: dict[str, str] = {
     "pubmedbert": "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext",
     "molformer": "seyonec/ChemBERTa-zinc-base-v1",
+    "medcpt-rerank": "ncbi/MedCPT-Cross-Encoder",
     # Public HF stand-in for MedImageInsight; override via EAGLE_BIOMED_MEDIMAGE_MODEL.
     "medimageinsight": "microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
     "uni2": "MahmoodLab/UNI2-h",
@@ -83,6 +84,7 @@ def _model_id_for(name: str) -> str:
         "molformer": "EAGLE_BIOMED_MOLFORMER_MODEL",
         "medimageinsight": "EAGLE_BIOMED_MEDIMAGE_MODEL",
         "uni2": "EAGLE_BIOMED_UNI2_MODEL",
+        "medcpt-rerank": "EAGLE_BIOMED_MEDCPT_RERANK_MODEL",
     }
     return os.environ.get(env_map[name], _DEFAULT_HF_MODELS.get(name, "")).strip()
 
@@ -379,6 +381,87 @@ class LazyDomainEncoder:
                 ) from exc
 
 
+@dataclass
+class LazyMedCPTReranker:
+    """Lazy MedCPT cross-encoder for biomed post-RRF reranking."""
+
+    name: str = "medcpt-rerank"
+    hf_model_id: str = ""
+    modality: str = "rerank"
+    dim: int = 1
+
+    _tokenizer: Any = None
+    _model: Any = None
+
+    def _deterministic_scores(self, query: str, texts: list[str]) -> list[float]:
+        import hashlib
+
+        scores: list[float] = []
+        for text in texts:
+            digest = hashlib.sha256(f"{query}\n{text}".encode()).digest()
+            scores.append(digest[0] / 255.0)
+        return scores
+
+    def _load(self) -> None:
+        if self._model is not None:
+            return
+        mode = _encoder_mode()
+        if mode == "deterministic" or (_allow_deterministic() and mode == "auto"):
+            return
+        model_id = self.hf_model_id or _model_id_for("medcpt-rerank")
+        if not model_id:
+            raise EncoderLoadError("medcpt-rerank model id is not configured")
+        try:
+            import torch
+            from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+            self._tokenizer = AutoTokenizer.from_pretrained(model_id)
+            self._model = AutoModelForSequenceClassification.from_pretrained(model_id)
+            self._model.eval()
+            if torch.cuda.is_available():
+                self._model.to("cuda")
+        except Exception as exc:  # noqa: BLE001
+            if mode == "require_native":
+                raise EncoderLoadError(f"medcpt-rerank failed to load: {exc}") from exc
+            if _allow_deterministic():
+                return
+            raise EncoderLoadError(f"medcpt-rerank failed to load: {exc}") from exc
+
+    def score_pairs(self, query: str, texts: list[str]) -> list[float]:
+        if not texts:
+            return []
+        self._load()
+        if self._model is None or self._tokenizer is None:
+            return self._deterministic_scores(query, texts)
+        try:
+            import torch
+
+            queries = [query] * len(texts)
+            encoded = self._tokenizer(
+                queries,
+                texts,
+                padding=True,
+                truncation=True,
+                max_length=512,
+                return_tensors="pt",
+            )
+            device = next(self._model.parameters()).device
+            encoded = {k: v.to(device) for k, v in encoded.items()}
+            with torch.no_grad():
+                logits = self._model(**encoded).logits
+            if logits.ndim == 2 and logits.shape[1] == 1:
+                raw = logits.squeeze(-1)
+            elif logits.ndim == 2 and logits.shape[1] >= 2:
+                raw = logits[:, -1]
+            else:
+                raw = logits.view(-1)
+            return [float(x) for x in raw.detach().cpu().tolist()]
+        except Exception as exc:  # noqa: BLE001
+            if _encoder_mode() == "require_native":
+                raise EncoderLoadError(f"medcpt-rerank inference failed: {exc}") from exc
+            return self._deterministic_scores(query, texts)
+
+
 def register_encoders(ctx: PluginContext) -> None:
     """Register biomed encoders and collection dimensions."""
     registry = ctx.encoder_registry
@@ -425,6 +508,12 @@ def register_encoders(ctx: PluginContext) -> None:
         ),
         dim=ENCODER_DIMS["uni2"],
         modality="visual",
+    )
+    registry.register(
+        "medcpt-rerank",
+        LazyMedCPTReranker(hf_model_id=_model_id_for("medcpt-rerank")),
+        dim=1,
+        modality="rerank",
     )
     for collection, dim in COLLECTION_DIMS.items():
         registry.register_collection_dim(collection, dim)

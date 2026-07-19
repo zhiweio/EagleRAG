@@ -16,6 +16,7 @@ builds are unaffected). Output dirs:
     /opt/huggingface/biomed/molformer/
     /opt/huggingface/biomed/medimageinsight/
     /opt/huggingface/biomed/uni2/
+    /opt/huggingface/biomed/medcpt-rerank/
 
 Runtime env vars (``EAGLE_BIOMED_*_MODEL``) point at these dirs; see
 ``docker-compose.biomed.yml``.
@@ -26,6 +27,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 # Per-model download config:
@@ -76,9 +78,31 @@ _BIOMED_MODELS: tuple[tuple[str, str, str | None, str, bool], ...] = (
         "ms",
         True,
     ),
+    # MedCPT Cross-Encoder (Tier-2 biomed rerank; NOT Query/Article encoders).
+    # HF only — large single pytorch_model.bin; download with max_workers=1 in Docker.
+    (
+        "medcpt-rerank",
+        "ncbi/MedCPT-Cross-Encoder",
+        None,
+        "hf",
+        True,
+    ),
 )
 
 _BIOMED_ROOT = Path(os.environ.get("BIOMED_MODEL_ROOT", "/opt/huggingface/biomed"))
+_HF_HUB_CACHE = Path(
+    os.environ.get("BIOMED_HF_HUB_CACHE", str(_BIOMED_ROOT.parent / "_hf_hub_cache"))
+)
+
+
+def _scrub_incomplete_files(root: Path) -> None:
+    if not root.is_dir():
+        return
+    for path in root.rglob("*.incomplete"):
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _has_weights(path: Path) -> bool:
@@ -96,7 +120,22 @@ def _has_config(path: Path) -> bool:
 
 
 def _is_complete(path: Path) -> bool:
-    return path.is_dir() and _has_config(path) and _has_weights(path)
+    if not path.is_dir():
+        return False
+    if any(path.rglob("*.incomplete")):
+        return False
+    return _has_config(path) and _has_weights(path)
+
+
+def _promote_staging(staging: Path, dest: Path) -> None:
+    """Move a finished HF staging tree into the final model directory."""
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(staging), str(dest))
+    nested_cache = dest / ".cache"
+    if nested_cache.exists():
+        shutil.rmtree(nested_cache, ignore_errors=True)
 
 
 def _apply_proxy_env() -> None:
@@ -126,24 +165,64 @@ def _prefetch_modelscope(repo_id: str, dest: Path) -> None:
     shutil.copytree(src, dest)
 
 
-def _prefetch_huggingface(repo_id: str, dest: Path) -> None:
+def _prefetch_huggingface(
+    repo_id: str,
+    dest: Path,
+    *,
+    endpoint: str | None = None,
+    max_workers: int | None = None,
+) -> None:
     from huggingface_hub import snapshot_download
 
-    endpoint = os.environ.get("HF_ENDPOINT", "https://hf-mirror.com").rstrip("/")
-    max_workers = int(os.environ.get("HF_HUB_DOWNLOAD_MAX_WORKERS", "8"))
+    ep = (endpoint or os.environ.get("HF_ENDPOINT", "https://hf-mirror.com")).rstrip("/")
+    workers = max_workers
+    if workers is None:
+        workers = int(os.environ.get("HF_HUB_DOWNLOAD_MAX_WORKERS", "1"))
+    _HF_HUB_CACHE.mkdir(parents=True, exist_ok=True)
+    _scrub_incomplete_files(_HF_HUB_CACHE)
     print(
-        f"HuggingFace prefetch {repo_id} -> {dest} via endpoint={endpoint}",
+        f"HuggingFace prefetch {repo_id} -> {dest} via endpoint={ep} "
+        f"(cache={_HF_HUB_CACHE}, workers={workers})",
         flush=True,
     )
     if dest.exists():
         shutil.rmtree(dest)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    snapshot_download(
-        repo_id,
-        endpoint=endpoint,
-        local_dir=str(dest),
-        max_workers=max_workers,
-    )
+    with tempfile.TemporaryDirectory(prefix="biomed-hf-", dir=str(_BIOMED_ROOT.parent)) as tmp:
+        staging = Path(tmp) / dest.name
+        snapshot_download(
+            repo_id,
+            endpoint=ep,
+            cache_dir=str(_HF_HUB_CACHE),
+            local_dir=str(staging),
+            max_workers=workers,
+        )
+        _promote_staging(staging, dest)
+
+
+def _prefetch_huggingface_with_fallback(repo_id: str, dest: Path) -> None:
+    """Try configured HF mirror first, then huggingface.co for mirror gaps."""
+    primary = os.environ.get("HF_ENDPOINT", "https://hf-mirror.com").rstrip("/")
+    endpoints = [primary]
+    if primary != "https://huggingface.co":
+        endpoints.append("https://huggingface.co")
+    last_exc: Exception | None = None
+    for ep in endpoints:
+        try:
+            if dest.exists():
+                shutil.rmtree(dest)
+            _prefetch_huggingface(repo_id, dest, endpoint=ep, max_workers=1)
+            if _is_complete(dest):
+                return
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            print(f"HF endpoint {ep} failed for {repo_id}: {exc}", flush=True)
+            _scrub_incomplete_files(_HF_HUB_CACHE)
+            if dest.exists() and not _is_complete(dest):
+                shutil.rmtree(dest, ignore_errors=True)
+    msg = f"HF download failed for {repo_id}"
+    if last_exc:
+        msg += f": {last_exc}"
+    raise RuntimeError(msg)
 
 
 def _download_model(
@@ -172,7 +251,7 @@ def _download_model(
                     continue
                 _prefetch_modelscope(modelscope_repo_id, dest)
             else:
-                _prefetch_huggingface(hf_repo_id, dest)
+                _prefetch_huggingface_with_fallback(hf_repo_id, dest)
             if _is_complete(dest):
                 print(f"Prefetched {encoder_name} via {source} -> {dest}", flush=True)
                 return

@@ -2709,6 +2709,22 @@ export type RouterSettings = {
      * Rrf K
      */
     rrf_k?: number;
+    /**
+     * Recall Top K
+     */
+    recall_top_k?: number;
+    /**
+     * Final Top K
+     */
+    final_top_k?: number;
+    /**
+     * Hybrid Alpha
+     */
+    hybrid_alpha?: number;
+    /**
+     * Hybrid Text Enabled
+     */
+    hybrid_text_enabled?: boolean;
 };
 
 /**

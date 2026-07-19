@@ -86,14 +86,22 @@ class BiomedQueryRouteClassifier:
         umls_hits = self._match_umls(query)
         drug_hits = match_drug_entities(query)
 
-        if self._match_smiles(query) or drug_hits:
-            add("eagle_chemical", "molformer")
+        from plugins.biomed.query_intent import detect_retrieval_intent
 
-        for entity in umls_hits:
-            related = resolve_entity(entity).get("related_drugs") or []
-            if related and entity not in drug_hits:
-                add("eagle_chemical", "molformer")
-                break
+        intent = detect_retrieval_intent(query)
+        retrieval_hints: dict[str, Any] = {}
+        if drug_hits or umls_hits:
+            retrieval_hints["parent_doc_retrieval"] = False
+
+        suppress_chemical = "eagle_chemical" in intent.suppress_collections
+        if self._match_smiles(query) or (drug_hits and not suppress_chemical):
+            add("eagle_chemical", "molformer")
+        elif not suppress_chemical:
+            for entity in umls_hits:
+                related = resolve_entity(entity).get("related_drugs") or []
+                if related and entity not in drug_hits:
+                    add("eagle_chemical", "molformer")
+                    break
 
         if self._match_keywords(query, "radiology"):
             add("eagle_medical_radiology", "medimageinsight")
@@ -122,6 +130,12 @@ class BiomedQueryRouteClassifier:
         if len(plans) == 1 and not umls_hits and not drug_hits and not self._match_smiles(query):
             only = next(iter(plans.values()))
             if only.collection == settings.milvus.visual_collection:
-                return QueryRouteDecision(plans=tuple(plans.values()))
+                return QueryRouteDecision(
+                    plans=tuple(plans.values()),
+                    retrieval_hints=retrieval_hints,
+                )
 
-        return QueryRouteDecision(plans=tuple(plans.values()))
+        return QueryRouteDecision(
+            plans=tuple(plans.values()),
+            retrieval_hints=retrieval_hints,
+        )

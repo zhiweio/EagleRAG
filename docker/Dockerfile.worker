@@ -51,11 +51,12 @@ ENV BIOMED_HTTP_PROXY=${BIOMED_HTTP_PROXY}
 
 COPY docker/scripts/prefetch_biomed_models.py /tmp/prefetch_biomed_models.py
 RUN --mount=type=cache,target=/var/cache/eagle-rag/biomed-models,id=eagle-rag-biomed-models-cache \
-    mkdir -p /opt/huggingface/biomed \
+    mkdir -p /var/cache/eagle-rag/biomed-models /opt/huggingface/biomed \
     && if [ "${PREFETCH_BIOMED_MODELS}" = "1" ]; then \
         PREFETCH_BIOMED_MODELS=1 \
-        BIOMED_MODEL_ROOT=/opt/huggingface/biomed \
-        /opt/venv/bin/python /tmp/prefetch_biomed_models.py; \
+        BIOMED_MODEL_ROOT=/var/cache/eagle-rag/biomed-models \
+        /opt/venv/bin/python /tmp/prefetch_biomed_models.py \
+        && cp -a /var/cache/eagle-rag/biomed-models/. /opt/huggingface/biomed/; \
     else \
         echo "PREFETCH_BIOMED_MODELS=${PREFETCH_BIOMED_MODELS}; skipping biomed encoder prefetch"; \
     fi \

@@ -464,15 +464,24 @@ class EagleRouterQueryEngine:
     @staticmethod
     def _uses_domain_rerank_only() -> bool:
         try:
-            from eagle_rag.config import get_settings, plugin_options
             from eagle_rag.plugins import get_plugin_manager
+            from eagle_rag.plugins.rerank_policy import uses_domain_rerank
 
-            if get_plugin_manager().default_namespace != "biomed":
-                return False
-            biomed_cfg = plugin_options("biomed", get_settings())
-            return not bool(biomed_cfg.get("use_general_rerank", False))
+            manager = get_plugin_manager()
+            return uses_domain_rerank(manager.default_namespace, manager.bus)
         except Exception:  # noqa: BLE001
             return False
+
+    @staticmethod
+    def _rerank_model_label() -> str:
+        try:
+            from eagle_rag.plugins import get_plugin_manager
+            from eagle_rag.plugins.rerank_policy import rerank_model_label
+
+            manager = get_plugin_manager()
+            return rerank_model_label(manager.default_namespace, manager.bus)
+        except Exception:  # noqa: BLE001
+            return "qwen3-rerank"
 
     @staticmethod
     def _map_nodes_to_search_payload(
@@ -487,9 +496,7 @@ class EagleRouterQueryEngine:
         image_nodes = [n for n in nodes if isinstance(n.node, ImageNode)]
         text_sources = EagleMultimodalQueryEngine.text_sources_from_nodes(text_nodes)
         image_sources = [EagleMultimodalQueryEngine._image_source(n) for n in image_nodes]
-        rerank_model = (
-            "domain" if EagleRouterQueryEngine._uses_domain_rerank_only() else "qwen3-rerank"
-        )
+        rerank_model = EagleRouterQueryEngine._rerank_model_label()
         steps: list[dict[str, Any]] = [
             {"name": "route", **decision.to_dict()},
             {

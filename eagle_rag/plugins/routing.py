@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Protocol
+from dataclasses import dataclass, field
+from typing import Any, Protocol
 
 __all__ = [
     "CollectionQueryPlan",
+    "ExpandedQuery",
+    "QueryRetrievalIntent",
     "QueryRouteDecision",
     "QueryRouteClassifier",
 ]
@@ -22,10 +24,30 @@ class CollectionQueryPlan:
 
 
 @dataclass(frozen=True)
+class QueryRetrievalIntent:
+    """Plugin-owned query signals; core passes through without interpreting."""
+
+    workflow: str = "general"
+    prefer_doc_types: tuple[str, ...] = ()
+    suppress_collections: tuple[str, ...] = ()
+    section_cues: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ExpandedQuery:
+    """Dense/sparse query expansion result from a plugin hook."""
+
+    dense_query: str
+    sparse_terms: tuple[str, ...] = ()
+    intent: QueryRetrievalIntent | None = None
+
+
+@dataclass(frozen=True)
 class QueryRouteDecision:
     """Multi-collection query plan."""
 
     plans: tuple[CollectionQueryPlan, ...]
+    retrieval_hints: dict[str, Any] = field(default_factory=dict)
 
 
 class QueryRouteClassifier(Protocol):

@@ -80,6 +80,11 @@ class HookBus:
             if s.namespace is None or s.namespace == ctx.plugin_namespace
         ]
 
+    def has_subscribers(self, hook: Hook | str, ctx: HookContext) -> bool:
+        """Return whether any subscriber would run for ``hook`` under ``ctx``."""
+        hook_key = Hook(hook) if not isinstance(hook, Hook) else hook
+        return bool(self._filtered(hook_key, ctx))
+
     def invoke_first(self, hook: Hook | str, ctx: HookContext, *args: Any, **kwargs: Any) -> Any:
         hook_key = Hook(hook) if not isinstance(hook, Hook) else hook
         for sub in self._filtered(hook_key, ctx):

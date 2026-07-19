@@ -83,6 +83,7 @@ class KnowhereGraphRetriever(BaseRetriever):
         source_type: str | None = None,
         year: int | None = None,
         plugin_namespace: str | None = None,
+        parent_doc_retrieval: bool | None = None,
     ) -> None:
         super().__init__()
         self.top_k = top_k
@@ -107,6 +108,7 @@ class KnowhereGraphRetriever(BaseRetriever):
         # text index to that namespace's Milvus Database so retrieval never crosses
         # domains.
         self.plugin_namespace = plugin_namespace
+        self.parent_doc_retrieval = parent_doc_retrieval
 
     def _build_filters(
         self,
@@ -231,14 +233,8 @@ class KnowhereGraphRetriever(BaseRetriever):
             try:
                 text_index = get_text_index(plugin_namespace=self.plugin_namespace)
                 use_parent_doc = get_settings().router.parent_doc_retrieval
-                if use_parent_doc and self.plugin_namespace == "biomed":
-                    try:
-                        from plugins.biomed.umls import match_drug_entities
-
-                        if match_drug_entities(query_str):
-                            use_parent_doc = False
-                    except Exception:  # noqa: BLE001
-                        pass
+                if self.parent_doc_retrieval is not None:
+                    use_parent_doc = bool(self.parent_doc_retrieval)
                 if use_parent_doc:
                     raw_nodes = self._parent_doc_retrieve(text_index, query_str)
                 else:

@@ -20,6 +20,7 @@ _BIOMED_MODEL_PATHS = {
     "EAGLE_BIOMED_MOLFORMER_MODEL": "/opt/huggingface/biomed/molformer",
     "EAGLE_BIOMED_MEDIMAGE_MODEL": "/opt/huggingface/biomed/medimageinsight",
     "EAGLE_BIOMED_UNI2_MODEL": "/opt/huggingface/biomed/uni2",
+    "EAGLE_BIOMED_MEDCPT_RERANK_MODEL": "/opt/huggingface/biomed/medcpt-rerank",
 }
 
 

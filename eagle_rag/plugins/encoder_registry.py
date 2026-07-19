@@ -65,6 +65,8 @@ class EncoderRegistry:
 
     def validate_plan(self, collection: str, encoder_name: str) -> None:
         enc = self.get(encoder_name)
+        if enc.modality == "rerank":
+            return
         col_dim = self._collection_dims.get(collection)
         if col_dim is not None and enc.dim != col_dim:
             msg = f"encoder {encoder_name} dim {enc.dim} != collection {collection} dim {col_dim}"

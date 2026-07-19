@@ -8,6 +8,7 @@ __all__ = [
     "encode_text_for_encoder",
     "encode_text_chunk",
     "encode_visual_bytes_for_encoder",
+    "score_rerank_for_encoder",
 ]
 
 
@@ -47,6 +48,18 @@ def encode_text_chunk(chunk: object, encoder_name: str) -> object:
     meta["target_encoder"] = encoder_name
     node.metadata = meta
     return node
+
+
+def score_rerank_for_encoder(encoder_name: str, query: str, texts: list[str]) -> list[float]:
+    """Score query-passage pairs with a registered rerank encoder."""
+    from eagle_rag.plugins import get_plugin_manager
+
+    info = get_plugin_manager().encoder_registry.get(encoder_name)
+    encoder = info.encoder
+    if hasattr(encoder, "score_pairs"):
+        return list(encoder.score_pairs(query, texts))
+    msg = f"encoder {encoder_name!r} has no score_pairs implementation"
+    raise ValueError(msg)
 
 
 def encode_visual_bytes_for_encoder(encoder_name: str, image_bytes: bytes) -> list[float]:

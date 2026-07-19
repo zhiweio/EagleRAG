@@ -328,6 +328,20 @@ tasks:
         PLUGIN_NAMESPACE=biomed \
         uv run python eval/biomed/scripts/reindex_sparse.py {{.REINDEX_ARGS}}
 
+  biomed:reingest:
+    desc: Purge hutchmed KB and batch re-ingest corpus (TDR metadata refresh)
+    cmds:
+      - uv run python eval/biomed/scripts/reingest_hutchmed.py --reindex-sparse {{.REINGEST_ARGS}}
+
+  biomed:build:
+    desc: Build api/worker images with biomed encoder + MedCPT prefetch
+    cmds:
+      - |
+        PREFETCH_BIOMED_MODELS=1 \
+        docker compose --env-file .env.biomed \
+          -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.biomed.yml \
+          --profile dev build api worker-router worker-knowhere worker-pixelrag
+
   # ======================== Knowhere (self-hosted stack, KNOWHERE_MODE=api only) ========================
   # api mode: Knowhere document parser runs in docker/knowhere-self-hosted/compose.yaml;
   # eagle-rag reaches it via knowhere-net DNS name knowhere on :5005.

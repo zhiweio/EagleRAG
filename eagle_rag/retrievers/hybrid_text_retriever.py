@@ -8,8 +8,6 @@ from typing import Any
 
 from llama_index.core.schema import NodeWithScore
 
-from eagle_rag.router.rerank_fusion import merge_rrf
-
 __all__ = [
     "entity_boost_score",
     "hybrid_fuse_dense_sparse",

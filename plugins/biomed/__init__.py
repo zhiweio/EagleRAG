@@ -153,6 +153,11 @@ class BiomedPlugin:
 
     def register_hooks(self, bus: HookBus) -> None:
         from plugins.biomed.hooks_extra import biomed_format_selector, biomed_rerank
+        from plugins.biomed.retrieval_hooks import (
+            biomed_dense_expand,
+            biomed_rerank_merged,
+            biomed_retrieve_supplement,
+        )
 
         bus.subscribe(
             Hook.INGEST_ROUTE_SELECTORS,
@@ -213,6 +218,27 @@ class BiomedPlugin:
         bus.subscribe(
             Hook.RERANK,
             biomed_rerank,
+            priority=100,
+            namespace="biomed",
+            plugin_name="biomed",
+        )
+        bus.subscribe(
+            Hook.QUERY_DENSE_EXPAND,
+            biomed_dense_expand,
+            priority=100,
+            namespace="biomed",
+            plugin_name="biomed",
+        )
+        bus.subscribe(
+            Hook.RETRIEVE_SUPPLEMENT,
+            biomed_retrieve_supplement,
+            priority=100,
+            namespace="biomed",
+            plugin_name="biomed",
+        )
+        bus.subscribe(
+            Hook.RERANK_MERGED,
+            biomed_rerank_merged,
             priority=100,
             namespace="biomed",
             plugin_name="biomed",

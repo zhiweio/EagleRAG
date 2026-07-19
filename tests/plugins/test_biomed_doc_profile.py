@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 from llama_index.core.schema import TextNode
 
+from eagle_rag.plugins.classifier import ClassificationContext
+from eagle_rag.plugins.hookbus import HookContext
 from plugins.biomed.chunker import biomed_chunk_transform
 from plugins.biomed.classifiers import BiomedTextClassifier
 from plugins.biomed.doc_profile import (
@@ -12,8 +14,6 @@ from plugins.biomed.doc_profile import (
     classify_document_text_profile,
     clear_prototype_cache,
 )
-from eagle_rag.plugins.classifier import ClassificationContext
-from eagle_rag.plugins.hookbus import HookContext
 
 
 def _node(path: str = "", text: str = "", **extra: object) -> TextNode:

@@ -115,11 +115,79 @@ def _extract_hits(search: dict[str, Any], k: int = 5) -> list[dict[str, Any]]:
             {
                 "file_name": ch.get("file_name") or ch.get("document_name"),
                 "document_id": ch.get("document_id"),
+                "path": ch.get("path"),
                 "score": ch.get("score"),
                 "content_preview": content[:200],
             }
         )
     return rows
+
+
+def _parse_api_steps(steps: list[Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {"stages": []}
+    for step in steps or []:
+        if not isinstance(step, dict):
+            continue
+        name = str(step.get("name") or "")
+        if name == "route":
+            out["route"] = {
+                k: step.get(k)
+                for k in ("mode", "collections", "plans", "reason")
+                if step.get(k) is not None
+            }
+            out["stages"].append("route")
+        elif name == "recall":
+            out["recall"] = {
+                "text_count": step.get("text_count"),
+                "visual_count": step.get("visual_count"),
+                "recall_top_k": step.get("recall_top_k"),
+            }
+            out["stages"].append("recall")
+        elif name == "rerank":
+            out["merged_rerank"] = {
+                "model": step.get("model"),
+                "text_count": step.get("text_count"),
+            }
+            out["stages"].append("merged_rerank")
+    return out
+
+
+def _local_pipeline_preview(query: str) -> dict[str, Any]:
+    """Offline stage checklist: intent, expand, rerank policy (no Milvus)."""
+    from eagle_rag.plugins.hookbus import HookContext
+    from eagle_rag.plugins.rerank_policy import rerank_model_label, resolve_rerank_policy
+    from plugins.biomed.query_intent import detect_retrieval_intent
+    from plugins.biomed.retrieval_hooks import biomed_dense_expand
+
+    intent = detect_retrieval_intent(query)
+    ctx = HookContext(plugin_namespace="biomed")
+    expanded = biomed_dense_expand(ctx, query, encoder="pubmedbert")
+    policy = resolve_rerank_policy("biomed")
+    rerank_model = rerank_model_label("biomed")
+
+    stage_pipeline = [
+        "QUERY_DENSE_EXPAND",
+        "ANN (per CollectionQueryPlan)",
+        "RERANK (Tier-1 cosine)",
+        "RETRIEVE_SUPPLEMENT",
+        "RRF merge",
+        "RERANK_MERGED (domain) or qwen3-rerank (core)",
+    ]
+    return {
+        "stage_pipeline": stage_pipeline,
+        "retrieval_intent": {
+            "workflow": intent.workflow,
+            "prefer_doc_types": list(intent.prefer_doc_types or ()),
+            "suppress_collections": list(intent.suppress_collections or ()),
+            "section_cues": list(intent.section_cues or ()),
+        },
+        "dense_expand": {
+            "dense_query": expanded.dense_query if expanded else query,
+            "sparse_terms": list(expanded.sparse_terms) if expanded else [],
+        },
+        "rerank_policy": str(policy),
+        "merged_rerank_model": rerank_model,
+    }
 
 
 def _classify_failure(
@@ -246,6 +314,10 @@ def diagnose_row(
         route_hybrid,
     )
 
+    pipeline = _local_pipeline_preview(query)
+    steps_text = _parse_api_steps(search_text.get("steps") or [])
+    steps_hybrid = _parse_api_steps(search_hybrid.get("steps") or [])
+
     return {
         "id": row.get("id"),
         "workflow": row.get("workflow"),
@@ -262,8 +334,11 @@ def diagnose_row(
         "route_plan_hybrid": route_hybrid,
         "retrieval_text": text_hits,
         "retrieval_hybrid": hybrid_hits,
+        "pipeline": pipeline,
         "api_steps_text": search_text.get("steps") or [],
         "api_steps_hybrid": search_hybrid.get("steps") or [],
+        "api_stages_text": steps_text,
+        "api_stages_hybrid": steps_hybrid,
         "failure_class": failure_class,
     }
 
@@ -308,10 +383,34 @@ def _render_md(report: dict[str, Any]) -> str:
         else:
             lines.append("**KB documents:** none")
         lines.append("")
+        pipe = d.get("pipeline") or {}
+        if pipe:
+            lines.append("**Pipeline (local preview):**")
+            lines.append(f"- intent workflow: `{pipe.get('retrieval_intent', {}).get('workflow')}`")
+            lines.append(
+                f"- section cues: `{pipe.get('retrieval_intent', {}).get('section_cues')}`"
+            )
+            lines.append(f"- rerank policy: `{pipe.get('rerank_policy')}`")
+            lines.append(f"- merged rerank model: `{pipe.get('merged_rerank_model')}`")
+            expand = pipe.get("dense_expand") or {}
+            lines.append(f"- dense query: `{expand.get('dense_query', '')[:120]}`")
+            lines.append(f"- sparse terms: `{expand.get('sparse_terms')}`")
+            lines.append("")
+        for label, key in (("text", "api_stages_text"), ("hybrid", "api_stages_hybrid")):
+            stages = d.get(key) or {}
+            if stages:
+                lines.append(f"**API stages ({label}):** `{stages.get('stages')}`")
+                if stages.get("merged_rerank"):
+                    mr = stages["merged_rerank"]
+                    lines.append(f"- merged rerank model: `{mr.get('model')}`")
+                lines.append("")
         lines.append("**Top text hits:**")
-        for i, h in enumerate(d["retrieval_text"][:3], start=1):
+        for i, h in enumerate(d["retrieval_text"][:5], start=1):
             preview = (h.get("content_preview") or "")[:80]
-            lines.append(f"{i}. `{h.get('file_name')}` score={h.get('score')} — {preview}")
+            path = h.get("path") or ""
+            lines.append(
+                f"{i}. `{h.get('file_name')}` path=`{path}` score={h.get('score')} — {preview}"
+            )
         lines.append("")
     return "\n".join(lines) + "\n"
 

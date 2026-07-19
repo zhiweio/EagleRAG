@@ -40,6 +40,14 @@ _SECTION_ALIASES: dict[str, tuple[str, ...]] = {
     "discussion": ("discussion", "conclusions and discussion"),
     "conclusion": ("conclusion", "conclusions", "concluding remarks"),
     "claims": ("claims", "what is claimed", "claim 1"),
+    "indications_and_usage": (
+        "indications and usage",
+        "indications",
+        "indication",
+        "what is used for",
+    ),
+    "warnings": ("warnings", "boxed warning", "black box warning", "warning"),
+    "dosage": ("dosage and administration", "dosage", "dosing", "administration"),
 }
 
 # Heading regex: optional leading number ("3.", "3.1", "3.1.2") + section word.
@@ -146,13 +154,13 @@ def detect_section(path: str, text: str) -> str:
 
 
 def detect_doc_type(path: str, text: str) -> str:
-    """Coarse document type: ``research`` / ``patent`` / ``other``.
-
-    Uses structural signals (detected section + explicit claim/patent markers)
-    rather than bare keyword presence, so a business memo mentioning "results"
-    is not misclassified as research.
-    """
+    """Coarse document type: research / patent / drug_label / compound / other."""
     blob = ((path or "") + " " + (text or "")[:800]).lower()
+    fname_blob = blob[:200]
+    if "compound_" in fname_blob or "smiles" in blob[:400]:
+        return "compound"
+    if "label_" in fname_blob or "prescribing information" in blob[:600]:
+        return "drug_label"
     if "what is claimed" in blob or "we claim" in blob or "patent claim" in blob:
         return "patent"
     section = detect_section(path, text)
@@ -165,6 +173,8 @@ def detect_doc_type(path: str, text: str) -> str:
         "conclusion",
     }:
         return "research"
+    if section in {"indications_and_usage", "warnings", "dosage"}:
+        return "drug_label"
     if section == "claims":
         return "patent"
     return "other"

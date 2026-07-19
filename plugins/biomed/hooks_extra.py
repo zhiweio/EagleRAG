@@ -30,7 +30,7 @@ def biomed_format_selector(
     **kwargs: object,
 ) -> str | None:
     """Route biomed-specific formats to the Core ``knowhere`` pipeline (G7)."""
-    del kwargs, source_type
+    del kwargs, source_type, ctx
     name = file_name or file_path or ""
     suffix = Path(name).suffix.lower()
     if name.lower().endswith(".nii.gz"):
@@ -49,8 +49,10 @@ def biomed_rerank(
     encoder: str | None = None,
     **kwargs: object,
 ) -> list[Any] | None:
-    """Rerank biomed text/chemical hits with domain encoder cosine similarity."""
+    """Tier-1 rerank: domain bi-encoder cosine per collection."""
     del kwargs
+    from plugins.biomed.rerank import cosine_rerank
+
     coll = collection or (ctx.extra or {}).get("collection")
     enc = encoder or (ctx.extra or {}).get("encoder")
     encoder_name: str | None = None
@@ -62,38 +64,4 @@ def biomed_rerank(
         return None
     if not nodes:
         return nodes
-
-    try:
-        from eagle_rag.plugins.encoder_runtime import encode_text_for_encoder
-    except Exception:  # noqa: BLE001
-        return None
-
-    try:
-        q_vec = encode_text_for_encoder(encoder_name, query)
-    except Exception:  # noqa: BLE001
-        return None
-
-    scored: list[tuple[float, Any]] = []
-    for node in nodes:
-        text = ""
-        if hasattr(node, "node"):
-            text = getattr(node.node, "get_content", lambda: "")() or ""
-            if not text:
-                text = getattr(node.node, "text", "") or ""
-        elif hasattr(node, "get_content"):
-            text = node.get_content() or ""
-        else:
-            text = str(getattr(node, "text", "") or "")
-        try:
-            d_vec = encode_text_for_encoder(encoder_name, text[:2048])
-        except Exception:  # noqa: BLE001
-            scored.append((getattr(node, "score", 0.0) or 0.0, node))
-            continue
-        # cosine (vectors are L2-normalized)
-        score = sum(a * b for a, b in zip(q_vec, d_vec, strict=False))
-        if hasattr(node, "score"):
-            node.score = float(score)
-        scored.append((float(score), node))
-
-    scored.sort(key=lambda item: item[0], reverse=True)
-    return [node for _, node in scored]
+    return cosine_rerank(nodes, query, encoder=encoder_name)
