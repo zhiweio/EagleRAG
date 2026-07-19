@@ -226,7 +226,8 @@ Subscribers with `namespace=None` run for every context; others only when `HookC
 | `QUERY_ASSEMBLE` | all | Query expand / entity hints before ANN |
 | `QUERY_DENSE_EXPAND` | first | Dense/sparse query expansion before ANN (biomed UMLS + section cues) |
 | `RERANK` | first | Per-plan Tier-1 domain rerank (e.g. PubMedBERT cosine) |
-| `RETRIEVE_SUPPLEMENT` | all | Post-ANN supplemental hits (e.g. drug-document ANN) |
+| `RETRIEVE_SUPPLEMENT` | all | Post-ANN supplemental hits (e.g. entity-anchored drug-document ANN) |
+| `RRF_POST_MERGE` | first | Post-RRF candidate injection (e.g. guarantee supplement hits enter rerank pool) |
 | `RERANK_MERGED` | first | Post-RRF merged rerank (biomed: MedCPT CE + section/intent signals) |
 | `RETRIEVE_VISUAL_FILTER` | first | Visual filter overrides |
 | `CELERY_TASKS` | all | Extra Celery include modules |
@@ -310,6 +311,7 @@ sequenceDiagram
   end
   Orch->>Bus: RETRIEVE_SUPPLEMENT all
   Orch->>RRF: merge + dedupe
+  Orch->>Bus: RRF_POST_MERGE first (optional inject)
   Orch->>Bus: RERANK_MERGED first (domain) or qwen3-rerank (core)
   RRF-->>API: NodeWithScore list
 ```
@@ -322,13 +324,26 @@ sequenceDiagram
 
 ### Multi-encoder merge (G8 / G14 / G32)
 
-1. Optional `QUERY_DENSE_EXPAND` (dense query rewrite + sparse term hints).
-2. Run ANN per `CollectionQueryPlan` (best-effort: failed plans are skipped and audited).
-3. Optional per-plan `RERANK` hook (Tier-1 cosine rerank within each collection).
-4. Optional `RETRIEVE_SUPPLEMENT` hooks append drug-document or other supplemental hits.
+1. Optional `QUERY_DENSE_EXPAND` (dense query rewrite + sparse term hints; intent carried in `retrieval_hints`).
+2. Run ANN per `CollectionQueryPlan` (best-effort: failed plans are skipped and audited). Hybrid dense+sparse fusion runs only when `EncoderRegistry.CollectionProfile.hybrid_enabled` or `settings.router.hybrid_text_collections` includes the collection — Core `hybrid_fuse_dense_sparse` has **no** domain entity logic.
+3. Optional per-plan `RERANK` hook (Tier-1 cosine rerank within each collection; domain scoring lives in plugins, e.g. `plugins/biomed/scoring.py`).
+4. Optional `RETRIEVE_SUPPLEMENT` hooks append entity-anchored or other supplemental hits.
 5. Merge with RRF (`eagle_rag/router/rerank_fusion.py`) — never raw cross-embedding scores.
-6. Post-RRF rerank via `RerankPolicy`: Core `general` → DashScope `qwen3-rerank`; biomed `domain` → `RERANK_MERGED` (MedCPT CE + metadata signals). `none` skips merged rerank.
-7. Dedupe by `source_chunk_id` (if set) or `(document_id, path)`.
+6. Optional `RRF_POST_MERGE` hook (e.g. biomed injects supplement candidates when `require_entity_match`).
+7. Post-RRF rerank via `RerankPolicy`: Core `general` → DashScope `qwen3-rerank`; biomed `domain` → `RERANK_MERGED` (MedCPT CE + metadata signals). `none` skips merged rerank.
+8. Dedupe by `source_chunk_id` (if set) or `(document_id, path)`.
+
+### Core vs plugin boundary (retrieval)
+
+| Concern | Core | Domain plugin |
+| --- | --- | --- |
+| Orchestration | `RetrieverOrchestrator` — hook dispatch, RRF, dedupe | Registers `QUERY_DENSE_EXPAND`, `RERANK`, `RETRIEVE_SUPPLEMENT`, `RRF_POST_MERGE`, `RERANK_MERGED` |
+| Intent detection | `QueryRetrievalIntent` dataclass only | e.g. `plugins/biomed/query_intent.py` via `QUERY_DENSE_EXPAND` |
+| Hybrid sparse | Term overlap on dense ANN hits | Supplies `sparse_terms` / collection list via hooks + `EncoderRegistry` |
+| Milvus upsert metadata | Schema-aware passthrough (`milvus_text_store`) | CHUNK hook sets domain fields (`primary_drugs`, `biomed_section`, …) |
+| Entity boost / filter | — | Plugin rerank hooks (`RERANK`, `RERANK_MERGED`) |
+
+Core **must not** `import plugins.<domain>` on the query hot path. Biomed eval harness and ops: [`eval/biomed/RETRIEVAL.md`](../../../eval/biomed/RETRIEVAL.md).
 
 Parent-document retrieval (`settings.router.parent_doc_retrieval`, default `true`) remains a Core two-stage Milvus path on `eagle_text` (`section_summary` then path drill-down). Eagle does not call Knowhere's `RetrievalAgent` / `WorkflowOrchestrator` ([ADR-005](adr/005-knowhere-eagle-boundary.md)).
 
@@ -430,14 +445,17 @@ Default compose profile is `core` (production-safe). Enabling biomed (**experime
 
 | Capability | Detail |
 | --- | --- |
-| Specialized collections | `eagle_text_biomed` (768), `eagle_chemical` (768), `eagle_medical_radiology` (1024), `eagle_medical_pathology` (1536) |
-| Text / chemical encoders | Labels `pubmedbert` / `molformer` via `EncoderRegistry` (HF transformers) |
+| Specialized collections | `eagle_text_biomed` (768), `eagle_text_medcpt` (768, optional dual index), `eagle_chemical` (768), `eagle_medical_radiology` (1024), `eagle_medical_pathology` (1536) |
+| Text / chemical encoders | Labels `pubmedbert` / `molformer` / `medcpt` via `EncoderRegistry` (`CollectionProfile`: `default_encoder`, `hybrid_enabled`, `extra_output_fields`) |
 | Medical imaging | Label `medimageinsight` → **BiomedCLIP via `open_clip`** (prefer `uv sync --extra biomed`); pathology → `uni2` (UNI 2) — **never** fall back to Qwen3-VL |
-| CHUNK enrich | IMRaD/patent section tags only (`biomed_section` / `biomed_doc_type`); preserves Knowhere `path` / body / `chunk_id` |
+| CHUNK enrich | IMRaD/patent section tags (`biomed_section` / `biomed_doc_type`); `primary_drugs` for entity signals; preserves Knowhere `path` / body / `chunk_id` |
+| Query intent | Text-only `detect_retrieval_intent()` (`drug_entity`, `chemical`, `regulatory`, `combination`, `general`) — **not** eval dataset `workflow` labels |
 | Query routing | Rules + curated UMLS subset (`routing_rules.yaml` / `umls.py`); optional `EAGLE_BIOMED_UMLS_MRCONSO_PATH` merges ENG preferred aliases |
-| Hybrid retrieval | Dense PubMedBERT ANN + in-process sparse lexical fusion (`eagle_rag/retrievers/hybrid_text_retriever.py`); `settings.router.recall_top_k` (default 30) → Tier-1 `RERANK` → RRF → `RERANK_MERGED` → `final_top_k` (5) |
-| Rerank | Tier-1: PubMedBERT cosine per collection (`RERANK` hook). Tier-2: `rerank_policy: domain` + `domain_rerank_encoder: medcpt-rerank` (`RERANK_MERGED`; never `qwen3-rerank`) |
-| Entity routing | Drug-name UMLS hits also query `eagle_chemical`; `primary_drugs` Milvus scalar (optional backfill via `task biomed:reindex-sparse`) |
+| Hybrid retrieval | Core dense+sparse fuse when `router.hybrid_text_collections` lists collection (biomed profile: `eagle_text_biomed`, `eagle_text_medcpt`); `recall_top_k` (30) → Tier-1 `RERANK` → `RETRIEVE_SUPPLEMENT` → RRF → `RRF_POST_MERGE` → `RERANK_MERGED` → `final_top_k` (5) |
+| Entity-anchored supplement | `supplement_entity_anchored_hits` — PG registry name lookup + scoped ANN; `RRF_POST_MERGE` injects when `require_entity_match` |
+| Rerank | Tier-1: PubMedBERT cosine + entity filter/boost (`plugins/biomed/scoring.py`). Tier-2: `rerank_policy: domain` + MedCPT CE (`RERANK_MERGED`) |
+| Metadata backfill | `task biomed:reindex-sparse` (`primary_drugs`); `eval/biomed/scripts/reindex_biomed_metadata.py` (`biomed_section`) |
+| Eval baseline | Aligned smoke (46 queries): Hit@5 **0.87**, MRR **0.85** — see [`eval/biomed/EVAL.md`](../../../eval/biomed/EVAL.md) |
 | MCP | Entity query + compound retrieve (MolFormer ANN on `eagle_chemical`) |
 | Encoder modes | `auto` / `require_native` / `deterministic` (CI); override checkpoints via `EAGLE_BIOMED_*_MODEL` |
 

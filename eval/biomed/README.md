@@ -20,18 +20,19 @@ task biomed:up
 task biomed:health
 
 # 3) 下载公开语料（≈300；可先 --limit 40 冒烟）
-# 大陆外网易卡住时先开本地代理（默认 Clash HTTP: 1087）：
-export BIOMED_HTTP_PROXY=http://127.0.0.1:1087
-export BIOMED_SSL_INSECURE=1   # 代理 HTTPS MITM 时需要
+export BIOMED_HTTP_PROXY=http://127.0.0.1:1087   # 大陆外网按需
+export BIOMED_SSL_INSECURE=1
 task biomed:corpus
-# 或: task biomed:corpus CORPUS_ARGS='--local-proxy --insecure-ssl'
-# 或: task biomed:corpus CORPUS_ARGS='--limit 40'
-# 或: task biomed:corpus CORPUS_ARGS='--only compounds'
 
-# 4) 部署冒烟 + 召回 eval
+# 4) 入库后（可选）回填 Milvus 检索元数据
+export MILVUS_HOST=localhost EAGLE_RAG_PROFILE=biomed PLUGIN_NAMESPACE=biomed
+task biomed:reindex-sparse
+uv run python eval/biomed/scripts/reindex_biomed_metadata.py --kb-name hutchmed
+
+# 5) 部署冒烟 + 召回 eval
 task biomed:e2e
 task biomed:eval
-# 全量金标: task biomed:eval EVAL_ARGS='--queries eval/biomed/datasets/eval_queries.jsonl --no-fail'
+task biomed:eval:aligned   # 推荐：46 条 aligned 公平回归
 ```
 
 ## 文档索引
@@ -43,6 +44,9 @@ task biomed:eval
 | [CORPUS.md](./CORPUS.md) | 300 篇配额、来源、下载与入库 |
 | [SOURCES.md](./SOURCES.md) | 许可与合规 |
 | [EVAL.md](./EVAL.md) | 金标字段、指标、smoke vs full |
+| [RETRIEVAL.md](./RETRIEVAL.md) | 检索管线、Hook 边界、元数据回填、诊断与已知失败 |
+
+架构级说明（中英）：[`docs/en/architecture/plugin-architecture.md`](../../docs/en/architecture/plugin-architecture.md)、[`docs/zh/architecture/plugin-architecture.md`](../../docs/zh/architecture/plugin-architecture.md)。
 
 ## 目录结构
 
@@ -50,7 +54,7 @@ task biomed:eval
 eval/biomed/
   corpus/           # manifest + download_corpus.py
   datasets/         # eval_queries*.jsonl, workflows, compounds
-  scripts/          # e2e / eval / metrics
+  scripts/          # e2e / eval / diagnose / reindex / metrics
   fixtures/         # 可提交的最小样例 MD
   results/          # 评测报告（gitignore）
 ```
@@ -58,7 +62,8 @@ eval/biomed/
 ## 验收清单
 
 - [ ] `GET /health/plugins` → `default_namespace=biomed`
-- [ ] MCP / 工具列表含 `biomed_query_entities`、`biomed_retrieve_compounds`
-- [ ] `VISUAL_EMBEDDING_PROVIDER=dashscope`（无本地 Qwen3-VL-Embedding-2B）
+- [ ] MCP 工具列表含 `biomed_query_entities`、`biomed_retrieve_compounds`
+- [ ] `VISUAL_EMBEDDING_PROVIDER=dashscope`
 - [ ] 语料入库 `kb_name=hutchmed`，`plugin_namespace=biomed`
-- [ ] `task biomed:eval` smoke 指标过线（见 EVAL.md）
+- [ ] `task biomed:reindex-sparse` + `reindex_biomed_metadata.py` 已执行（存量 KB）
+- [ ] `task biomed:eval:aligned` 过线（Hit@5 ≥ 0.65；当前基线约 0.87 / MRR 0.85，见 EVAL.md）

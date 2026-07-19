@@ -176,9 +176,15 @@ if "visual" in selected:
 
 When domain plugins are active, `_fetch_nodes` delegates to `RetrieverOrchestrator.retrieve()` which:
 
-1. Runs ANN per `CollectionQueryPlan` (best-effort).
-2. Optionally applies per-plan `RERANK` hook.
-3. Merges with RRF and deduplicates.
+1. `QUERY_DENSE_EXPAND` (first) — dense rewrite + sparse terms + `QueryRetrievalIntent` in `retrieval_hints`.
+2. ANN per `CollectionQueryPlan` (best-effort); hybrid fuse when collection is in `router.hybrid_text_collections` or `EncoderRegistry.CollectionProfile.hybrid_enabled`.
+3. Per-plan `RERANK` (first) — Tier-1 domain rerank.
+4. `RETRIEVE_SUPPLEMENT` (all) — entity-anchored or other supplemental hits.
+5. RRF merge + dedupe (`merge_rrf`).
+6. `RRF_POST_MERGE` (first) — optional candidate injection before merged rerank.
+7. `RERANK_MERGED` (first) or Core `qwen3-rerank` per `RerankPolicy`.
+
+Core never imports domain plugins on this path; all domain logic is hook-registered. See [Plugin architecture](../architecture/plugin-architecture.md) § Query path.
 
 **Core default (G4):** only `eagle_text` (+ `eagle_visual` when hybrid/image). Specialized collections require domain `CLASSIFY_QUERY` or scope-aware `collections_used` catalog union.
 
@@ -292,6 +298,8 @@ router:
   mode: auto                    # auto | text | visual | hybrid
   max_scope_documents: 500      # tag → doc_id cap
   parent_doc_retrieval: true    # Core two-stage section_summary drill-down
+  recall_top_k: 30              # per-plan ANN pool before rerank
+  hybrid_text_collections: []   # profile override, e.g. biomed: [eagle_text_biomed, eagle_text_medcpt]
   source_content_max_chars: 4000
   structure_max_nodes: 2000
   llm:
@@ -327,6 +335,7 @@ ROUTER_MAX_SCOPE_DOCUMENTS=1000
 | Force visual for all queries | `router.mode: visual` |
 | Domain-specific keywords | Add rules to `heuristic.rules` |
 | Large tag selections | Increase `max_scope_documents` |
+| Domain hybrid sparse | Set `router.hybrid_text_collections` in profile or `EncoderRegistry.register_collection(..., hybrid_enabled=True)` |
 | Smaller API payloads | Lower `source_content_max_chars` |
 
 Query-time override: pass `mode` in `QueryRequest` to bypass global setting.

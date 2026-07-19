@@ -34,14 +34,29 @@ Success metric = **recall quality and provenance**, not UI completeness.
 | `CLASSIFY_CHUNK` / `CLASSIFY_VISUAL` | first | Orchestrator | Route to specialized collections; optional `exclusive_group` to skip dual-write |
 | `CLASSIFY_QUERY` | first | Query routing | Multi-collection plans |
 | `QUERY_ASSEMBLE` | all (degrade OK) | Before ANN | Query expand / entity hints |
+| `QUERY_DENSE_EXPAND` | first | Before per-plan ANN | Dense rewrite + sparse terms + `QueryRetrievalIntent` |
+| `RERANK` | first | After per-plan ANN | Tier-1 domain rerank (entity filter/boost in plugin) |
+| `RETRIEVE_SUPPLEMENT` | all | After per-plan rerank | Entity-anchored or scoped supplemental ANN |
+| `RRF_POST_MERGE` | first | After RRF merge | Inject supplement candidates into rerank pool |
+| `RERANK_MERGED` | first | After RRF (+ inject) | Cross-encoder / domain merged rerank |
 | `EMBED_TEXT` / `EMBED_VISUAL` | first | Before write | Domain encoders via `EncoderRegistry` |
 | `UPSERT_VECTORS` | transform | Before write | Persist vectors (default writes Milvus) |
 | `RETRIEVE_VISUAL_FILTER` | first | Visual retrieve | Visual filter overrides |
-| `RERANK` | first | After recall | Domain rerank |
 | `CELERY_TASKS` | all | Worker boot | Extra Celery include modules |
 | `INGEST_ROUTE_SELECTORS` | first | Format router | Extra format → pipeline selectors |
 
-Core invokes `PARSE` / `CHUNK` / `QUERY_ASSEMBLE` on MCP/API hot paths (`eagle_rag/plugins/hotpath_hooks.py`).
+Core invokes `PARSE` / `CHUNK` / `QUERY_ASSEMBLE` on MCP/API hot paths (`eagle_rag/plugins/hotpath_hooks.py`). `RetrieverOrchestrator` invokes the query hooks above — **Core must not import domain plugins** on that path.
+
+### Query retrieval hook pattern (reference: biomed)
+
+```text
+QUERY_DENSE_EXPAND → ANN (+ hybrid if configured) → RERANK
+  → RETRIEVE_SUPPLEMENT → RRF → RRF_POST_MERGE → RERANK_MERGED
+```
+
+Register handlers in `plugins/<namespace>/retrieval_hooks.py`; domain scoring in a separate module (e.g. `scoring.py`). Declare hybrid collections via `EncoderRegistry.register_collection(..., hybrid_enabled=True)` and/or `settings.router.hybrid_text_collections` in the profile.
+
+Eval harness for biomed: [`eval/biomed/`](../../../eval/biomed/) — [`RETRIEVAL.md`](../../../eval/biomed/RETRIEVAL.md), [`EVAL.md`](../../../eval/biomed/EVAL.md).
 
 ## Observability and audit
 
@@ -92,7 +107,7 @@ Biomed-oriented env extras (reference): `EAGLE_BIOMED_ENCODER_MODE`, `EAGLE_BIOM
 
 ## Reference implementations
 
-- `plugins/biomed` (**experimental**) — specialized collections + encoders + entity MCP + IMRaD CHUNK enrich
+- `plugins/biomed` (**experimental**) — specialized collections + encoders + entity-anchored retrieval hooks + IMRaD CHUNK enrich; eval in `eval/biomed/`
 - `plugins/lakehouse_bi` (**under development**) — semantic-layer context packs (read-only retrieval skeleton)
 - ADR-007: [`docs/en/architecture/adr/007-plugin-implementation-status.md`](../architecture/adr/007-plugin-implementation-status.md)
 - ADR-008: [`docs/en/architecture/adr/008-rag-only-plugin-platform.md`](../architecture/adr/008-rag-only-plugin-platform.md)

@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `datasets/eval_queries.smoke.jsonl` | 30 | 日常 `task biomed:eval` |
 | `datasets/eval_queries.jsonl` | corpus-aligned 全量集（约 55，随语料变化） | 全量召回回归 |
-| `datasets/eval_queries.aligned.jsonl` | 审计为 aligned 的子集 | 公平检索回归（不含缺语料金标） |
+| `datasets/eval_queries.aligned.jsonl` | 审计为 aligned 的子集（**46**） | 公平检索回归（推荐 CI） |
 | `datasets/eval_queries.smoke.aligned.jsonl` | smoke 中 aligned 子集 | 冒烟公平回归 |
 | `datasets/workflows.yaml` | — | 多角色工作流说明 |
 | `datasets/compounds.json` | — | 管线/竞品化合物元数据 |
@@ -32,21 +32,37 @@ uv run python eval/biomed/scripts/generate_eval_queries.py
 }
 ```
 
+- `workflow` / `role`：**仅用于数据集分层与报告**；线上检索意图由 `plugins/biomed/query_intent.py` 从查询文本推断，不读取此字段。
+- `route_hint.collections`：含 `eagle_chemical` 时 eval 使用 `mode=hybrid`（见下文）。
+
 ## 指标（对 live `POST /search`）
 
-| 指标 | Smoke（native） | Smoke（deterministic / offline） | Full 建议 |
+| 指标 | Smoke（native） | Smoke（deterministic / offline） | Aligned 回归 |
 | --- | --- | --- | --- |
-| Hit@K | ≥ 0.70 | ≥ 0.20 | ≥ 0.65 |
-| Recall@K | ≥ 0.50 | ≥ 0.15 | ≥ 0.45 |
-| MRR | ≥ 0.55 | ≥ 0.15 | ≥ 0.50 |
-| Term coverage | ≥ 0.80 | ≥ 0.50 | ≥ 0.80 |
+| Hit@K | ≥ 0.70 | ≥ 0.20 | ≥ 0.65 (`biomed:eval:aligned`) |
+| Recall@K | ≥ 0.50 | ≥ 0.15 | — |
+| MRR | ≥ 0.55 | ≥ 0.15 | — |
+| Term coverage | ≥ 0.80 | ≥ 0.50 | — |
 | NonLLMContextRecall | 记录（≥0.40 参考） | 记录 | 记录 |
 
 `EAGLE_BIOMED_ENCODER_MODE=deterministic` 时 `run_eval_smoke.py` 自动改用 offline 门槛（hash 向量无语义，仅验证端到端通路）。  
-Native 门槛需要可用的 PubMedBERT 权重 + DashScope `text-embedding-v4`（账号欠费会导致 Core `eagle_text` 召回为空）。
+Native 门槛需要可用的 PubMedBERT 权重 + 运行中的 biomed API 栈。
 
 实现：`scripts/metrics.py` + `scripts/run_eval_smoke.py`。  
-Ragas `NonLLMContextRecall` 可选；未安装时回退到词项重叠（Context7）。
+Ragas `NonLLMContextRecall` 可选；未安装时回退到词项重叠。
+
+### 当前基线（aligned，2026-07-19）
+
+`eval_queries.aligned.jsonl`（46 条）在实体锚定检索优化后：
+
+| 指标 | 值 |
+| --- | --- |
+| Hit@5 / Recall@5 | 0.87 |
+| MRR | 0.85 |
+| Term coverage | 0.87 |
+| 失败数 | 6（均为 expansion 题，见 [RETRIEVAL.md](./RETRIEVAL.md)） |
+
+报告文件：`results/smoke_20260719T054615Z.json`。
 
 ## 运行
 
@@ -66,9 +82,17 @@ task biomed:eval EVAL_ARGS='--queries eval/biomed/datasets/eval_queries.jsonl --
 
 报告写入 `eval/biomed/results/smoke_*.json`。
 
+**评测前建议**（首次部署或 Milvus 存量数据）：
+
+```bash
+export MILVUS_HOST=localhost EAGLE_RAG_PROFILE=biomed PLUGIN_NAMESPACE=biomed
+task biomed:reindex-sparse
+uv run python eval/biomed/scripts/reindex_biomed_metadata.py --kb-name hutchmed
+```
+
 ## 金标与语料对齐
 
-`generate_eval_queries.py` 会扫描 `assets/biomed/hutchmed/`，仅生成语料中存在的 `expected_doc_name_substrings`，并跳过无摘要/试验正文的 literature/clinical 扩展题（例如仅有 compound 卡的药物）。
+`generate_eval_queries.py` 会扫描 `assets/biomed/hutchmed/`，仅生成语料中存在的 `expected_doc_name_substrings`，并跳过无摘要/试验正文的 literature/clinical 扩展题。
 
 审计与 aligned 子集：
 
@@ -87,22 +111,23 @@ uv run python eval/biomed/scripts/audit_gold_corpus.py
 | `partial` | 有文件名匹配但正文词项或文档类型不符 |
 | `absent` | 语料中无 expected 文件名 |
 
-全量 140 条原始金标可能包含已删除药物（如 `camrelizumab`）或 workflow 与语料类型不符的条目；**公平回归请用 aligned 子集**。
+公平回归请用 **aligned** 子集；全量集可能含已删除药物或 workflow 与语料类型不符的条目。
 
 ## Compound eval mode
 
-`compound_match` 条目带 `route_hint.collections: ["eagle_chemical"]`；药物名 UMLS 命中也会路由 chemical。`run_eval_smoke.py` 在 `respect_route_hint` 下对含 `eagle_chemical` 的条目使用 `mode=hybrid`（`eagle_text_biomed` + `eagle_chemical` RRF）。
+`compound_match` 条目带 `route_hint.collections: ["eagle_chemical"]`；查询侧化学意图也会路由 `eagle_chemical`。`run_eval_smoke.py` 在 `respect_route_hint` 下对含 `eagle_chemical` 的条目使用 `mode=hybrid`。
 
 ## 检索失败诊断
 
-对 smoke 未满分 query 做根因分类（语料缺口 / 路由缺口 / 排序 / 金标过严）：
-
 ```bash
 uv run python eval/biomed/scripts/diagnose_retrieval.py \
+  --queries eval/biomed/datasets/eval_queries.aligned.jsonl \
   --report eval/biomed/results/smoke_<latest>.json
 ```
 
-产出 `results/diagnosis_smoke8_*.json` 与 `.md`；`failure_class` 取值见脚本内注释。
+产出 `results/diagnosis_smoke8_*.json` 与 `.md`。`failure_class` 说明见 [RETRIEVAL.md](./RETRIEVAL.md)。
+
+脚本会对比：语料文件、KB registry、`POST /search` text/hybrid Top-5、本地 intent 预览。
 
 ## 与 e2e 分层
 
@@ -110,3 +135,6 @@ uv run python eval/biomed/scripts/diagnose_retrieval.py \
 | --- | --- |
 | `task biomed:e2e` | profile / KB / 小规模入库 / 一次 search |
 | `task biomed:eval` | 金标召回指标 |
+| `task biomed:eval:aligned` | aligned 子集 + Hit@K 门槛 0.65 |
+
+检索设计与 Hook 边界详见 [RETRIEVAL.md](./RETRIEVAL.md)。

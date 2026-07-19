@@ -226,7 +226,8 @@ class Plugin(Protocol):
 | `QUERY_ASSEMBLE` | all | ANN 前 query 扩写 / 实体 hint |
 | `QUERY_DENSE_EXPAND` | first | ANN 前稠密/稀疏 query 扩写（biomed UMLS + 章节 cue） |
 | `RERANK` | first | 分路 Tier-1 领域重排（如 PubMedBERT cosine） |
-| `RETRIEVE_SUPPLEMENT` | all | ANN 后补充召回（如药物文档 ANN） |
+| `RETRIEVE_SUPPLEMENT` | all | ANN 后补充召回（如实体锚定药物文档 ANN） |
+| `RRF_POST_MERGE` | first | RRF 后候选注入（如保证 supplement 命中进入重排池） |
 | `RERANK_MERGED` | first | RRF 后合并重排（biomed：MedCPT CE + 章节/意图信号） |
 | `RETRIEVE_VISUAL_FILTER` | first | 视觉过滤覆盖 |
 | `CELERY_TASKS` | all | 额外 Celery include 模块 |
@@ -310,7 +311,8 @@ sequenceDiagram
   end
   Orch->>Bus: RETRIEVE_SUPPLEMENT all
   Orch->>RRF: merge + dedupe
-  Orch->>Bus: RERANK_MERGED first (domain) or qwen3-rerank (core)
+  Orch->>Bus: RRF_POST_MERGE first（可选注入）
+  Orch->>Bus: RERANK_MERGED first（domain）或 qwen3-rerank（core）
   RRF-->>API: NodeWithScore list
 ```
 
@@ -322,13 +324,26 @@ sequenceDiagram
 
 ### 多编码器合并（G8 / G14 / G32）
 
-1. 可选 `QUERY_DENSE_EXPAND`（稠密 query 改写 + 稀疏词项 hint）。
-2. 按 `CollectionQueryPlan` 做 ANN（best-effort：失败路跳过并审计）。
-3. 可选分路 `RERANK` hook（Tier-1 集合内 cosine 重排）。
-4. 可选 `RETRIEVE_SUPPLEMENT` hook 追加药物文档等补充命中。
+1. 可选 `QUERY_DENSE_EXPAND`（稠密 query 改写 + 稀疏词项 hint；意图经 `retrieval_hints` 传递）。
+2. 按 `CollectionQueryPlan` 做 ANN（best-effort：失败路跳过并审计）。仅当 `EncoderRegistry.CollectionProfile.hybrid_enabled` 或 `settings.router.hybrid_text_collections` 包含该 collection 时做稠密+稀疏融合 — Core `hybrid_fuse_dense_sparse` **不含**领域实体逻辑。
+3. 可选分路 `RERANK` hook（Tier-1 集合内 cosine 重排；领域打分在插件内，如 `plugins/biomed/scoring.py`）。
+4. 可选 `RETRIEVE_SUPPLEMENT` hook 追加实体锚定等补充命中。
 5. 用 RRF 合并（`eagle_rag/router/rerank_fusion.py`）— 禁止跨 embedding 空间 raw score。
-6. RRF 后按 `RerankPolicy` 重排：Core `general` → DashScope `qwen3-rerank`；biomed `domain` → `RERANK_MERGED`（MedCPT CE + metadata 信号）。`none` 跳过合并重排。
-7. 按 `source_chunk_id`（非空）或 `(document_id, path)` 去重。
+6. 可选 `RRF_POST_MERGE` hook（如 biomed 在 `require_entity_match` 时注入 supplement 候选）。
+7. RRF 后按 `RerankPolicy` 重排：Core `general` → DashScope `qwen3-rerank`；biomed `domain` → `RERANK_MERGED`（MedCPT CE + metadata 信号）。`none` 跳过合并重排。
+8. 按 `source_chunk_id`（非空）或 `(document_id, path)` 去重。
+
+### Core 与插件边界（检索）
+
+| 职责 | Core | 领域插件 |
+| --- | --- | --- |
+| 编排 | `RetrieverOrchestrator` — hook 分发、RRF、去重 | 注册 `QUERY_DENSE_EXPAND`、`RERANK`、`RETRIEVE_SUPPLEMENT`、`RRF_POST_MERGE`、`RERANK_MERGED` |
+| 意图识别 | 仅 `QueryRetrievalIntent` 数据结构 | 如 `plugins/biomed/query_intent.py`，经 `QUERY_DENSE_EXPAND` 产出 |
+| Hybrid 稀疏 | 在稠密 ANN 命中上做词项重叠 | 经 hook + `EncoderRegistry` 提供 `sparse_terms` / collection 列表 |
+| Milvus upsert 元数据 | 按 schema 透传（`milvus_text_store`） | CHUNK hook 写入领域字段（`primary_drugs`、`biomed_section` 等） |
+| 实体加权 / 过滤 | — | 插件 rerank hook（`RERANK`、`RERANK_MERGED`） |
+
+Core 在 query 热路径上 **不得** `import plugins.<domain>`。Biomed 评测与运维见 [`eval/biomed/RETRIEVAL.md`](../../../eval/biomed/RETRIEVAL.md)。
 
 父文档检索（`settings.router.parent_doc_retrieval`，默认 `true`）仍是 Core 在 `eagle_text` 上的两阶段 Milvus 路径（先 `section_summary`，再 path 下钻）。Eagle **不调用** Knowhere 的 `RetrievalAgent` / `WorkflowOrchestrator`（[ADR-005](adr/005-knowhere-eagle-boundary.md)）。
 
@@ -430,14 +445,17 @@ profiles:
 
 | 能力 | 细节 |
 | --- | --- |
-| 专用 collection | `eagle_text_biomed`（768）、`eagle_chemical`（768）、`eagle_medical_radiology`（1024）、`eagle_medical_pathology`（1536） |
-| 文本 / 化学编码器 | Label `pubmedbert` / `molformer`（经 `EncoderRegistry`，HF transformers） |
+| 专用 collection | `eagle_text_biomed`（768）、`eagle_text_medcpt`（768，可选双索引）、`eagle_chemical`（768）、`eagle_medical_radiology`（1024）、`eagle_medical_pathology`（1536） |
+| 文本 / 化学编码器 | Label `pubmedbert` / `molformer` / `medcpt`（经 `EncoderRegistry`，`CollectionProfile`：`default_encoder`、`hybrid_enabled`、`extra_output_fields`） |
 | 医学影像 | Label `medimageinsight` → **BiomedCLIP + `open_clip`**（建议 `uv sync --extra biomed`）；病理 → `uni2`（UNI 2）— **永不**回落 Qwen3-VL |
-| CHUNK 富化 | 仅 IMRaD/专利章节标签（`biomed_section` / `biomed_doc_type`）；保留 Knowhere `path` / body / `chunk_id` |
+| CHUNK 富化 | IMRaD/专利章节（`biomed_section` / `biomed_doc_type`）；`primary_drugs` 供实体信号；保留 Knowhere `path` / body / `chunk_id` |
+| 查询意图 | 纯文本 `detect_retrieval_intent()`（`drug_entity`、`chemical`、`regulatory`、`combination`、`general`）— **不**读取评测集 `workflow` 标签 |
 | 查询路由 | 规则 + 精选 UMLS 子集（`routing_rules.yaml` / `umls.py`）；可选 `EAGLE_BIOMED_UMLS_MRCONSO_PATH` 合并英文首选别名 |
-| 混合检索 | PubMedBERT 稠密 ANN + 进程内稀疏词项融合（`hybrid_text_retriever.py`）；`recall_top_k`（默认 30）→ Tier-1 `RERANK` → RRF → `RERANK_MERGED` → `final_top_k`（5） |
-| Rerank | Tier-1：集合内 PubMedBERT cosine（`RERANK` hook）。Tier-2：`rerank_policy: domain` + `domain_rerank_encoder: medcpt-rerank`（`RERANK_MERGED`；永不使用 `qwen3-rerank`） |
-| 实体路由 | 药物名 UMLS 命中同时查 `eagle_chemical`；可选 `primary_drugs` 标量（`task biomed:reindex-sparse` 回填） |
+| 混合检索 | 当 `router.hybrid_text_collections` 列出 collection 时 Core 做稠密+稀疏融合（biomed profile：`eagle_text_biomed`、`eagle_text_medcpt`）；`recall_top_k`（30）→ Tier-1 `RERANK` → `RETRIEVE_SUPPLEMENT` → RRF → `RRF_POST_MERGE` → `RERANK_MERGED` → `final_top_k`（5） |
+| 实体锚定 supplement | `supplement_entity_anchored_hits` — PG registry 药名查找 + 限定 ANN；`require_entity_match` 时 `RRF_POST_MERGE` 注入 |
+| Rerank | Tier-1：PubMedBERT cosine + 实体过滤/加权（`plugins/biomed/scoring.py`）。Tier-2：`rerank_policy: domain` + MedCPT CE（`RERANK_MERGED`） |
+| 元数据回填 | `task biomed:reindex-sparse`（`primary_drugs`）；`eval/biomed/scripts/reindex_biomed_metadata.py`（`biomed_section`） |
+| Eval 基线 | Aligned smoke（46 题）：Hit@5 **0.87**，MRR **0.85** — 见 [`eval/biomed/EVAL.md`](../../../eval/biomed/EVAL.md) |
 | MCP | 实体查询 + 化合物检索（`eagle_chemical` MolFormer ANN） |
 | 编码器模式 | `auto` / `require_native` / `deterministic`（CI）；checkpoint 可用 `EAGLE_BIOMED_*_MODEL` 覆盖 |
 

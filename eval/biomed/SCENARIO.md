@@ -55,3 +55,7 @@
 2. FDA / ICH 公开 guidance（终点、GCP）  
 
 详见 `datasets/workflows.yaml`。
+
+## 评测与检索设计
+
+召回金标、smoke 门槛与 aligned 回归见 [EVAL.md](./EVAL.md)。实体锚定检索管线、Milvus 元数据回填与失败诊断见 [RETRIEVAL.md](./RETRIEVAL.md)。

@@ -176,9 +176,15 @@ if "visual" in selected:
 
 域插件活跃时，`_fetch_nodes` 委托 `RetrieverOrchestrator.retrieve()`：
 
-1. 每 `CollectionQueryPlan` 跑 ANN（尽力而为）。
-2. 可选每计划 `RERANK` 钩子。
-3. RRF 合并并去重。
+1. `QUERY_DENSE_EXPAND`（first）— 稠密改写 + 稀疏词项 + `retrieval_hints` 中的 `QueryRetrievalIntent`。
+2. 每 `CollectionQueryPlan` 跑 ANN（尽力而为）；当 collection 在 `router.hybrid_text_collections` 或 `EncoderRegistry.CollectionProfile.hybrid_enabled` 时做 hybrid 融合。
+3. 分路 `RERANK`（first）— Tier-1 领域重排。
+4. `RETRIEVE_SUPPLEMENT`（all）— 实体锚定等补充命中。
+5. RRF 合并 + 去重（`merge_rrf`）。
+6. `RRF_POST_MERGE`（first）— 合并重排前可选候选注入。
+7. `RERANK_MERGED`（first）或按 `RerankPolicy` 走 Core `qwen3-rerank`。
+
+Core 在此路径上不 import 领域插件；领域逻辑均经 hook 注册。见[插件架构](../architecture/plugin-architecture.md) § 查询路径。
 
 **Core 默认（G4）：** 仅 `eagle_text`（混合/图像时加 `eagle_visual`）。专用 collection 需域 `CLASSIFY_QUERY` 或 scope 感知 `collections_used` catalog 并集。
 
@@ -292,6 +298,8 @@ router:
   mode: auto                    # auto | text | visual | hybrid
   max_scope_documents: 500      # 标签 → doc_id 上限
   parent_doc_retrieval: true    # Core 两阶段 section_summary 下钻
+  recall_top_k: 30              # 重排前每路 ANN 池大小
+  hybrid_text_collections: []   # profile 覆盖，如 biomed: [eagle_text_biomed, eagle_text_medcpt]
   source_content_max_chars: 4000
   structure_max_nodes: 2000
   llm:
@@ -327,6 +335,7 @@ ROUTER_MAX_SCOPE_DOCUMENTS=1000
 | 所有查询强制视觉 | `router.mode: visual` |
 | 域专用关键词 | 添加到 `heuristic.rules` |
 | 大标签选择 | 提高 `max_scope_documents` |
+| 领域 hybrid 稀疏 | 在 profile 设 `router.hybrid_text_collections` 或 `EncoderRegistry.register_collection(..., hybrid_enabled=True)` |
 | 更小 API 载荷 | 降低 `source_content_max_chars` |
 
 查询时覆盖：在 `QueryRequest` 传 `mode` 绕过全局设置。
