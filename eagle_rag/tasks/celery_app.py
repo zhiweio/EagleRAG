@@ -58,6 +58,8 @@ app.conf.task_routes = _cfg.task_routes
 app.conf.task_acks_late = True
 app.conf.worker_prefetch_multiplier = 1
 app.conf.task_reject_on_worker_lost = True
+# Celery 6.0+: explicit startup broker retry (replaces implicit broker_connection_retry).
+app.conf.broker_connection_retry_on_startup = True
 
 # Retry: default backoff interval and max retries (overridable via self.retry in-task).
 app.conf.task_default_retry_delay = _cfg.retry_backoff
