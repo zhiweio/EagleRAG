@@ -87,6 +87,20 @@ _BIOMED_MODELS: tuple[tuple[str, str, str | None, str, bool], ...] = (
         "hf",
         True,
     ),
+    (
+        "medcpt-query",
+        "ncbi/MedCPT-Query-Encoder",
+        None,
+        "hf",
+        True,
+    ),
+    (
+        "medcpt-article",
+        "ncbi/MedCPT-Article-Encoder",
+        None,
+        "hf",
+        True,
+    ),
 )
 
 _BIOMED_ROOT = Path(os.environ.get("BIOMED_MODEL_ROOT", "/opt/huggingface/biomed"))

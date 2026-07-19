@@ -24,11 +24,27 @@ def _build_registry() -> EncoderRegistry:
     registry.register("molformer", object(), dim=768, modality="text")
     registry.register("medimageinsight", object(), dim=1024, modality="visual")
     registry.register("uni2", object(), dim=1536, modality="visual")
-    # Collection dims.
-    registry.register_collection_dim("eagle_text_biomed", 768)
-    registry.register_collection_dim("eagle_chemical", 768)
-    registry.register_collection_dim("eagle_medical_radiology", 1024)
-    registry.register_collection_dim("eagle_medical_pathology", 1536)
+    registry.register_collection(
+        "eagle_text_biomed",
+        dim=768,
+        default_encoder="pubmedbert",
+        hybrid_enabled=True,
+    )
+    registry.register_collection(
+        "eagle_chemical",
+        dim=768,
+        default_encoder="molformer",
+    )
+    registry.register_collection(
+        "eagle_medical_radiology",
+        dim=1024,
+        default_encoder="medimageinsight",
+    )
+    registry.register_collection(
+        "eagle_medical_pathology",
+        dim=1536,
+        default_encoder="uni2",
+    )
     return registry
 
 

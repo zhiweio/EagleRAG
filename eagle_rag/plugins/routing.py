@@ -31,6 +31,7 @@ class QueryRetrievalIntent:
     prefer_doc_types: tuple[str, ...] = ()
     suppress_collections: tuple[str, ...] = ()
     section_cues: tuple[str, ...] = ()
+    require_entity_match: bool = False
 
 
 @dataclass(frozen=True)

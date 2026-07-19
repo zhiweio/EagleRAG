@@ -99,13 +99,16 @@ class CoreDefaultsPlugin:
             dim=settings.embedding.visual.dim,
             modality="visual",
         )
-        ctx.encoder_registry.register_collection_dim(
+        ctx.encoder_registry.register_collection(
             settings.milvus.text_collection,
-            settings.embedding.text.dim,
+            dim=settings.embedding.text.dim,
+            default_encoder="text-embedding-v4",
+            hybrid_enabled=True,
         )
-        ctx.encoder_registry.register_collection_dim(
+        ctx.encoder_registry.register_collection(
             settings.milvus.visual_collection,
-            settings.embedding.visual.dim,
+            dim=settings.embedding.visual.dim,
+            default_encoder="qwen3-vl",
         )
 
     def on_unload(self) -> None:

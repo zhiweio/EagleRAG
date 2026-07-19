@@ -56,10 +56,17 @@ __all__ = [
 
 logger = get_logger(__name__)
 
-# Milvus VARCHAR hard limit (characters). LlamaIndex ``eagle_text`` and biomed
-# specialized text collections both declare ``text`` with this max_length.
+# Milvus VARCHAR hard limit (characters). Specialized text collections may
+# declare ``text`` with this max_length.
 MILVUS_VARCHAR_TEXT_MAX = 65535
 _MILVUS_VARCHAR_PATH_MAX = 512
+_UPSERT_SKIP_META_KEYS = frozenset(
+    {
+        "embedding",
+        "target_encoder",
+        "type",
+    }
+)
 _TRUNCATE_SUFFIX = "\n...[truncated]"
 # Preview of the discarded tail in the warning log (for locating original content).
 _TRUNCATE_PREVIEW_CHARS = 240
@@ -312,6 +319,21 @@ def _collection_field_names(client: Any, collection: str) -> set[str]:
     return names
 
 
+def _coerce_milvus_scalar(key: str, value: Any, *, max_length: int | None = None) -> Any | None:
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    text = str(value)
+    if max_length is not None and len(text) > max_length:
+        return text[:max_length]
+    return text
+
+
 def _upsert_text_nodes_direct(
     nodes: list[TextNode],
     *,
@@ -337,9 +359,7 @@ def _upsert_text_nodes_direct(
 
             vector = encode_text_for_encoder(encoder_name, text)
         row_id = node.node_id
-        # Specialized collections (e.g. biomed ``eagle_text_biomed``) use
-        # ``chunk_type``; Core ``eagle_text`` historically used ``type``. Prefer
-        # ``chunk_type`` and omit bare ``type`` so non-dynamic schemas accept rows.
+        # Specialized collections use ``chunk_type``; Core ``eagle_text`` may use ``type``.
         chunk_type = meta.get("chunk_type") or meta.get("type") or "text"
         path = clamp_milvus_varchar(str(meta.get("path") or ""), _MILVUS_VARCHAR_PATH_MAX)
         row: dict[str, Any] = {
@@ -353,12 +373,14 @@ def _upsert_text_nodes_direct(
             "source_type": meta.get("source_type"),
             "source_chunk_id": meta.get("source_chunk_id"),
         }
-        primary_drugs = meta.get("primary_drugs")
-        if primary_drugs and (not schema_fields or "primary_drugs" in schema_fields):
-            if isinstance(primary_drugs, list):
-                row["primary_drugs"] = json.dumps(primary_drugs, ensure_ascii=False)
-            elif isinstance(primary_drugs, str):
-                row["primary_drugs"] = primary_drugs
+        for key, value in meta.items():
+            if key in _UPSERT_SKIP_META_KEYS or key in row:
+                continue
+            if schema_fields and key not in schema_fields:
+                continue
+            coerced = _coerce_milvus_scalar(key, value)
+            if coerced is not None:
+                row[key] = coerced
         rows.append(row)
         ids.append(row_id)
     if rows:

@@ -14,7 +14,11 @@ from eagle_rag.plugins.milvus_ns import milvus_db_name
 from eagle_rag.plugins.routing import CollectionQueryPlan, QueryRouteDecision
 from eagle_rag.retrievers.knowhere_graph_retriever import KnowhereGraphRetriever
 from eagle_rag.retrievers.pixelrag_visual_retriever import PixelRAGVisualRetriever
-from eagle_rag.router.rerank_fusion import dedupe_cross_collection, merge_rrf, rerank_merged
+from eagle_rag.router.rerank_fusion import (
+    dedupe_cross_collection,
+    merge_rrf,
+    rerank_merged,
+)
 from eagle_rag.telemetry import get_logger, trace_span
 
 if TYPE_CHECKING:
@@ -35,7 +39,6 @@ _TEXT_OUTPUT_FIELDS = [
     "source_chunk_id",
     "chunk_type",
     "parent_section",
-    "primary_drugs",
 ]
 _VISUAL_OUTPUT_FIELDS = [
     "image_id",
@@ -96,6 +99,25 @@ class RetrieverOrchestrator:
         visual_query_text = visual_query if visual_query is not None else query
         retrieval_hints = dict(route_decision.retrieval_hints or {})
 
+        hook_ctx = HookContext(
+            plugin_namespace=plugin_namespace,
+            extra={"kb_name": kb_name},
+        )
+        expanded = self._manager.bus.invoke_first(
+            Hook.QUERY_DENSE_EXPAND,
+            hook_ctx,
+            query,
+            encoder=None,
+        )
+        if expanded is not None:
+            if expanded.intent is not None:
+                hook_ctx.extra["retrieval_intent"] = expanded.intent
+            if expanded.sparse_terms:
+                hook_ctx.extra["sparse_terms"] = list(expanded.sparse_terms)
+        retrieval_hints["retrieval_intent"] = hook_ctx.extra.get("retrieval_intent")
+        if hook_ctx.extra.get("sparse_terms"):
+            retrieval_hints["sparse_terms"] = hook_ctx.extra["sparse_terms"]
+
         for plan in route_decision.plans:
             plan_top_k = plan.top_k or recall_top_k
             try:
@@ -121,6 +143,7 @@ class RetrieverOrchestrator:
                         query=query,
                         plan=plan,
                         plugin_namespace=plugin_namespace,
+                        retrieval_hints=retrieval_hints,
                     )
                     plan_results.append(nodes)
             except Exception as exc:  # noqa: BLE001
@@ -138,10 +161,6 @@ class RetrieverOrchestrator:
                 )
                 continue
 
-        hook_ctx = HookContext(
-            plugin_namespace=plugin_namespace,
-            extra={"kb_name": kb_name},
-        )
         supplement_nodes: list[NodeWithScore] = []
         for item in self._manager.bus.invoke_all(
             Hook.RETRIEVE_SUPPLEMENT,
@@ -154,13 +173,30 @@ class RetrieverOrchestrator:
                 supplement_nodes.append(item)
             elif isinstance(item, list):
                 supplement_nodes.extend(n for n in item if isinstance(n, NodeWithScore))
-        if supplement_nodes:
-            plan_results.append(supplement_nodes)
 
         merged = merge_rrf(plan_results, k=settings.router.rrf_k)
         successful_plans = sum(1 for lst in plan_results if lst)
         if successful_plans > 1:
             merged = dedupe_cross_collection(merged, audit=self._manager.audit)
+
+        rrf_ctx = HookContext(
+            plugin_namespace=plugin_namespace,
+            extra={
+                **hook_ctx.extra,
+                "supplement_nodes": supplement_nodes,
+            },
+        )
+        post_merged = self._manager.bus.invoke_first(
+            Hook.RRF_POST_MERGE,
+            rrf_ctx,
+            merged,
+            query=query,
+            supplement_nodes=supplement_nodes,
+            kb_name=kb_name,
+        )
+        if post_merged is not None:
+            merged = list(post_merged)
+
         merged = rerank_merged(
             merged,
             query=query,
@@ -178,12 +214,19 @@ class RetrieverOrchestrator:
         query: str,
         plan: CollectionQueryPlan,
         plugin_namespace: str,
+        retrieval_hints: dict[str, Any] | None = None,
     ) -> list[NodeWithScore]:
         if not nodes:
             return nodes
+        extra: dict[str, Any] = {"collection": plan.collection, "encoder": plan.encoder}
+        if retrieval_hints:
+            if retrieval_hints.get("retrieval_intent") is not None:
+                extra["retrieval_intent"] = retrieval_hints["retrieval_intent"]
+            if retrieval_hints.get("sparse_terms"):
+                extra["sparse_terms"] = retrieval_hints["sparse_terms"]
         hook_ctx = HookContext(
             plugin_namespace=plugin_namespace,
-            extra={"collection": plan.collection, "encoder": plan.encoder},
+            extra=extra,
         )
         reranked = self._manager.bus.invoke_first(
             Hook.RERANK,
@@ -267,6 +310,7 @@ class RetrieverOrchestrator:
             query_image_bytes=query_image_bytes,
             top_k=top_k,
             recall_top_k=effective_recall,
+            retrieval_hints=retrieval_hints,
         )
 
     def _retrieve_core_text(
@@ -380,6 +424,23 @@ class RetrieverOrchestrator:
                 names.add(str(name))
         return names
 
+    def _hybrid_enabled_for_collection(self, collection: str) -> bool:
+        settings = get_settings()
+        configured = settings.router.hybrid_text_collections
+        if configured:
+            return collection in configured
+        if self._manager.encoder_registry.hybrid_enabled_for_collection(collection):
+            return True
+        return collection == settings.milvus.text_collection
+
+    def _text_output_fields(self, collection: str) -> list[str]:
+        fields = list(_TEXT_OUTPUT_FIELDS)
+        extra = self._manager.encoder_registry.extra_output_fields_for_collection(collection)
+        for name in extra:
+            if name not in fields:
+                fields.append(name)
+        return fields
+
     def _retrieve_generic_milvus(
         self,
         plan: CollectionQueryPlan,
@@ -395,11 +456,12 @@ class RetrieverOrchestrator:
         query_image_bytes: bytes | None,
         top_k: int,
         recall_top_k: int | None = None,
+        retrieval_hints: dict[str, Any] | None = None,
     ) -> list[NodeWithScore]:
         settings = get_settings()
         enc_info = self._manager.encoder_registry.get(plan.encoder)
         dense_query = query
-        drug_entities: list[str] = []
+        extra_sparse_terms: list[str] = []
         hook_ctx = HookContext(
             plugin_namespace=plugin_namespace,
             extra={"collection": plan.collection, "encoder": plan.encoder},
@@ -412,7 +474,9 @@ class RetrieverOrchestrator:
         )
         if expanded is not None:
             dense_query = expanded.dense_query
-            drug_entities = list(expanded.sparse_terms)
+            extra_sparse_terms = list(expanded.sparse_terms)
+        elif retrieval_hints and retrieval_hints.get("sparse_terms"):
+            extra_sparse_terms = list(retrieval_hints["sparse_terms"])
 
         query_vector = self._encode_query(
             plan.encoder,
@@ -425,7 +489,6 @@ class RetrieverOrchestrator:
         db_name = milvus_db_name(plugin_namespace)
         client = get_milvus_pool().get(db_name)
         schema_fields = self._collection_field_names(client, plan.collection)
-        # Specialized schemas (biomed) omit Core-only scalars like ``year`` / ``type``.
         year_filter = year if (not schema_fields or "year" in schema_fields) else None
         expr = self._build_milvus_expr(
             kb_name=kb_name,
@@ -437,7 +500,10 @@ class RetrieverOrchestrator:
             scope_doc_ids=scope_doc_ids,
             use_scope_filter=use_scope_filter,
         )
-        wanted = _VISUAL_OUTPUT_FIELDS if enc_info.modality == "visual" else _TEXT_OUTPUT_FIELDS
+        if enc_info.modality == "visual":
+            wanted = _VISUAL_OUTPUT_FIELDS
+        else:
+            wanted = self._text_output_fields(plan.collection)
         output_fields = [f for f in wanted if not schema_fields or f in schema_fields]
         if not output_fields:
             output_fields = ["document_id", "kb_name"]
@@ -453,7 +519,7 @@ class RetrieverOrchestrator:
         if (
             enc_info.modality == "text"
             and settings.router.hybrid_text_enabled
-            and plan.collection in {"eagle_text_biomed", settings.milvus.text_collection}
+            and self._hybrid_enabled_for_collection(plan.collection)
         ):
             from eagle_rag.retrievers.hybrid_text_retriever import hybrid_fuse_dense_sparse
 
@@ -461,7 +527,7 @@ class RetrieverOrchestrator:
                 nodes,
                 query,
                 alpha=settings.router.hybrid_alpha,
-                drug_entities=drug_entities or None,
+                extra_sparse_terms=extra_sparse_terms or None,
                 rrf_k=settings.router.rrf_k,
             )
         return nodes

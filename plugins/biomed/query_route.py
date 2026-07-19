@@ -66,6 +66,7 @@ class BiomedQueryRouteClassifier:
 
         biomed_cfg = plugin_options("biomed", settings)
         dual = bool(biomed_cfg.get("default_dual_text_search", False))
+        medcpt_dual = bool(biomed_cfg.get("medcpt_dual_search", False))
         exploratory = list(biomed_cfg.get("exploratory_search_collections") or [])
         plan_top_k = int(biomed_cfg.get("collection_recall_top_k", 20))
         mode = (route_mode or "text").lower()
@@ -78,25 +79,29 @@ class BiomedQueryRouteClassifier:
                 top_k=top_k,
             )
 
-        if mode in ("text", "hybrid"):
-            add("eagle_text_biomed", "pubmedbert")
-            if dual:
-                add(settings.milvus.text_collection, "text-embedding-v4")
-
-        umls_hits = self._match_umls(query)
-        drug_hits = match_drug_entities(query)
-
         from plugins.biomed.query_intent import detect_retrieval_intent
 
         intent = detect_retrieval_intent(query)
+        umls_hits = self._match_umls(query)
+        drug_hits = match_drug_entities(query)
         retrieval_hints: dict[str, Any] = {}
         if drug_hits or umls_hits:
             retrieval_hints["parent_doc_retrieval"] = False
 
-        suppress_chemical = "eagle_chemical" in intent.suppress_collections
-        if self._match_smiles(query) or (drug_hits and not suppress_chemical):
+        chemical_task = intent.workflow == "chemical" or self._match_smiles(query)
+        if chemical_task:
             add("eagle_chemical", "molformer")
-        elif not suppress_chemical:
+        elif mode in ("text", "hybrid"):
+            add("eagle_text_biomed", "pubmedbert")
+            if medcpt_dual:
+                add("eagle_text_medcpt", "medcpt-query")
+            if dual:
+                add(settings.milvus.text_collection, "text-embedding-v4")
+
+        suppress_chemical = "eagle_chemical" in intent.suppress_collections
+        if not chemical_task and drug_hits and not suppress_chemical:
+            add("eagle_chemical", "molformer")
+        elif not chemical_task and not suppress_chemical:
             for entity in umls_hits:
                 related = resolve_entity(entity).get("related_drugs") or []
                 if related and entity not in drug_hits:
@@ -109,12 +114,17 @@ class BiomedQueryRouteClassifier:
         if self._match_keywords(query, "pathology"):
             add("eagle_medical_pathology", "uni2")
 
-        if mode in ("visual", "hybrid") or has_image:
+        include_visual = mode in ("visual", "hybrid") or has_image
+        if intent.workflow == "combination" and drug_hits:
+            include_visual = True
+        if include_visual:
             add(settings.milvus.visual_collection, "qwen3-vl")
 
         for extra in exploratory:
             if extra == "eagle_text_biomed":
                 add("eagle_text_biomed", "pubmedbert")
+            elif extra == "eagle_text_medcpt":
+                add("eagle_text_medcpt", "medcpt-query")
             elif extra == "eagle_text":
                 add(settings.milvus.text_collection, "text-embedding-v4")
             elif extra == "eagle_chemical":

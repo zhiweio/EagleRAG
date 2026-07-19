@@ -115,6 +115,8 @@ router:
   # Dense weight in dense+sparse hybrid fusion (sparse weight = 1 - hybrid_alpha).
   hybrid_alpha: ${ROUTER_HYBRID_ALPHA:-0.6}
   hybrid_text_enabled: ${ROUTER_HYBRID_TEXT_ENABLED:-true}
+  # Optional explicit list; when empty, hybrid eligibility comes from encoder registry.
+  hybrid_text_collections: []
   llm:
     enabled: ${ROUTER_LLM_ENABLED:-true}   # When false, skip LLM intent classification and go straight to heuristics.
     prompt_template: |-
@@ -270,11 +272,32 @@ plugins:
       rerank_policy: domain
       domain_rerank_encoder: medcpt-rerank
       retrieval_scoring:
-        w_ce: 0.7
-        w_sec: 0.2
-        w_fname: 0.1
-        w_compound_penalty: 1.5
-        w_xdrug_penalty: 2.0
+        default:
+          w_ce: 0.50
+          w_entity: 0.25
+          w_sec: 0.15
+          w_xdrug_penalty: 2.0
+        regulatory:
+          w_ce: 0.30
+          w_entity: 0.20
+          w_sec: 0.35
+          w_xdrug_penalty: 2.5
+        drug_entity:
+          w_ce: 0.35
+          w_entity: 0.35
+          w_sec: 0.10
+          w_xdrug_penalty: 3.0
+        chemical:
+          w_ce: 0.25
+          w_entity: 0.40
+          w_sec: 0.10
+          w_xdrug_penalty: 3.0
+        combination:
+          w_ce: 0.35
+          w_entity: 0.35
+          w_sec: 0.10
+          w_xdrug_penalty: 2.5
+      medcpt_dual_search: false
       collection_recall_top_k: 20
       encoder_mode: ${EAGLE_BIOMED_ENCODER_MODE:-auto}
       doc_semantic_router:
@@ -312,11 +335,32 @@ profiles:
           rerank_policy: domain
           domain_rerank_encoder: medcpt-rerank
           retrieval_scoring:
-            w_ce: 0.7
-            w_sec: 0.2
-            w_fname: 0.1
-            w_compound_penalty: 1.5
-            w_xdrug_penalty: 2.0
+            default:
+              w_ce: 0.50
+              w_entity: 0.25
+              w_sec: 0.15
+              w_xdrug_penalty: 2.0
+            regulatory:
+              w_ce: 0.30
+              w_entity: 0.20
+              w_sec: 0.35
+              w_xdrug_penalty: 2.5
+            drug_entity:
+              w_ce: 0.35
+              w_entity: 0.35
+              w_sec: 0.10
+              w_xdrug_penalty: 3.0
+            chemical:
+              w_ce: 0.25
+              w_entity: 0.40
+              w_sec: 0.10
+              w_xdrug_penalty: 3.0
+            combination:
+              w_ce: 0.35
+              w_entity: 0.35
+              w_sec: 0.10
+              w_xdrug_penalty: 2.5
+          medcpt_dual_search: false
           collection_recall_top_k: 20
           encoder_mode: ${EAGLE_BIOMED_ENCODER_MODE:-auto}
           doc_semantic_router:
@@ -324,6 +368,10 @@ profiles:
             llm:
               enabled: true
             ambiguous_default: biomedical
+    router:
+      hybrid_text_collections:
+        - eagle_text_biomed
+        - eagle_text_medcpt
     milvus:
       db_name: biomed
   lakehouse-bi:

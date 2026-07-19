@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from llama_index.core.schema import NodeWithScore
+
 from eagle_rag.plugins.hookbus import HookContext
 
 __all__ = ["biomed_format_selector", "biomed_rerank"]
@@ -49,9 +51,10 @@ def biomed_rerank(
     encoder: str | None = None,
     **kwargs: object,
 ) -> list[Any] | None:
-    """Tier-1 rerank: domain bi-encoder cosine per collection."""
+    """Tier-1 rerank: domain bi-encoder cosine per collection + entity signals."""
     del kwargs
     from plugins.biomed.rerank import cosine_rerank
+    from plugins.biomed.scoring import entity_boost_score
 
     coll = collection or (ctx.extra or {}).get("collection")
     enc = encoder or (ctx.extra or {}).get("encoder")
@@ -64,4 +67,24 @@ def biomed_rerank(
         return None
     if not nodes:
         return nodes
-    return cosine_rerank(nodes, query, encoder=encoder_name)
+
+    intent = (ctx.extra or {}).get("retrieval_intent")
+    sparse_terms = list((ctx.extra or {}).get("sparse_terms") or [])
+    working = list(nodes)
+    if intent is not None and getattr(intent, "require_entity_match", False) and sparse_terms:
+        filtered: list[Any] = []
+        for nws in working:
+            if not isinstance(nws, NodeWithScore):
+                continue
+            meta = nws.node.metadata or {}
+            text = nws.node.get_content() if hasattr(nws.node, "get_content") else ""
+            if entity_boost_score(meta, sparse_terms) > 0:
+                filtered.append(nws)
+                continue
+            blob = f"{text[:512]} {meta.get('path') or ''}".lower()
+            if any(term.lower() in blob for term in sparse_terms if term):
+                filtered.append(nws)
+        if filtered:
+            working = filtered
+
+    return cosine_rerank(working, query, encoder=encoder_name)

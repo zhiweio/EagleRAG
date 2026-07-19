@@ -17,17 +17,6 @@ __all__ = ["apply_scope_aware_union"]
 
 _LOGGER = get_logger(__name__)
 
-# Canonical collection -> encoder mapping for specialized (non-Core) collections.
-# Prevents dim-collision mismatches: ``pubmedbert`` and ``molformer`` are both
-# 768-dim, so the previous dim-only probe could assign ``pubmedbert`` to
-# ``eagle_chemical``. These names are stable plugin contracts (ADR-008).
-_SPECIALIZED_COLLECTION_ENCODERS: dict[str, str] = {
-    "eagle_text_biomed": "pubmedbert",
-    "eagle_chemical": "molformer",
-    "eagle_medical_radiology": "medimageinsight",
-    "eagle_medical_pathology": "uni2",
-}
-
 
 def _encoder_for_collection(
     collection: str,
@@ -40,7 +29,7 @@ def _encoder_for_collection(
     }
     if collection in defaults:
         return defaults[collection]
-    canonical = _SPECIALIZED_COLLECTION_ENCODERS.get(collection)
+    canonical = encoder_registry.default_encoder_for_collection(collection)
     if canonical is not None:
         try:
             encoder_registry.validate_plan(collection, canonical)

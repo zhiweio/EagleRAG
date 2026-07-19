@@ -1,13 +1,15 @@
-"""Biomed domain rerank: MedCPT cross-encoder + metadata signal fusion."""
+"""Biomed domain rerank: MedCPT cross-encoder + entity/content-form signal fusion."""
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from llama_index.core.schema import ImageNode, NodeWithScore
 
 from eagle_rag.config import get_settings, plugin_options
 from eagle_rag.plugins.routing import QueryRetrievalIntent
+from plugins.biomed.scoring import entity_boost_score
 
 __all__ = [
     "cosine_rerank",
@@ -15,6 +17,40 @@ __all__ = [
     "post_rrf_rerank",
     "score_retrieval_signals",
 ]
+
+_DEFAULT_WEIGHTS: dict[str, float] = {
+    "w_ce": 0.50,
+    "w_entity": 0.25,
+    "w_sec": 0.15,
+    "w_xdrug_penalty": 2.0,
+}
+
+_PROFILE_WEIGHTS: dict[str, dict[str, float]] = {
+    "regulatory": {
+        "w_ce": 0.30,
+        "w_entity": 0.20,
+        "w_sec": 0.35,
+        "w_xdrug_penalty": 2.5,
+    },
+    "drug_entity": {
+        "w_ce": 0.35,
+        "w_entity": 0.35,
+        "w_sec": 0.10,
+        "w_xdrug_penalty": 3.0,
+    },
+    "chemical": {
+        "w_ce": 0.25,
+        "w_entity": 0.40,
+        "w_sec": 0.10,
+        "w_xdrug_penalty": 3.0,
+    },
+    "combination": {
+        "w_ce": 0.35,
+        "w_entity": 0.35,
+        "w_sec": 0.10,
+        "w_xdrug_penalty": 2.5,
+    },
+}
 
 
 def _node_text(nws: NodeWithScore) -> str:
@@ -26,27 +62,23 @@ def _node_text(nws: NodeWithScore) -> str:
     return str(getattr(node, "text", "") or "")
 
 
-def _scoring_weights() -> dict[str, float]:
+def _scoring_weights(intent: QueryRetrievalIntent | None) -> dict[str, float]:
+    profile = (intent.workflow if intent else "general") or "general"
+    weights = dict(_DEFAULT_WEIGHTS)
+    if profile in _PROFILE_WEIGHTS:
+        weights.update(_PROFILE_WEIGHTS[profile])
     try:
         opts = plugin_options("biomed", get_settings())
         raw = opts.get("retrieval_scoring") or {}
         if isinstance(raw, dict):
-            return {
-                "w_ce": float(raw.get("w_ce", 0.7)),
-                "w_sec": float(raw.get("w_sec", 0.2)),
-                "w_fname": float(raw.get("w_fname", 0.1)),
-                "w_compound_penalty": float(raw.get("w_compound_penalty", 1.5)),
-                "w_xdrug_penalty": float(raw.get("w_xdrug_penalty", 2.0)),
-            }
+            profile_raw = raw.get(profile) if isinstance(raw.get(profile), dict) else raw
+            if isinstance(profile_raw, dict):
+                for key in ("w_ce", "w_entity", "w_sec", "w_xdrug_penalty"):
+                    if key in profile_raw:
+                        weights[key] = float(profile_raw[key])
     except Exception:  # noqa: BLE001
         pass
-    return {
-        "w_ce": 0.7,
-        "w_sec": 0.2,
-        "w_fname": 0.1,
-        "w_compound_penalty": 1.5,
-        "w_xdrug_penalty": 2.0,
-    }
+    return weights
 
 
 def _domain_rerank_encoder_name() -> str:
@@ -139,31 +171,31 @@ def _section_match_score(meta: dict[str, Any], section_cues: tuple[str, ...]) ->
     return hits / len(section_cues)
 
 
-def _filename_boost(meta: dict[str, Any], boost_terms: list[str]) -> float:
-    if not boost_terms:
+def _entity_match_score(
+    meta: dict[str, Any],
+    text: str,
+    query_drugs: list[str],
+) -> float:
+    if not query_drugs:
         return 0.0
-    fname = str(meta.get("file_name") or meta.get("document_name") or "").lower()
-    bonus = 0.0
-    for term in boost_terms:
-        if term in fname:
-            if any(prefix in fname for prefix in ("compound_", "label_", "company_")):
-                bonus = max(bonus, 1.0)
-            else:
-                bonus = max(bonus, 0.5)
-    return bonus
-
-
-def _compound_penalty(meta: dict[str, Any], intent: QueryRetrievalIntent | None) -> float:
-    if intent is None or "eagle_chemical" not in intent.suppress_collections:
-        return 0.0
-    fname = str(meta.get("file_name") or meta.get("document_name") or "").lower()
-    doc_type = str(meta.get("biomed_doc_type") or "").lower()
-    if "compound_" in fname or doc_type == "compound":
+    boost = entity_boost_score(meta, query_drugs)
+    if boost >= 1.0:
         return 1.0
+    if boost >= 0.5:
+        return 0.75
+    text_l = text[:512].lower()
+    query_set = {d.lower() for d in query_drugs if d}
+    if any(drug in text_l for drug in query_set):
+        return 0.75
     return 0.0
 
 
-def _cross_drug_penalty(meta: dict[str, Any], query_drugs: list[str]) -> float:
+def _cross_drug_penalty(
+    meta: dict[str, Any],
+    query_drugs: list[str],
+    *,
+    text: str,
+) -> float:
     if not query_drugs:
         return 0.0
     query_set = {d.lower() for d in query_drugs}
@@ -172,17 +204,25 @@ def _cross_drug_penalty(meta: dict[str, Any], query_drugs: list[str]) -> float:
     if isinstance(raw_drugs, list):
         doc_drugs = [str(d).lower() for d in raw_drugs if d]
     elif isinstance(raw_drugs, str) and raw_drugs.strip():
-        doc_drugs = [raw_drugs.lower()]
+        text_raw = raw_drugs.strip()
+        if text_raw.startswith("["):
+            try:
+                parsed = json.loads(text_raw)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, list):
+                doc_drugs = [str(d).lower() for d in parsed if d]
+        else:
+            doc_drugs = [text_raw.lower()]
+
+    blob = f"{text[:512]} {meta.get('path') or ''}".lower()
+    if any(drug in blob for drug in query_set):
+        return 0.0
     if doc_drugs and not (query_set & set(doc_drugs)):
         return 1.0
-    fname = str(meta.get("file_name") or meta.get("document_name") or "").lower()
     if doc_drugs:
         return 0.0
-    if query_set and not any(drug in fname for drug in query_set):
-        text_l = str(meta.get("path") or "").lower()
-        if not any(drug in text_l for drug in query_set):
-            return 0.5
-    return 0.0
+    return 1.0
 
 
 def score_retrieval_signals(
@@ -192,22 +232,18 @@ def score_retrieval_signals(
     *,
     boost_terms: list[str] | None = None,
 ) -> float:
-    weights = _scoring_weights()
+    weights = _scoring_weights(intent)
     meta = nws.node.metadata or {}
+    text = _node_text(nws)
     terms = boost_terms if boost_terms is not None else _boost_terms_for_query(query)
     section_cues = intent.section_cues if intent else ()
-    query_drugs = terms
 
+    entity = _entity_match_score(meta, text, terms)
     sec = _section_match_score(meta, section_cues)
-    fname = _filename_boost(meta, terms)
-    compound = _compound_penalty(meta, intent)
-    xdrug = _cross_drug_penalty(meta, query_drugs)
+    xdrug = _cross_drug_penalty(meta, terms, text=text)
 
     return (
-        weights["w_sec"] * sec
-        + weights["w_fname"] * fname
-        - weights["w_compound_penalty"] * compound
-        - weights["w_xdrug_penalty"] * xdrug
+        weights["w_entity"] * entity + weights["w_sec"] * sec - weights["w_xdrug_penalty"] * xdrug
     )
 
 
@@ -232,7 +268,7 @@ def post_rrf_rerank(
     plugin_namespace: str = "biomed",
     intent: QueryRetrievalIntent | None = None,
 ) -> list[NodeWithScore]:
-    """Re-score fused biomed hits after RRF with MedCPT CE + metadata signals."""
+    """Re-score fused biomed hits after RRF with MedCPT CE + entity/content signals."""
     text_nodes = [n for n in nodes if not isinstance(n.node, ImageNode)]
     image_nodes = [n for n in nodes if isinstance(n.node, ImageNode)]
     if not text_nodes:
@@ -245,7 +281,7 @@ def post_rrf_rerank(
 
     enrich_file_names(text_nodes, plugin_namespace=plugin_namespace)
     boost_terms = _boost_terms_for_query(query)
-    weights = _scoring_weights()
+    weights = _scoring_weights(intent)
 
     ce_scores = _medcpt_scores(query, text_nodes)
     if len(ce_scores) != len(text_nodes):
@@ -262,18 +298,15 @@ def post_rrf_rerank(
         final = weights["w_ce"] * ce_norm + signals
         scored.append((final, NodeWithScore(node=nws.node, score=final)))
 
-    compound_cue = any(
-        token in query.lower() for token in ("smiles", "inchi", "compound", "ligand", "mol")
-    )
-    if compound_cue:
-        compound_candidates = [
+    if intent.workflow == "chemical":
+        chemical_nodes = [
             n
             for n in scored
-            if "compound_" in str((n[1].node.metadata or {}).get("file_name") or "").lower()
+            if _entity_match_score(n[1].node.metadata or {}, _node_text(n[1]), boost_terms) > 0
         ]
-        if compound_candidates:
+        if chemical_nodes:
             mol_ranked = cosine_rerank(
-                [nws for _, nws in compound_candidates],
+                [nws for _, nws in chemical_nodes],
                 query,
                 encoder="molformer",
             )

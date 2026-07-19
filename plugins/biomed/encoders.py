@@ -35,12 +35,25 @@ __all__ = [
 ENCODER_DIMS: dict[str, int] = {
     "pubmedbert": 768,
     "molformer": 768,
+    "medcpt-query": 768,
+    "medcpt-article": 768,
     "medimageinsight": 1024,
     "uni2": 1536,
 }
 
+_TEXT_EXTRA_OUTPUT_FIELDS = ("primary_drugs", "biomed_section")
+
+_COLLECTION_ENCODERS: dict[str, str] = {
+    "eagle_text_biomed": "pubmedbert",
+    "eagle_text_medcpt": "medcpt-query",
+    "eagle_chemical": "molformer",
+    "eagle_medical_radiology": "medimageinsight",
+    "eagle_medical_pathology": "uni2",
+}
+
 COLLECTION_DIMS: dict[str, int] = {
     "eagle_text_biomed": ENCODER_DIMS["pubmedbert"],
+    "eagle_text_medcpt": ENCODER_DIMS["medcpt-article"],
     "eagle_chemical": ENCODER_DIMS["molformer"],
     "eagle_medical_radiology": ENCODER_DIMS["medimageinsight"],
     "eagle_medical_pathology": ENCODER_DIMS["uni2"],
@@ -50,6 +63,8 @@ _DEFAULT_HF_MODELS: dict[str, str] = {
     "pubmedbert": "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext",
     "molformer": "seyonec/ChemBERTa-zinc-base-v1",
     "medcpt-rerank": "ncbi/MedCPT-Cross-Encoder",
+    "medcpt-query": "ncbi/MedCPT-Query-Encoder",
+    "medcpt-article": "ncbi/MedCPT-Article-Encoder",
     # Public HF stand-in for MedImageInsight; override via EAGLE_BIOMED_MEDIMAGE_MODEL.
     "medimageinsight": "microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224",
     "uni2": "MahmoodLab/UNI2-h",
@@ -85,6 +100,8 @@ def _model_id_for(name: str) -> str:
         "medimageinsight": "EAGLE_BIOMED_MEDIMAGE_MODEL",
         "uni2": "EAGLE_BIOMED_UNI2_MODEL",
         "medcpt-rerank": "EAGLE_BIOMED_MEDCPT_RERANK_MODEL",
+        "medcpt-query": "EAGLE_BIOMED_MEDCPT_QUERY_MODEL",
+        "medcpt-article": "EAGLE_BIOMED_MEDCPT_ARTICLE_MODEL",
     }
     return os.environ.get(env_map[name], _DEFAULT_HF_MODELS.get(name, "")).strip()
 
@@ -510,10 +527,40 @@ def register_encoders(ctx: PluginContext) -> None:
         modality="visual",
     )
     registry.register(
+        "medcpt-query",
+        LazyDomainEncoder(
+            "medcpt-query",
+            ENCODER_DIMS["medcpt-query"],
+            modality="text",
+            hf_model_id=_model_id_for("medcpt-query"),
+        ),
+        dim=ENCODER_DIMS["medcpt-query"],
+        modality="text",
+    )
+    registry.register(
+        "medcpt-article",
+        LazyDomainEncoder(
+            "medcpt-article",
+            ENCODER_DIMS["medcpt-article"],
+            modality="text",
+            hf_model_id=_model_id_for("medcpt-article"),
+        ),
+        dim=ENCODER_DIMS["medcpt-article"],
+        modality="text",
+    )
+    registry.register(
         "medcpt-rerank",
         LazyMedCPTReranker(hf_model_id=_model_id_for("medcpt-rerank")),
         dim=1,
         modality="rerank",
     )
     for collection, dim in COLLECTION_DIMS.items():
-        registry.register_collection_dim(collection, dim)
+        registry.register_collection(
+            collection,
+            dim=dim,
+            default_encoder=_COLLECTION_ENCODERS.get(collection),
+            hybrid_enabled=collection in ("eagle_text_biomed", "eagle_text_medcpt"),
+            extra_output_fields=_TEXT_EXTRA_OUTPUT_FIELDS
+            if collection in ("eagle_text_biomed", "eagle_text_medcpt")
+            else (),
+        )

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from llama_index.core.schema import NodeWithScore
+
 from eagle_rag.plugins.hookbus import HookContext
 from eagle_rag.plugins.routing import ExpandedQuery
 
@@ -11,6 +13,7 @@ __all__ = [
     "biomed_dense_expand",
     "biomed_rerank_merged",
     "biomed_retrieve_supplement",
+    "biomed_rrf_post_merge",
 ]
 
 
@@ -57,13 +60,18 @@ def biomed_retrieve_supplement(
     **kwargs: object,
 ) -> list[Any]:
     del kwargs
-    from plugins.biomed.supplement import supplement_drug_document_hits
+    from plugins.biomed.query_intent import detect_retrieval_intent
+    from plugins.biomed.supplement import supplement_entity_anchored_hits
 
-    return supplement_drug_document_hits(
+    raw_intent = (ctx.extra or {}).get("retrieval_intent")
+    intent = raw_intent if raw_intent is not None else detect_retrieval_intent(query)
+
+    return supplement_entity_anchored_hits(
         query,
         kb_name=kb_name,
         plugin_namespace=ctx.plugin_namespace,
         recall_top_k=recall_top_k,
+        intent=intent,
     )
 
 
@@ -93,3 +101,27 @@ def biomed_rerank_merged(
         plugin_namespace=ctx.plugin_namespace,
         intent=intent,
     )
+
+
+def biomed_rrf_post_merge(
+    ctx: HookContext,
+    merged: list[Any],
+    *,
+    query: str,
+    supplement_nodes: list[Any] | None = None,
+    **kwargs: object,
+) -> list[Any] | None:
+    """Inject entity-anchored supplement hits before merged rerank (biomed-only)."""
+    del query, kwargs
+    raw_intent = (ctx.extra or {}).get("retrieval_intent")
+    if raw_intent is None or not getattr(raw_intent, "require_entity_match", False):
+        return None
+    if not supplement_nodes:
+        return None
+    from eagle_rag.router.rerank_fusion import inject_supplement_candidates
+
+    nodes = [n for n in merged if isinstance(n, NodeWithScore)]
+    extra = [n for n in (supplement_nodes or []) if isinstance(n, NodeWithScore)]
+    if not nodes or not extra:
+        return None
+    return inject_supplement_candidates(nodes, extra, min_new=2)

@@ -297,8 +297,9 @@ class RouterSettings(BaseModel):
     final_top_k: int = 5
     # Dense vs sparse weight for in-process hybrid fusion (1.0 = dense only).
     hybrid_alpha: float = 0.6
-    # Enable dense+sparse hybrid fusion on biomed text collections.
     hybrid_text_enabled: bool = True
+    # Optional override; when empty, hybrid eligibility uses encoder registry profiles.
+    hybrid_text_collections: list[str] = Field(default_factory=list)
 
 
 class QueueConfig(BaseModel):

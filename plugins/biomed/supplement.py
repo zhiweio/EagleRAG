@@ -1,4 +1,4 @@
-"""Targeted drug-document ANN supplement for biomed retrieval."""
+"""Entity-anchored ANN supplement for biomed retrieval (filename-agnostic)."""
 
 from __future__ import annotations
 
@@ -8,9 +8,11 @@ from llama_index.core.schema import NodeWithScore, TextNode
 
 from eagle_rag.index.milvus_pool import get_milvus_pool
 from eagle_rag.plugins.milvus_ns import milvus_db_name
-from eagle_rag.plugins.routing import CollectionQueryPlan
+from eagle_rag.plugins.routing import CollectionQueryPlan, QueryRetrievalIntent
+from eagle_rag.retrievers.hybrid_text_retriever import sparse_score
+from plugins.biomed.scoring import entity_boost_score
 
-__all__ = ["supplement_drug_document_hits"]
+__all__ = ["supplement_drug_document_hits", "supplement_entity_anchored_hits"]
 
 _TEXT_OUTPUT_FIELDS = [
     "text",
@@ -21,6 +23,7 @@ _TEXT_OUTPUT_FIELDS = [
     "source_chunk_id",
     "chunk_type",
     "primary_drugs",
+    "biomed_section",
 ]
 
 
@@ -71,6 +74,8 @@ def _search_collection(
     expr = " and ".join(expr_parts)
 
     client = get_milvus_pool().get(milvus_db_name(plugin_namespace))
+    if not client.has_collection(plan.collection):
+        return []
     raw = client.search(
         collection_name=plan.collection,
         data=[query_vector],
@@ -82,15 +87,30 @@ def _search_collection(
     return _hits_to_nodes(raw)
 
 
-def supplement_drug_document_hits(
+def _rerank_entity_hits(
+    nodes: list[NodeWithScore],
     query: str,
-    *,
-    kb_name: str | None,
-    plugin_namespace: str,
-    recall_top_k: int,
+    drug_terms: list[str],
 ) -> list[NodeWithScore]:
-    """ANN within registry documents whose names match query drug entities."""
-    from eagle_rag.index.registry import lookup_document_ids_by_name_terms
+    if not nodes:
+        return []
+    scored: list[tuple[float, NodeWithScore]] = []
+    for nws in nodes:
+        meta = nws.node.metadata or {}
+        if hasattr(nws.node, "get_content"):
+            text = nws.node.get_content()
+        else:
+            text = str(getattr(nws.node, "text", ""))
+        entity = entity_boost_score(meta, drug_terms)
+        lexical = sparse_score(query, str(text or ""), extra_terms=drug_terms)
+        dense = float(nws.score or 0.0)
+        combined = entity * 2.0 + lexical + dense * 0.1
+        scored.append((combined, NodeWithScore(node=nws.node, score=combined)))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [nws for _, nws in scored]
+
+
+def _resolve_drug_terms(query: str) -> list[str]:
     from plugins.biomed.umls import match_drug_entities, match_entities, resolve_entity
 
     terms = list(match_drug_entities(query))
@@ -101,7 +121,36 @@ def supplement_drug_document_hits(
             if related:
                 terms = related
                 break
-    terms = list(dict.fromkeys(terms))
+    return list(dict.fromkeys(terms))
+
+
+def _collections_for_intent(intent: QueryRetrievalIntent | None) -> list[tuple[str, str]]:
+    workflow = intent.workflow if intent else "general"
+    if workflow == "chemical":
+        return [("eagle_chemical", "molformer")]
+    suppress = set(intent.suppress_collections if intent else ())
+    collections: list[tuple[str, str]] = [("eagle_text_biomed", "pubmedbert")]
+    if "eagle_chemical" not in suppress:
+        collections.append(("eagle_chemical", "molformer"))
+    return collections
+
+
+def supplement_entity_anchored_hits(
+    query: str,
+    *,
+    kb_name: str | None,
+    plugin_namespace: str,
+    recall_top_k: int,
+    intent: QueryRetrievalIntent | None = None,
+) -> list[NodeWithScore]:
+    """ANN within registry documents that match query drug entities (any filename)."""
+    from eagle_rag.index.registry import lookup_document_ids_by_name_terms
+    from plugins.biomed.query_intent import detect_retrieval_intent
+
+    if intent is None:
+        intent = detect_retrieval_intent(query)
+
+    terms = _resolve_drug_terms(query)
     if not terms:
         return []
 
@@ -115,10 +164,7 @@ def supplement_drug_document_hits(
 
     nodes: list[NodeWithScore] = []
     limit = min(recall_top_k, max(len(doc_ids) * 4, 8))
-    for collection, encoder in (
-        ("eagle_text_biomed", "pubmedbert"),
-        ("eagle_chemical", "molformer"),
-    ):
+    for collection, encoder in _collections_for_intent(intent):
         plan = CollectionQueryPlan(collection=collection, encoder=encoder, top_k=recall_top_k)
         try:
             nodes.extend(
@@ -133,4 +179,22 @@ def supplement_drug_document_hits(
             )
         except Exception:  # noqa: BLE001
             continue
-    return nodes
+    return _rerank_entity_hits(nodes, query, terms)
+
+
+def supplement_drug_document_hits(
+    query: str,
+    *,
+    kb_name: str | None,
+    plugin_namespace: str,
+    recall_top_k: int,
+    intent: QueryRetrievalIntent | None = None,
+) -> list[NodeWithScore]:
+    """Backward-compatible alias for entity-anchored supplement."""
+    return supplement_entity_anchored_hits(
+        query,
+        kb_name=kb_name,
+        plugin_namespace=plugin_namespace,
+        recall_top_k=recall_top_k,
+        intent=intent,
+    )

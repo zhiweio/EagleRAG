@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 from llama_index.core.schema import ImageNode, NodeWithScore
 
-__all__ = ["dedupe_cross_collection", "merge_rrf", "rerank_merged"]
+__all__ = ["dedupe_cross_collection", "inject_supplement_candidates", "merge_rrf", "rerank_merged"]
 
 logger = get_logger(__name__)
 
@@ -91,6 +91,30 @@ def dedupe_cross_collection(
         )
 
     return [seen[key] for key in order]
+
+
+def inject_supplement_candidates(
+    merged: list[NodeWithScore],
+    supplement: list[NodeWithScore],
+    *,
+    min_new: int = 2,
+) -> list[NodeWithScore]:
+    """Ensure top supplement hits enter the rerank candidate pool (generic fusion primitive)."""
+    if not supplement or min_new <= 0:
+        return merged
+    seen = {_cross_collection_key(nws) for nws in merged}
+    injected: list[NodeWithScore] = []
+    for nws in supplement:
+        key = _cross_collection_key(nws)
+        if key in seen:
+            continue
+        injected.append(NodeWithScore(node=nws.node, score=float(nws.score or 0.0) + 100.0))
+        seen.add(key)
+        if len(injected) >= min_new:
+            break
+    if not injected:
+        return merged
+    return injected + merged
 
 
 def _qwen3_rerank(

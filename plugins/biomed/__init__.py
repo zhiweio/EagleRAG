@@ -21,7 +21,7 @@ __all__ = ["BiomedPlugin", "plugin"]
 
 logger = get_logger(__name__)
 
-_TEXT_COLLECTIONS = frozenset({"eagle_text_biomed", "eagle_chemical"})
+_TEXT_COLLECTIONS = frozenset({"eagle_text_biomed", "eagle_text_medcpt", "eagle_chemical"})
 
 
 def _index_params(client: MilvusClient, *, metric: str) -> object:
@@ -56,6 +56,7 @@ def _ensure_text_collection(
     schema.add_field("source_type", DataType.VARCHAR, max_length=32, nullable=True)
     schema.add_field("source_chunk_id", DataType.VARCHAR, max_length=128, nullable=True)
     schema.add_field("primary_drugs", DataType.VARCHAR, max_length=2048, nullable=True)
+    schema.add_field("biomed_section", DataType.VARCHAR, max_length=64, nullable=True)
     client.create_collection(
         coll_name,
         schema=schema,
@@ -98,6 +99,29 @@ def _ensure_visual_collection(
     logger.info("created biomed visual collection", extra={"collection": coll_name, "dim": dim})
 
 
+def _ensure_biomed_section_field(client: MilvusClient, coll_name: str) -> None:
+    try:
+        from pymilvus import DataType
+
+        desc = client.describe_collection(coll_name)
+        fields = desc.get("fields") if isinstance(desc, dict) else getattr(desc, "fields", [])
+        names = {
+            (f.get("name") if isinstance(f, dict) else getattr(f, "name", None))
+            for f in fields or []
+        }
+        if "biomed_section" in names:
+            return
+        client.add_collection_field(
+            coll_name,
+            field_name="biomed_section",
+            data_type=DataType.VARCHAR,
+            max_length=64,
+            nullable=True,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("biomed_section migration skipped for %s", coll_name, exc_info=True)
+
+
 def ensure_biomed_collections(ctx: PluginContext) -> None:
     """Create specialized Milvus collections in the biomed database."""
     db_name = milvus_db_name(ctx.plugin_namespace)
@@ -106,6 +130,7 @@ def ensure_biomed_collections(ctx: PluginContext) -> None:
     for coll_name, dim in COLLECTION_DIMS.items():
         if coll_name in _TEXT_COLLECTIONS:
             _ensure_text_collection(client, coll_name, dim=dim)
+            _ensure_biomed_section_field(client, coll_name)
         elif coll_name == "eagle_medical_radiology":
             _ensure_visual_collection(
                 client,
@@ -138,6 +163,7 @@ class BiomedPlugin:
         milvus_db_name="biomed",
         provides_specialized_collections=(
             "eagle_text_biomed",
+            "eagle_text_medcpt",
             "eagle_chemical",
             "eagle_medical_radiology",
             "eagle_medical_pathology",
@@ -157,6 +183,7 @@ class BiomedPlugin:
             biomed_dense_expand,
             biomed_rerank_merged,
             biomed_retrieve_supplement,
+            biomed_rrf_post_merge,
         )
 
         bus.subscribe(
@@ -239,6 +266,13 @@ class BiomedPlugin:
         bus.subscribe(
             Hook.RERANK_MERGED,
             biomed_rerank_merged,
+            priority=100,
+            namespace="biomed",
+            plugin_name="biomed",
+        )
+        bus.subscribe(
+            Hook.RRF_POST_MERGE,
+            biomed_rrf_post_merge,
             priority=100,
             namespace="biomed",
             plugin_name="biomed",

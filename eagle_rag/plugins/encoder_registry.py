@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-__all__ = ["EncoderInfo", "EncoderRegistry"]
+__all__ = ["CollectionProfile", "EncoderInfo", "EncoderRegistry"]
 
 
 class VectorEncoder(Protocol):
@@ -29,12 +29,23 @@ class EncoderInfo:
     modality: str = "text"
 
 
+@dataclass(frozen=True)
+class CollectionProfile:
+    """Per-collection metadata registered by plugins (Core or domain)."""
+
+    dim: int
+    default_encoder: str | None = None
+    hybrid_enabled: bool = False
+    extra_output_fields: tuple[str, ...] = ()
+
+
 class EncoderRegistry:
     """Maps encoder name to instance; validates dim against collections."""
 
     def __init__(self) -> None:
         self._encoders: dict[str, EncoderInfo] = {}
         self._collection_dims: dict[str, int] = {}
+        self._collection_profiles: dict[str, CollectionProfile] = {}
 
     def register(
         self,
@@ -46,8 +57,42 @@ class EncoderRegistry:
     ) -> None:
         self._encoders[name] = EncoderInfo(name=name, dim=dim, encoder=encoder, modality=modality)
 
-    def register_collection_dim(self, collection: str, dim: int) -> None:
+    def register_collection(
+        self,
+        collection: str,
+        *,
+        dim: int,
+        default_encoder: str | None = None,
+        hybrid_enabled: bool = False,
+        extra_output_fields: tuple[str, ...] = (),
+    ) -> None:
+        """Register collection dim, default encoder, hybrid flag, and optional output fields."""
         self._collection_dims[collection] = dim
+        self._collection_profiles[collection] = CollectionProfile(
+            dim=dim,
+            default_encoder=default_encoder,
+            hybrid_enabled=hybrid_enabled,
+            extra_output_fields=extra_output_fields,
+        )
+
+    def register_collection_dim(self, collection: str, dim: int) -> None:
+        """Backward-compatible dim-only registration."""
+        self.register_collection(collection, dim=dim)
+
+    def collection_profile(self, collection: str) -> CollectionProfile | None:
+        return self._collection_profiles.get(collection)
+
+    def default_encoder_for_collection(self, collection: str) -> str | None:
+        profile = self._collection_profiles.get(collection)
+        return profile.default_encoder if profile else None
+
+    def hybrid_enabled_for_collection(self, collection: str) -> bool:
+        profile = self._collection_profiles.get(collection)
+        return bool(profile and profile.hybrid_enabled)
+
+    def extra_output_fields_for_collection(self, collection: str) -> tuple[str, ...]:
+        profile = self._collection_profiles.get(collection)
+        return profile.extra_output_fields if profile else ()
 
     def get(self, name: str) -> EncoderInfo:
         if name not in self._encoders:
