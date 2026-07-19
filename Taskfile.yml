@@ -293,6 +293,11 @@ tasks:
     cmds:
       - uv run python eval/biomed/scripts/ingest_corpus.py {{.INGEST_ARGS}}
 
+  biomed:ingest:urls:
+    desc: Batch POST /ingest for manifest news_urls (and optional --section)
+    cmds:
+      - uv run python eval/biomed/scripts/ingest_urls.py {{.INGEST_URL_ARGS}}
+
   biomed:e2e:
     desc: Biomed deploy smoke (health, KB, ingest sample, search)
     cmds:

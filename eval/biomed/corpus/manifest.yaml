@@ -194,3 +194,66 @@ company_urls:
   - url: https://www.hutch-med.com/esmoasia-ash-2025/
     title: HUTCHMED ESMO Asia ASH 2025 Data
     tags: [company, news, clinical]
+
+# HUTCHMED news archive (SC pages). Ingest live via ingest_urls.py (POST /ingest url=…).
+news_urls:
+  - url: https://www.hutch-med.com/sc/savolitinib-gc-nmpa-approval/
+    title: Savolitinib MET-amplified gastric cancer NMPA approval
+    tags: [company, news, savolitinib, regulatory]
+  - url: https://www.hutch-med.com/sc/fanregratinib-icc-esmogi26/
+    title: Fanregratinib ICC ESMO GI 2026 data
+    tags: [company, news, fanregratinib, clinical]
+  - url: https://www.hutch-med.com/sc/eslim-02-eha26/
+    title: Sovleplenib ESLIM-02 EHA 2026 phase III data
+    tags: [company, news, sovleplenib, clinical]
+  - url: https://www.hutch-med.com/sc/nature-medicine-savolitinib-in-met-amplified-gastric-or-gastroesophageal-junction-adenocarcinoma-a-phase-2-trial/
+    title: Nature Medicine savolitinib MET-amplified GC phase 2 publication
+    tags: [company, news, savolitinib, publication]
+  - url: https://www.hutch-med.com/sc/asco26/
+    title: HUTCHMED ASCO 2026 data presentations
+    tags: [company, news, clinical]
+  - url: https://www.hutch-med.com/sc/nmpa-approval-for-elunate-fruquintinib-plus-tyvyt-sintilimab-for-rcc/
+    title: Fruquintinib plus sintilimab RCC combination NMPA approval
+    tags: [company, news, fruquintinib, regulatory]
+  - url: https://www.hutch-med.com/sc/sovleplenib-waiha-china-nda/
+    title: Sovleplenib wAIHA China NDA accepted
+    tags: [company, news, sovleplenib, regulatory]
+  - url: https://www.hutch-med.com/sc/aacr2026/
+    title: HUTCHMED AACR 2026 data presentations
+    tags: [company, news, clinical]
+  - url: https://www.hutch-med.com/sc/hmpl-760-dlbcl-china-ph3-initiate/
+    title: HMPL-760 relapsed/refractory DLBCL China phase III initiated
+    tags: [company, news, clinical]
+  - url: https://www.hutch-med.com/sc/hutchmed-announces-update-on-licensed-oncology-product-tazverik-in-china/
+    title: Tazverik licensed oncology product update in China
+    tags: [company, news, tazverik]
+  - url: https://www.hutch-med.com/sc/2025-full-year-results/
+    title: HUTCHMED 2025 full-year results and business update
+    tags: [company, news, pipeline]
+  - url: https://www.hutch-med.com/sc/a580-global-phase-i/
+    title: HMPL-A580 PI3K/PIKK-EGFR ATTC global phase I initiated
+    tags: [company, news, clinical]
+  - url: https://www.hutch-med.com/sc/the-lancet-savolitinib-plus-osimertinib-versus-chemotherapy-for-advanced-egfr-mutation-positive-met-amplified-non-small-cell-lung-cancer-in-china-sachi-interim-analysis-of-a-multicentre-open-la/
+    title: Lancet SACHI savolitinib plus osimertinib interim analysis publication
+    tags: [company, news, savolitinib, publication]
+  - url: https://www.hutch-med.com/sc/sachi-the-lancet-publication/
+    title: SACHI phase III results published in The Lancet
+    tags: [company, news, savolitinib, publication]
+  - url: https://www.hutch-med.com/sc/sovleplenib-eslim-02-waiha-topline/
+    title: Sovleplenib ESLIM-02 wAIHA phase III positive topline
+    tags: [company, news, sovleplenib, clinical]
+  - url: https://www.hutch-med.com/sc/surufatinib-pdac-phase-iii-initiate/
+    title: Surufatinib plus camrelizumab PDAC phase III initiated
+    tags: [company, news, surufatinib, clinical]
+  - url: https://www.hutch-med.com/sc/savolitinib-gc-china-nda/
+    title: Savolitinib MET-amplified gastric cancer China NDA accepted
+    tags: [company, news, savolitinib, regulatory]
+  - url: https://www.hutch-med.com/sc/fanregratinib-icc-china-nda/
+    title: Fanregratinib second-line ICC China NDA accepted
+    tags: [company, news, fanregratinib, regulatory]
+  - url: https://www.hutch-med.com/sc/a251-global-phase-i/
+    title: HMPL-A251 ATTC global phase I initiated
+    tags: [company, news, clinical]
+  - url: https://www.hutch-med.com/sc/nrdl2025/
+    title: NRDL and commercial insurance innovative drug list 2025
+    tags: [company, news, regulatory]
