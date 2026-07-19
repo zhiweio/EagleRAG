@@ -18,7 +18,7 @@ from eagle_rag.api.app import app
 from eagle_rag.config import get_settings
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def client() -> TestClient:
     with TestClient(app) as c:
         yield c

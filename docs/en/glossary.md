@@ -18,17 +18,30 @@ This project: an industry-agnostic, multi-tenant multimodal RAG **data layer** f
 
 ### Knowledge Base (KB)
 
-A tenant isolation unit identified by `kb_name`. Each KB owns documents, vectors, sessions, tasks, and optional per-KB settings (e.g. `pdf_text_page_ratio`).
+A knowledge-base unit identified by `kb_name` **inside** one deployed domain (`plugin_namespace`). Each KB owns documents, vectors, sessions, tasks, and optional per-KB settings (e.g. `pdf_text_page_ratio`).
 
-**Storage:** Rows in `knowledge_bases` table; vectors filtered in shared Milvus collections.
+**Storage:** Namespace-scoped rows in `knowledge_bases`; vectors filtered by `kb_name` scalar on base collections (`eagle_text`, `eagle_visual`) and any domain specialized collections in the same Milvus Database.
 
 ### Multi-tenancy
 
-Isolation model where `kb_name` threads through API, Celery kwargs, Milvus scalar filters, PostgreSQL columns, and the dedup composite key `(sha256, kb_name)`.
+Eagle-RAG isolates data on **two axes** — do not conflate them in API or UI copy:
 
-**Isolation model:** `kb_name` threads through API, Celery kwargs, Milvus scalar filters, PostgreSQL columns, and dedup key `(sha256, kb_name)`.
+| Axis | Identifier | Mechanism |
+| --- | --- | --- |
+| **Domain** | `plugin_namespace` | Milvus **Database** per domain + PostgreSQL repository filter (deploy-time; `settings.plugins.default_namespace` or `EAGLE_RAG_PROFILE`) |
+| **Knowledge base** | `kb_name` | Scalar filter **inside** that Database (request-time) |
 
-**Critical tension:** correctness of `kb_name` / `scope_filter` pushdown on every query path — a missing filter in one code path is a data leak, not a performance issue.
+Within one domain Database, many KBs share base collections and are separated by `kb_name`. Cross-domain retrieval uses **multiple instances**, not Core fan-out across Milvus Databases.
+
+**Propagation:** `plugin_namespace` from instance config; `kb_name` through API, Celery kwargs, Milvus scalar filters, PostgreSQL repositories, and dedup key `(sha256, kb_name, plugin_namespace)`.
+
+**Critical tension:** correctness of `plugin_namespace` binding and `kb_name` / `scope_filter` pushdown on every query path — a missing filter in one code path is a data leak, not a performance issue.
+
+See [Multi-tenancy](architecture/multi-tenancy.md) and [Plugin glossary](architecture/glossary-plugin.md).
+
+### `plugin_namespace`
+
+Deploy-time domain binding (= Milvus Database name). Fixed by `settings.plugins.default_namespace` or `EAGLE_RAG_PROFILE`; **not** a runtime UI switcher. Mismatched explicit `plugin_namespace` on a request returns **403** unless `plugins.allow_namespace_override` (tests only).
 
 ### `kb_name`
 
@@ -89,7 +102,7 @@ External document semantic parser ([Ontos-AI/knowhere](https://github.com/Ontos-
 
 Visual encoder + slicer library ([StarTrail-org/PixelRAG](https://github.com/StarTrail-org/PixelRAG)).
 
-**Eagle-RAG usage:** `pixelrag_render` slices pages; `_Qwen3VLVisualEncoder` embeds tiles. **No** `pixelrag-serve`, **no** FAISS — vectors go to Milvus.
+**Eagle-RAG usage:** `pixelrag_render` slices pages; `get_visual_encoder()` embeds tiles (`pixelrag` local HF or `dashscope` Bailian). **No** `pixelrag-serve`, **no** FAISS — vectors go to Milvus.
 
 **Code:** `eagle_rag/ingest/pixelrag_adapter.py` — `pixelrag_build`, `knowhere_visual_chunks`.
 
@@ -118,7 +131,7 @@ End-to-end flow: accept document → dedup → upload MinIO → `ingest_router` 
 
 ### `source_type`
 
-Metadata-only tag: `policy` / `financial` / `business` / `bidding` / `tax` / `other`. Inferred by `infer_source_type()` from filename/URI keywords. **Does not influence routing.**
+Free-form metadata tag (e.g. `policy` / `financial` / `other`, or deploy-specific labels). Inferred by `infer_source_type()`: prefers `source_type_hint`, else matches `settings.ingest.source_type.rules` (**Core defaults to `rules: []`** — no finance/tax hardcoding). **Does not influence routing.**
 
 **Use:** Milvus scalar filter facet; QA scope UI.
 
@@ -128,7 +141,7 @@ Metadata-only tag: `policy` / `financial` / `business` / `bidding` / `tax` / `ot
 
 ### Milvus
 
-Vector database ([milvus-io/milvus](https://github.com/milvus-io/milvus)) hosting `eagle_text` and `eagle_visual` on one cluster. Scalar inverted indexes on `kb_name`, `document_id`, `parent_section`, etc. enable hybrid filter + ANN in one query.
+Vector database ([milvus-io/milvus](https://github.com/milvus-io/milvus)) on one cluster. Each **`plugin_namespace`** maps to a Milvus **Database** (`MilvusClientPool`, `db_name=` — no per-request DB switch). Every domain Database has base collections `eagle_text` and `eagle_visual`; domain plugins may add specialized collections (e.g. `eagle_text_biomed`) in the same Database. **KB isolation** is `kb_name` scalar filtering inside that Database, not separate collections per KB. Scalar inverted indexes on `kb_name`, `document_id`, `parent_section`, etc. enable hybrid filter + ANN in one query.
 
 ### `eagle_text`
 
@@ -201,9 +214,9 @@ Post-retrieval reordering via DashScope `qwen3-rerank` (`qwen3-rerank` family). 
 
 ### MCP (Model Context Protocol)
 
-[Model Context Protocol](https://modelcontextprotocol.io/) — exposes `ingest` / `query` / `retrieve_text` / `retrieve_visual` to Agents at `/mcp` (HTTP) or stdio.
+[Model Context Protocol](https://modelcontextprotocol.io/) — exposes **`core_ingest`**, **`core_query`**, **`core_retrieve_text`**, **`core_retrieve_visual`** to Agents at `/mcp` (HTTP) or stdio. Domain plugins register `{namespace}_{name}` tools; each instance exposes only `core_*` plus `default_namespace` tools (G3). Tools are **RAG-only** (retrieve / assemble context — no side-effect names).
 
-**Code:** `eagle_rag/api/mcp_server.py`, `TOOL_DEFINITIONS`.
+**Code:** `eagle_rag/api/mcp_server.py`, `eagle_rag/plugins/mcp_registry.py`, `TOOL_DEFINITIONS`.
 
 ### SSE (Server-Sent Events)
 
@@ -225,7 +238,7 @@ Celery queue `dead_letter` for messages that exhausted retries. Inspectable via 
 
 ### Lazy initialization
 
-No service connects at import. `get_settings()`, Milvus clients, `_Qwen3VLVisualEncoder` construct on first use — `@lru_cache` or module-level singletons.
+No service connects at import. `get_settings()`, Milvus clients, `get_visual_encoder()` construct on first use — `@lru_cache` or module-level singletons.
 
 ### Graceful degradation
 
@@ -234,6 +247,18 @@ External failure degrades a **feature**, not the process. Examples: retriever ex
 ### `unknown` vs `down` (health)
 
 `/health` probe status: `unknown` = not configured / not probed; `down` = probed and failed. PixelRAG reports `unknown` when visual provider is not `pixelrag`.
+
+### Microkernel plugins / `plugins.options`
+
+In-process, in-repo plugins (`settings.plugins.enabled`). Vertical knobs live under `plugins.options.<namespace>`, read via `plugin_options()`. See [plugin glossary](architecture/glossary-plugin.md), [ADR-008](architecture/adr/008-rag-only-plugin-platform.md).
+
+### Hot-path hooks
+
+`PARSE` / `CHUNK` / `QUERY_ASSEMBLE` must run on ingest/query hot paths (`hotpath_hooks.py`) — subscribe-only is not enough.
+
+### RAG-only MCP
+
+MCP tools retrieve and assemble context only. Side-effect names like `execute_sql` are rejected (`assert_rag_only_tool_name`). Core tools use the `core_*` prefix.
 
 ---
 

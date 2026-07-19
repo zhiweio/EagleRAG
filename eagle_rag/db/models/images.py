@@ -17,6 +17,7 @@ class Image(SQLModel, table=True):
     __table_args__ = (
         Index("idx_images_document", "document_id", "page"),
         Index("idx_images_kb", "kb_name"),
+        Index("idx_images_namespace", "plugin_namespace"),
     )
 
     image_id: str = Field(primary_key=True, sa_type=Text())
@@ -29,3 +30,4 @@ class Image(SQLModel, table=True):
     height: int | None = Field(default=None, sa_type=Integer())
     created_at: datetime = Field(sa_column=timestamptz())
     kb_name: str = Field(default="default", sa_type=Text())
+    plugin_namespace: str = Field(default="core", sa_type=Text())

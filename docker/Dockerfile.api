@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
-# Eagle-RAG 后端 API 镜像（多阶段构建，非 root 运行）。
-# 构建：docker build -f docker/Dockerfile.api -t eagle-rag-api .
+# Eagle-RAG backend API image (multi-stage, non-root runtime).
+# Build: docker build -f docker/Dockerfile.api -t eagle-rag-api .
 ARG PYTHON_VERSION=3.12
 
 # ---------------- builder ----------------
@@ -10,10 +10,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/opt/venv \
-    # 强制 uv 使用 base 镜像的系统 Python（/usr/local/bin/python3.12），
-    # 否则 uv 默认下载 cpython-3.14 到 /root/.local/share/uv/ 并把 venv 的
-    # python 软链指向那里；runtime 阶段只 COPY /opt/venv，软链目标不存在
-    # → 容器内 exec 任何 venv 脚本报 "no such file or directory"。
+    # Force uv to use the base-image system Python (/usr/local/bin/python3.12).
+    # Otherwise uv may download cpython elsewhere and symlink the venv python there;
+    # runtime only COPY /opt/venv, so those symlinks break with "no such file or directory".
     UV_PYTHON_PREFERENCE=only-system
 
 WORKDIR /app
@@ -45,16 +44,61 @@ ENV HOME=/root
 RUN mkdir -p /root/.cache/knowhere-parse-sdk \
     && (/opt/venv/bin/python -c "from knowhere_parse import KnowhereParser; KnowhereParser()" || true)
 
+# ---------------- biomed encoder prefetch (optional, biomed profile only) ----------------
+# Downloads PubMedBERT / MolFormer / MedImageInsight / UNI2 weights so the API
+# can encode biomed queries without HuggingFace connectivity. Enabled via
+# PREFETCH_BIOMED_MODELS=1 (off by default; core builds skip this entirely).
+FROM python:${PYTHON_VERSION}-slim AS biomed-model-prefetch
+
+ARG PREFETCH_BIOMED_MODELS=0
+ARG MODEL_DOWNLOAD_SOURCE=modelscope
+ARG HF_ENDPOINT=https://hf-mirror.com
+ARG HF_HUB_DOWNLOAD_MAX_WORKERS=8
+ARG BIOMED_HTTP_PROXY=
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HF_HOME=/opt/huggingface/hub \
+    HF_ENDPOINT=${HF_ENDPOINT} \
+    HF_HUB_DOWNLOAD_TIMEOUT=600 \
+    HF_HUB_DOWNLOAD_MAX_WORKERS=${HF_HUB_DOWNLOAD_MAX_WORKERS} \
+    MODEL_DOWNLOAD_SOURCE=${MODEL_DOWNLOAD_SOURCE} \
+    BIOMED_HTTP_PROXY=${BIOMED_HTTP_PROXY}
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+RUN uv venv /opt/venv \
+    && uv pip install --python /opt/venv/bin/python 'huggingface_hub>=0.26' 'modelscope>=1.9'
+
+COPY docker/scripts/prefetch_biomed_models.py /tmp/prefetch_biomed_models.py
+RUN --mount=type=cache,target=/var/cache/eagle-rag/biomed-models,id=eagle-rag-biomed-models-cache \
+    mkdir -p /var/cache/eagle-rag/biomed-models /opt/huggingface/biomed \
+    && if [ "${PREFETCH_BIOMED_MODELS}" = "1" ]; then \
+        PREFETCH_BIOMED_MODELS=1 \
+        BIOMED_MODEL_ROOT=/var/cache/eagle-rag/biomed-models \
+        /opt/venv/bin/python /tmp/prefetch_biomed_models.py \
+        && cp -a /var/cache/eagle-rag/biomed-models/. /opt/huggingface/biomed/; \
+    else \
+        echo "PREFETCH_BIOMED_MODELS=${PREFETCH_BIOMED_MODELS}; skipping biomed encoder prefetch"; \
+    fi \
+    && rm -f /tmp/prefetch_biomed_models.py
+
 # ---------------- runtime ----------------
 FROM python:${PYTHON_VERSION}-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/opt/venv/bin:${PATH}"
+    PATH="/opt/venv/bin:${PATH}" \
+    # PluginAudit multi-sink defaults (override via compose / .env).
+    # Redis recent window uses CELERY_BROKER_URL or MCP_REDIS_URL at runtime.
+    TELEMETRY_ENABLED=true \
+    AI_TELEMETRY_LOG_FILE=logs/ai_telemetry.jsonl \
+    OP_LOG_FILE=logs/eagle_rag.log \
+    PLUGIN_AUDIT_ENABLED=true \
+    PLUGIN_AUDIT_REDIS_ENABLED=true
 
 WORKDIR /app
 
-# 运行期同样需要上述系统库（浏览器运行时依赖）+ curl（健康检查）。
+# Same system libs at runtime (browser deps) + curl (healthcheck).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libdrm2 libxkbcommon0 \
         libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
@@ -62,21 +106,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl git default-jre-headless \
     && rm -rf /var/lib/apt/lists/*
 
-# 从 builder 拷贝虚拟环境与 knowhere-parse-sdk worker 缓存。
+# Copy venv and knowhere-parse-sdk worker cache from builder.
+# biomed-model-prefetch provides /opt/huggingface/biomed when PREFETCH_BIOMED_MODELS=1.
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /root/.cache/knowhere-parse-sdk /home/eagle/.cache/knowhere-parse-sdk
+COPY --from=biomed-model-prefetch /opt/huggingface/biomed /opt/huggingface/biomed
 
-# 非 root 用户：先创建并 chown /app 及运行期可写目录（logs / data），
-# 再切换 USER。settings.yaml 默认 op_log_file=logs/eagle_rag.log、
-# ai_log_file=logs/ai_telemetry.jsonl、storage.data_dir=./data，均为相对 /app 的路径；
-# 若 /app 归 root，eagle 无权创建 logs/ → 启动期 PermissionError（uv-docker 最佳实践）。
+# Non-root user: create and chown /app plus writable dirs (logs / data) before USER.
+# settings.yaml defaults op_log_file=logs/eagle_rag.log,
+# ai_log_file=logs/ai_telemetry.jsonl (includes PluginAudit decisions),
+# storage.data_dir=./data — all relative to /app. If /app is root-owned, eagle cannot
+# create logs/ → PermissionError at startup. Compose mounts ./logs:/app/logs for host access.
 RUN useradd --create-home --uid 1000 eagle \
-    && mkdir -p /app/logs /app/data /home/eagle/.cache/knowhere-parse-sdk \
-    && chown -R eagle:eagle /app /home/eagle/.cache
+    && mkdir -p /app/logs /app/data /home/eagle/.cache/knowhere-parse-sdk /opt/huggingface \
+    && chown -R eagle:eagle /app /home/eagle/.cache /opt/huggingface
 
-# 源码与锁文件（eagle_rag/settings.yaml 随包内）。
+# Source and lockfiles (eagle_rag/settings.yaml ships in-package).
 COPY --chown=eagle:eagle pyproject.toml uv.lock ./
 COPY --chown=eagle:eagle eagle_rag ./eagle_rag
+COPY --chown=eagle:eagle plugins ./plugins
 
 USER eagle
 

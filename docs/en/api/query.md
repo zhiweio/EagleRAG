@@ -17,6 +17,9 @@ The **query** tag group covers multimodal Q&A, pure retrieval, session persisten
 
 Session routes (`/sessions/*`) are documented in [Sessions](sessions.md).
 
+!!! note "Multi-collection retrieval"
+    Core queries hit `eagle_text` and/or `eagle_visual` in the instance-bound Milvus Database. Domain profiles may add specialized collections via `QueryRouteClassifier` + `RetrieverOrchestrator` (RRF merge). Core default never auto-queries specialized collections (G4). See [Plugin architecture](../architecture/plugin-architecture.md).
+
 ---
 
 ## Request models
@@ -358,4 +361,4 @@ See [API client](../frontend/api-client.md) for the full generation pipeline.
 - [Router engine](../backend/router-engine.md) — routing matrix
 - [Generation](../backend/generation.md) — rerank + VLM streaming
 - [Attachments](attachments.md) — lazy parse on query
-- [MCP tools](mcp-tools.md) — `query` tool schema
+- [MCP tools](mcp-tools.md) — `core_query` tool schema

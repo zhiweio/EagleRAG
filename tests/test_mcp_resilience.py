@@ -341,7 +341,7 @@ def test_query_tool_returns_circuit_open_on_breaker_error(_mock_record_mcp_call)
     ):
         result = query("个税起征点")
 
-    assert result == {"error": "circuit_open: query"}
+    assert result == {"error": "circuit_open: core_query"}
 
 
 def test_query_tool_returns_timeout_on_timeout_error(_mock_record_mcp_call) -> None:
@@ -354,7 +354,7 @@ def test_query_tool_returns_timeout_on_timeout_error(_mock_record_mcp_call) -> N
     ):
         result = query("个税起征点")
 
-    assert result == {"error": "timeout: query"}
+    assert result == {"error": "timeout: core_query"}
 
 
 def test_retrieve_text_tool_returns_circuit_open(_mock_record_mcp_call) -> None:
@@ -368,7 +368,7 @@ def test_retrieve_text_tool_returns_circuit_open(_mock_record_mcp_call) -> None:
         result = retrieve_text("查询")
 
     assert isinstance(result, list)
-    assert result[0]["error"] == "circuit_open: retrieve_text"
+    assert result[0]["error"] == "circuit_open: core_retrieve_text"
 
 
 def test_retrieve_visual_tool_returns_timeout(_mock_record_mcp_call) -> None:
@@ -382,7 +382,7 @@ def test_retrieve_visual_tool_returns_timeout(_mock_record_mcp_call) -> None:
         result = retrieve_visual("图表")
 
     assert isinstance(result, list)
-    assert result[0]["error"] == "timeout: retrieve_visual"
+    assert result[0]["error"] == "timeout: core_retrieve_visual"
 
 
 def test_query_requires_query_or_image_base64(_mock_record_mcp_call) -> None:
@@ -479,7 +479,7 @@ def test_ingest_tool_returns_circuit_open(_mock_record_mcp_call) -> None:
     ):
         result = ingest("/tmp/test.pdf")
 
-    assert result == {"error": "circuit_open: ingest"}
+    assert result == {"error": "circuit_open: core_ingest"}
 
 
 def test_ingest_tool_returns_timeout(_mock_record_mcp_call) -> None:
@@ -492,4 +492,4 @@ def test_ingest_tool_returns_timeout(_mock_record_mcp_call) -> None:
     ):
         result = ingest("/tmp/test.pdf")
 
-    assert result == {"error": "timeout: ingest"}
+    assert result == {"error": "timeout: core_ingest"}

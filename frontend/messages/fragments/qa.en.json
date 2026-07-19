@@ -23,7 +23,7 @@
       "filter": "Filter",
       "kbName": "Knowledge base",
       "kbNameAll": "All",
-      "kbNamePlaceholder": "Enter kb name, e.g. finance",
+      "kbNamePlaceholder": "Enter kb name, e.g. my-kb",
       "kbNameClear": "Clear",
       "kbNameHint": "Leave empty for the default kb; setting it narrows retrieval to that kb"
     },
@@ -77,7 +77,12 @@
       "adaptivePdf": "PDF→image slice",
       "adaptiveMd": "MD→text+breadcrumb",
       "adaptiveXlsx": "XLSX→data table",
-      "openFull": "Open full source"
+      "openFull": "Open full source",
+      "anchorsTitle": "Four anchors",
+      "anchorChunkType": "chunk_type",
+      "anchorParentSection": "parent_section",
+      "anchorContentSummary": "content_summary",
+      "anchorSourceChunkId": "source_chunk_id"
     },
     "rail": {
       "sources": "Sources",
@@ -119,7 +124,11 @@
       "thinkingLive": "Thinking",
       "thinkingDone": "Thought · {count} steps",
       "count": "items",
-      "empty": "No step information"
+      "empty": "No step information",
+      "collectionPlans": "Collections",
+      "planEncoder": "Encoder {encoder}",
+      "planTopK": "top_k {topK}",
+      "planTopKUnit": "k"
     },
     "search": {
       "ask": "Ask",

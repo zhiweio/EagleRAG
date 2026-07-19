@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from eagle_rag.config import get_settings
+from eagle_rag.db.repositories.base import instance_namespace
+from eagle_rag.index.milvus_pool import get_milvus_pool
 from eagle_rag.telemetry import get_logger
 
 logger = get_logger(__name__)
@@ -11,44 +13,35 @@ __all__ = ["compute_kb_status"]
 
 
 def _milvus_reachable() -> bool:
-    """Probe whether both Milvus collections are reachable (has_collection + describe)."""
-    try:
-        from pymilvus import MilvusClient
-    except ImportError:
-        logger.warning("pymilvus not installed; KB status degraded")
-        return False
+    """Probe whether base Milvus collections are reachable (G24 pooled client)."""
     cfg = get_settings().milvus
-    client = MilvusClient(uri=f"http://{cfg.host}:{cfg.port}")
     try:
+        client = get_milvus_pool().get()
         for name in [cfg.text_collection, cfg.visual_collection]:
-            try:
-                if not client.has_collection(name):
-                    logger.warning("Milvus collection does not exist: %s", name)
-                    return False
-                client.describe_collection(name)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Milvus describe_collection failed %s: %s", name, exc)
+            if not client.has_collection(name):
+                logger.warning("Milvus collection does not exist: %s", name)
                 return False
+            client.describe_collection(name)
         return True
-    finally:
-        try:
-            client.close()
-        except Exception:  # noqa: BLE001
-            pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Milvus health probe failed: %s", exc)
+        return False
 
 
 async def _has_recent_failures(kb_name: str) -> bool:
     """Whether the KB has any failed tasks in the last hour."""
     from eagle_rag.db import async_fetchrow
 
+    ns = instance_namespace()
     try:
         row = await async_fetchrow(
             """
             SELECT COUNT(*)::int AS cnt FROM task_audit
-            WHERE kb_name = $1 AND status = 'failed'
+            WHERE kb_name = $1 AND plugin_namespace = $2 AND status = 'failed'
               AND created_at >= NOW() - INTERVAL '1 hour'
             """,
             kb_name,
+            ns,
         )
         return bool(row and int(row["cnt"] or 0) > 0)
     except Exception as exc:  # noqa: BLE001
@@ -57,14 +50,7 @@ async def _has_recent_failures(kb_name: str) -> bool:
 
 
 async def compute_kb_status(kb_name: str) -> str:
-    """Derive KB runtime status: online / degraded / offline.
-
-    - Both Milvus collections reachable and no failed tasks in the last hour → online
-    - Milvus reachable but failed tasks in the last hour → degraded
-    - Milvus unreachable → offline
-
-    Each step is wrapped in try/except and never raises.
-    """
+    """Derive KB runtime status: online / degraded / offline."""
     milvus_ok = False
     try:
         milvus_ok = _milvus_reachable()

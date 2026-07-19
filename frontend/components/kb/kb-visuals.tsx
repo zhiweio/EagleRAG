@@ -13,6 +13,7 @@ import {
   FileSpreadsheet,
   FileText,
   FileType,
+  Globe,
   Landmark,
   Pill,
   Presentation,
@@ -162,6 +163,22 @@ const FILE_FORMAT_STYLES: Record<string, { icon: FileIcon; color: string; soft: 
   webp: { icon: FileImage, color: "#7C3AED", soft: "#EDE9FE" },
 };
 
+/** HTTP(S) web page / URL resource (no file extension in path). */
+const URL_RESOURCE_STYLE = { icon: Globe, color: "#0284C7", soft: "#E0F2FE" };
+
+export function isHttpUri(value: string | undefined | null): boolean {
+  if (!value) return false;
+  const lower = value.trim().toLowerCase();
+  return lower.startsWith("http://") || lower.startsWith("https://");
+}
+
+function pathExtension(value: string): string {
+  const base = value.split(/[?#]/)[0] ?? value;
+  const segment = base.split(/[/\\]/).pop() ?? base;
+  const idx = segment.lastIndexOf(".");
+  return idx >= 0 ? segment.slice(idx + 1).toLowerCase() : "";
+}
+
 /** Format-distribution segment key → representative filename for badge icons. */
 export const FORMAT_KEY_FILENAMES: Record<string, string> = {
   pdf_text: "document.pdf",
@@ -182,8 +199,33 @@ export function fileFormatFromKey(key: string) {
   return fileFormatFromName(FORMAT_KEY_FILENAMES[key] ?? "file.bin");
 }
 
+export function resolveFileFormat(opts: {
+  name: string;
+  sourceUri?: string | null;
+}): { icon: FileIcon; color: string; soft: string } {
+  const candidates = [opts.sourceUri, opts.name].filter(
+    (value): value is string => typeof value === "string" && value.trim().length > 0,
+  );
+  for (const candidate of candidates) {
+    if (!isHttpUri(candidate)) continue;
+    const ext = pathExtension(candidate);
+    if (ext && FILE_FORMAT_STYLES[ext]) {
+      return FILE_FORMAT_STYLES[ext];
+    }
+    return URL_RESOURCE_STYLE;
+  }
+  return fileFormatFromName(opts.name);
+}
+
 export function fileFormatFromName(name: string) {
-  // Reject non-filename inputs (UUIDs, URLs, bare IDs) — these have no usable
+  if (isHttpUri(name)) {
+    const ext = pathExtension(name);
+    if (ext && FILE_FORMAT_STYLES[ext]) {
+      return FILE_FORMAT_STYLES[ext];
+    }
+    return URL_RESOURCE_STYLE;
+  }
+  // Reject non-filename inputs (UUIDs, bare IDs) — these have no usable
   // extension, so fall back to a neutral File icon instead of showing the
   // first 4 characters of the id (e.g. "3770" for a UUID).
   const hasDot = name.includes(".");
@@ -205,14 +247,16 @@ export function fileFormatFromName(name: string) {
  */
 export function FileBadge({
   name,
+  sourceUri,
   size = 38,
   forceIcon,
 }: {
   name: string;
+  sourceUri?: string | null;
   size?: number;
   forceIcon?: FileIcon;
 }) {
-  const f = fileFormatFromName(name);
+  const f = resolveFileFormat({ name, sourceUri });
   const Icon = forceIcon ?? f.icon;
   const iconSize = Math.round(size * 0.5);
   return (

@@ -9,8 +9,9 @@ Eagle-RAG 仓库布局与**模块依赖图**。除非另有说明，路径均相
 ```
 eagle-rag/
 ├── eagle_rag/              # Python 后端包（主包）
-├── frontend/               # Next.js 16 应用（Bun）
-├── tests/                  # Pytest 套件
+├── plugins/                # 同仓领域插件（biomed / lakehouse_bi / _template）
+├── frontend/               # Next.js 16 应用（Bun）— Core 橱窗 UI only
+├── tests/                  # Pytest 套件（含 tests/plugins/）
 ├── alembic/                # 数据库迁移
 │   └── versions/
 ├── docker/                 # Dockerfile + knowhere-self-hosted/
@@ -45,9 +46,12 @@ eagle-rag/
 | `notifications/` | 用户通知存储 |
 | `tasks/` | Celery 应用、死信、任务状态审计 |
 | `admin/` | 队列指标采样、MCP 日志、系统设置 |
+| `plugins/`（包内） | 微内核：HookBus、PluginManager、hotpath_hooks、mcp_registry |
 | `telemetry/` | loguru、structlog、OpenTelemetry |
 | `metrics.py` | Prometheus MCP 指标（独立应用） |
-| `config.py` | 设置加载器 |
+| `config.py` | 设置加载器（含 `plugin_options()`） |
+
+仓库根另有同仓领域插件目录 `plugins/`（`biomed`、`lakehouse_bi`、`_template`）。二开见 [编写行业插件](../guides/authoring-industry-plugin.md)；产品边界见 [ADR-008](../architecture/adr/008-rag-only-plugin-platform.md)。
 
 ## 模块依赖图
 
@@ -71,6 +75,14 @@ flowchart TB
         SCH["schemas/"]
     end
 
+    subgraph plugins_kernel["eagle_rag/plugins/"]
+        PLM["manager.py PluginManager"]
+        HB["hookbus.py"]
+        IO["ingest_orchestrator.py"]
+        RO["retriever_orchestrator.py"]
+        MCPR["mcp_registry.py"]
+    end
+
     subgraph orchestration["Orchestration"]
         RE["router/router_engine.py"]
         GEN["generation/multimodal_engine.py"]
@@ -92,8 +104,10 @@ flowchart TB
     end
 
     subgraph data_layer["Data layer"]
+        POOL["index/milvus_pool.py"]
         MTX["index/milvus_text_store.py"]
         MVX["index/milvus_visual_store.py"]
+        REPO["db/repositories/"]
         MIN["storage/minio_client.py"]
         DED["storage/dedup.py"]
         DBM["db/models/*"]
@@ -112,41 +126,49 @@ flowchart TB
     subgraph observability["Observability"]
         TEL["telemetry/*"]
         ADM["admin/metrics.py"]
-        PM["metrics.py"]
+        MET["metrics.py"]
     end
 
     FE & MCPc & HTTP --> APP
     APP --> Q & ING & DOC & HL & MCP
+    APP --> PLM
+    MCP --> PLM
+    PLM --> HB
+    HB --> IO & RO
     Q --> RE --> GEN
+    RE --> RO
+    RO --> RET_K & RET_P
     RE --> RET_K & RET_P
     RET_K --> MTX
     RET_P --> MVX
+    MTX & MVX --> POOL
     GEN --> DS
     ING --> RUN --> RTR
+    IO --> MTX & MVX
     RTR --> CEL
     CEL --> KA & PA
     KA --> KH
     KA --> MTX
     PA --> MVX
     KA & PA --> MIN
-    RUN --> DED --> DBM
-    Q --> SESS --> DBM
+    RUN --> DED --> REPO --> DBM
+    Q --> SESS --> REPO
     HL --> ADM
-    MCP --> PM
+    MCP --> MET
     APP & CEL --> TEL
-    DBM --> PG
+    REPO --> PG
     CEL --> RD
-    MTX & MVX --> MV
+    POOL --> MV
     MIN --> S3
 ```
 
 ### 分层规则
 
-1. **`api/`** 可调用 `router`、`ingest/runner`、`sessions`、`kb`、`admin` —— 路由不得直接访问 Milvus（须经 store/retriever）。
-2. **`ingest/`** 任务经 `index/` + `storage/` 写入；派发使用 `send_task_with_trace`。
-3. **`router/`** + **`generation/`** 仅通过 retriever 与 image store 读取向量。
-4. **`db/models/`** —— 无业务逻辑；schema 由 Alembic 拥有。
-5. **`telemetry/`** —— 不得从 api/ingest 导入（避免循环）；由消费者导入 telemetry。
+1. **`api/`** 可调用 `router`、`ingest/runner`、`plugins`（经引擎）、`sessions`、`kb`、`admin` — 路由不得直接访问 Milvus（须经 store/retriever/orchestrator）。
+2. **`ingest/`** 任务经 `index/` + `IngestOrchestrator` hooks + `storage/` 写入；派发使用 `send_task_with_trace`。
+3. **`router/`** + **`generation/`** 经 retriever 与 `RetrieverOrchestrator` 读取向量。
+4. **`db/repositories/`** 在所有 PG 读写注入 `plugin_namespace` — models 中无业务逻辑。
+5. **`telemetry/`** — 不得从 api/ingest 导入（避免循环）；由消费者导入 telemetry。
 
 ## 请求路径（查询）
 
@@ -212,7 +234,7 @@ frontend/
 └── biome.json
 ```
 
-前端仅通过 HTTP 与后端通信（`NEXT_PUBLIC_API_URL`）。无共享 Python/TS 类型 —— OpenAPI 即契约。
+前端仅通过 HTTP 与后端通信（`NEXT_PUBLIC_API_BASE`）。无共享 Python/TS 类型 —— OpenAPI 即契约。
 
 ## `tests/` 结构
 
@@ -284,10 +306,10 @@ alembic/
 | 功能类型 | 涉及位置 |
 | --- | --- |
 | REST 端点 | `api/schemas/`、`api/<router>.py`、`app.py` include |
-| MCP 工具 | `mcp_server.py`、`TOOL_DEFINITIONS`、测试 |
+| MCP 工具 | `mcp_registry.py` + 域 `mcp_tools.py`、`TOOL_DEFINITIONS`、测试 |
 | 摄入格式 | `ingest/router.py`、settings `ingest.routing`、适配器 |
 | 检索模式 | `router/`、`retrievers/`、`settings.yaml` router 段 |
-| 持久化实体 | `db/models/`、Alembic 修订、store 模块 |
+| 持久化实体 | `db/models/`、Alembic 修订、`db/repositories/` 模块 |
 | 后台任务 | `ingest/*_adapter.py` 或新模块、`celery_app.include`、`task_routes` |
 
 ## 相关

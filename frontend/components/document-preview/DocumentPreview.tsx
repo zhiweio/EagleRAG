@@ -5,11 +5,16 @@ import { previewContentUrl, previewTitle } from "@/components/document-preview/p
 import { CsvPreview } from "@/components/document-preview/renderers/CsvPreview";
 import { DocxPreview } from "@/components/document-preview/renderers/DocxPreview";
 import { FallbackPreview } from "@/components/document-preview/renderers/FallbackPreview";
+import { HtmlPreview } from "@/components/document-preview/renderers/HtmlPreview";
 import { HtmlTablePreview } from "@/components/document-preview/renderers/HtmlTablePreview";
 import { ImagePreview } from "@/components/document-preview/renderers/ImagePreview";
+import { MarkdownPreview } from "@/components/document-preview/renderers/MarkdownPreview";
 import { PdfPreview } from "@/components/document-preview/renderers/PdfPreview";
 import { XlsxPreview } from "@/components/document-preview/renderers/XlsxPreview";
-import { resolveRenderer } from "@/components/document-preview/resolve-renderer";
+import {
+  isExternalFilePreview,
+  resolveRenderer,
+} from "@/components/document-preview/resolve-renderer";
 import type { PreviewLayout, PreviewTarget } from "@/components/document-preview/types";
 import { Spinner } from "@/components/ui/spinner";
 import { usePreviewResource } from "@/lib/hooks/usePreviewResource";
@@ -33,7 +38,7 @@ export function DocumentPreview({
   onZoom,
 }: DocumentPreviewProps) {
   const t = useTranslations("documentPreview");
-  const { src: cachedSrc, resourceKey, isLoading, error } = usePreviewResource(target);
+  const { src: cachedSrc, blob, resourceKey, isLoading, error } = usePreviewResource(target);
 
   if (!target) {
     return (
@@ -54,11 +59,15 @@ export function DocumentPreview({
   }
 
   const title = previewTitle(target);
-  const href = previewContentUrl(target);
+  const external = isExternalFilePreview(target);
+  const href =
+    external && target.kind === "file" && target.sourceUri
+      ? target.sourceUri
+      : previewContentUrl(target);
   const renderer = resolveRenderer(target);
   const showShell = layout !== "inline" && layout !== "modal";
   const cacheKey = previewCacheKey(target);
-  const usesRemoteCache = Boolean(cacheKey);
+  const usesRemoteCache = Boolean(cacheKey) && !external;
 
   if (usesRemoteCache && isLoading) {
     return (
@@ -79,6 +88,7 @@ export function DocumentPreview({
 
   const body = renderBody(target, layout, renderer, {
     cachedSrc,
+    blob,
     resourceKey: resourceKey ?? cacheKey,
     onZoom,
   });
@@ -108,10 +118,12 @@ function renderBody(
   renderer: ReturnType<typeof resolveRenderer>,
   {
     cachedSrc,
+    blob,
     resourceKey,
     onZoom,
   }: {
     cachedSrc: string | undefined;
+    blob: Blob | undefined;
     resourceKey: string | null;
     onZoom?: () => void;
   },
@@ -148,6 +160,19 @@ function renderBody(
         remoteUrl={target.chunkId ? (cachedSrc ?? previewContentUrl(target)) : undefined}
       />
     );
+  }
+
+  if (renderer === "markdown") {
+    if (!cachedSrc && !blob) return null;
+    return <MarkdownPreview src={cachedSrc} blob={blob} layout={layout} />;
+  }
+
+  if (renderer === "html") {
+    if (target.kind === "file" && isExternalFilePreview(target) && target.sourceUri) {
+      return <HtmlPreview title={title} layout={layout} externalUrl={target.sourceUri} />;
+    }
+    if (!cachedSrc && !blob) return null;
+    return <HtmlPreview title={title} layout={layout} src={cachedSrc} blob={blob} />;
   }
 
   if (cacheKey) {

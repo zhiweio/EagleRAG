@@ -343,7 +343,7 @@ replay_dead_letter("job-uuid")  # re-dispatch
 | 错误 | 可能原因 | 修复 |
 |-------|-------------|-----|
 | KnowhereError | SDK/服务宕机 | 检查 Knowhere :5005 |
-| ValueError embed provider | 视觉 provider 配置错误 | 设 `embedding.visual.provider: pixelrag` |
+| ValueError embed provider | 未知视觉 provider | 将 `embedding.visual.provider` 设为 `pixelrag` 或 `dashscope` |
 | SoftTimeLimitExceeded | 大文档 | 增大 time limit 或拆分文档 |
 | MinIO download failure | object key 缺失 | 检查 API runner 上传 |
 

@@ -16,7 +16,9 @@ import type { RouteInfo, Step } from "@/lib/types";
 import {
   AlertTriangle,
   ArrowDownWideNarrow,
+  Dna,
   FileText,
+  FlaskConical,
   GitFork,
   ImageIcon,
   type LucideIcon,
@@ -37,6 +39,16 @@ interface ThinkingTraceProps {
 
 const RERANK_KEYS = new Set(["text_top", "visual_top", "text_kept", "visual_kept"]);
 const RECALL_KEYS = new Set(["text_count", "visual_count"]);
+// Route fields already shown in the step header (mode/selected/reason) or rendered
+// by RouteCollectionPlans (collection_plans) - never raw-dump these as key/value chips.
+const ROUTE_SKIP_KEYS = new Set([
+  "name",
+  "detail",
+  "mode",
+  "selected",
+  "reason",
+  "collection_plans",
+]);
 
 /** Pick an icon + a localized label bucket from a backend step name. */
 function stepMeta(name: string | undefined): { icon: LucideIcon; key: string } {
@@ -104,9 +116,118 @@ function formatValue(v: unknown): string {
   }
 }
 
+type CollectionPlan = {
+  collection: string;
+  encoder: string;
+  top_k: string;
+};
+
+type CollectionPlanTone = "text" | "visual" | "biomed" | "chemical";
+
+function parseCollectionPlans(route: RouteInfo | null | undefined): CollectionPlan[] {
+  const raw = route?.collection_plans;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as Record<string, unknown>;
+      const collection = str(row.collection);
+      if (!collection) return null;
+      return {
+        collection,
+        encoder: str(row.encoder),
+        top_k: str(row.top_k),
+      };
+    })
+    .filter((x): x is CollectionPlan => x != null);
+}
+
+/** Modality tone from collection id — selects the row's modality icon. */
+function collectionPlanTone(collection: string): CollectionPlanTone {
+  const id = collection.toLowerCase();
+  if (id.includes("visual") || id.includes("image")) return "visual";
+  if (id.includes("chemical") || id.includes("mol")) return "chemical";
+  if (id.includes("biomed") || id.includes("pubmed") || id.includes("med")) return "biomed";
+  return "text";
+}
+
+/** Drop the shared `eagle_` prefix so the name reads as a modality schedule. */
+function collectionDisplayName(collection: string): string {
+  return collection.replace(/^eagle_/i, "");
+}
+
+const PLAN_TONE_ICONS: Record<CollectionPlanTone, LucideIcon> = {
+  text: FileText,
+  visual: ImageIcon,
+  biomed: Dna,
+  chemical: FlaskConical,
+};
+
+/**
+ * Collection plans as one row per collection: a muted modality icon, the
+ * collection name, a flat encoder chip, and a tabular top_k. Neutral palette
+ * only - no per-modality accent or rail bar.
+ */
+function RouteCollectionPlans({ route }: { route: RouteInfo }) {
+  const t = useTranslations("qa.steps");
+  const plans = parseCollectionPlans(route);
+  if (plans.length === 0) return null;
+
+  return (
+    <ChainOfThoughtStepGroup label={t("collectionPlans")}>
+      <ul className="overflow-hidden rounded-lg border border-border/80 bg-(--surface-muted)/35">
+        {plans.map((plan, index) => {
+          const tone = collectionPlanTone(plan.collection);
+          const Icon = PLAN_TONE_ICONS[tone];
+          const displayName = collectionDisplayName(plan.collection);
+          return (
+            <li
+              key={`${plan.collection}:${plan.encoder}:${plan.top_k}:${index}`}
+              className="flex items-center gap-2 border-border/60 border-b px-3 py-1.5 last:border-b-0"
+            >
+              <Icon aria-hidden className="size-3 shrink-0 text-foreground-tertiary" />
+              <span
+                className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-foreground tracking-tight"
+                title={plan.collection}
+              >
+                {displayName}
+              </span>
+              {plan.encoder ? (
+                <span
+                  className="max-w-[8.5rem] shrink-0 truncate rounded bg-surface px-1.5 py-0.5 font-mono text-[10px] text-foreground-secondary"
+                  title={t("planEncoder", { encoder: plan.encoder })}
+                >
+                  {plan.encoder}
+                </span>
+              ) : null}
+              {plan.top_k ? (
+                <span
+                  className="flex shrink-0 items-baseline gap-0.5 font-mono tabular-nums text-foreground-secondary"
+                  title={t("planTopK", { topK: plan.top_k })}
+                >
+                  <span className="font-semibold text-[12px] leading-none">{plan.top_k}</span>
+                  <span className="text-[9.5px] text-foreground-tertiary uppercase tracking-wide">
+                    {t("planTopKUnit")}
+                  </span>
+                </span>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </ChainOfThoughtStepGroup>
+  );
+}
+
 function stepExtras(step: Step, bucket: string): [string, unknown][] {
   const skip =
-    bucket === "rerank" ? RERANK_KEYS : bucket === "recall" ? RECALL_KEYS : new Set<string>();
+    bucket === "rerank"
+      ? RERANK_KEYS
+      : bucket === "recall"
+        ? RECALL_KEYS
+        : bucket === "route"
+          ? ROUTE_SKIP_KEYS
+          : new Set<string>();
   return Object.entries(step).filter(
     ([k, v]) =>
       k !== "name" &&
@@ -202,6 +323,28 @@ function RecallStepBody({ step }: { step: Step }) {
   );
 }
 
+function RouteStepBody({ step }: { step: Step }) {
+  // The route step event carries the same shape as RouteInfo (both are
+  // `[key: string]: unknown`), so reuse the optimized collection_plans rail
+  // instead of raw-dumping collection_plans as a JSON string.
+  const extras = stepExtras(step, "route");
+  return (
+    <div className="flex flex-col gap-2.5">
+      <RouteCollectionPlans route={step as unknown as RouteInfo} />
+      {extras.length > 0 ? (
+        <ChainOfThoughtSearchResults>
+          {extras.map(([k, v]) => (
+            <ChainOfThoughtSearchResult key={k} title={`${k}: ${formatValue(v)}`}>
+              <span className="text-muted-foreground">{k}</span>
+              <span className="font-semibold">{formatValue(v)}</span>
+            </ChainOfThoughtSearchResult>
+          ))}
+        </ChainOfThoughtSearchResults>
+      ) : null}
+    </div>
+  );
+}
+
 function GenericStepExtras({ step, bucket }: { step: Step; bucket: string }) {
   const extras = stepExtras(step, bucket);
   if (extras.length === 0) return null;
@@ -242,6 +385,9 @@ function StepBody({
       </>
     );
   }
+  if (bucket === "route") {
+    return <RouteStepBody step={step} />;
+  }
   return <GenericStepExtras bucket={bucket} step={step} />;
 }
 
@@ -259,6 +405,12 @@ function hasStepBody(step: Step, bucket: string): boolean {
     return (
       parseNumber(step.text_count) != null ||
       parseNumber(step.visual_count) != null ||
+      stepExtras(step, bucket).length > 0
+    );
+  }
+  if (bucket === "route") {
+    return (
+      parseCollectionPlans(step as unknown as RouteInfo).length > 0 ||
       stepExtras(step, bucket).length > 0
     );
   }
@@ -280,7 +432,9 @@ export function ThinkingTrace({
 }: ThinkingTraceProps) {
   const t = useTranslations("qa.steps");
   const items = steps ?? [];
-  const hasRoute = Boolean(route && (route.mode || route.selected || route.reason));
+  const hasRoute = Boolean(
+    route && (route.mode || route.selected || route.reason || route.collection_plans),
+  );
 
   // Open while streaming; let the user re-toggle afterwards.
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
@@ -289,7 +443,13 @@ export function ThinkingTrace({
   if (items.length === 0 && !hasRoute) return null;
 
   const routeMode = str(route?.mode);
-  const routeSelected = str(route?.selected);
+  const routeSelectedRaw = route?.selected;
+  const routeSelected = Array.isArray(routeSelectedRaw)
+    ? routeSelectedRaw
+        .map((x) => str(x))
+        .filter(Boolean)
+        .join("+")
+    : str(routeSelectedRaw);
   const routeReason = str(route?.reason);
 
   return (
@@ -314,7 +474,9 @@ export function ThinkingTrace({
               </span>
             }
             status="complete"
-          />
+          >
+            {route ? <RouteCollectionPlans route={route} /> : null}
+          </ChainOfThoughtStep>
         ) : null}
 
         {items.map((step, i) => {

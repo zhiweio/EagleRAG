@@ -1,8 +1,8 @@
 # Knowledge base management
 
-Knowledge bases (`kb_name`) are the multi-tenancy unit in Eagle-RAG. Each KB isolates documents, Milvus vectors, dedup records, and object storage prefixes. The KB module provides registry, lifecycle (create/delete/rebuild), statistics, and health monitoring.
+Knowledge bases (`kb_name`) are the **KB tenancy unit inside one deployed domain** (`plugin_namespace`). Each KB isolates documents, Milvus vectors (via `kb_name` scalar filter), dedup records, and object storage prefixes within the instance-bound Milvus Database. The KB module provides registry, lifecycle (create/delete/rebuild), statistics, and health monitoring.
 
-**Source modules:** `eagle_rag/kb/registry.py`, `eagle_rag/kb/lifecycle.py`, `eagle_rag/kb/stats.py`, `eagle_rag/kb/health.py`, `eagle_rag/api/knowledge_bases.py`
+**Source modules:** `eagle_rag/kb/registry.py`, `eagle_rag/kb/lifecycle.py`, `eagle_rag/kb/stats.py`, `eagle_rag/kb/health.py`, `eagle_rag/api/knowledge_bases.py`, `eagle_rag/plugins/ingest_catalog.py`
 
 ---
 
@@ -10,7 +10,7 @@ Knowledge bases (`kb_name`) are the multi-tenancy unit in Eagle-RAG. Each KB iso
 
 ### 1.1 Multi-tenant RAG
 
-Industry-agnostic RAG platforms serve multiple isolated knowledge domains (finance, pharma, patent, …) from a single deployment. **Logical isolation** via a tenant discriminator (`kb_name`) on every table and Milvus scalar filter is more cost-effective than per-tenant infrastructure (AWS SaaS Lens: tenant isolation patterns).
+Industry-agnostic RAG platforms serve multiple isolated knowledge domains (finance, pharma, patent, …) from a single **domain deployment**. **Domain isolation** uses `plugin_namespace` (Milvus Database + PG repositories). **KB isolation** uses `kb_name` scalar filters on shared base collections inside that Database — more cost-effective than per-KB infrastructure (AWS SaaS Lens: tenant isolation patterns).
 
 ### 1.2 Capacity planning
 
@@ -74,6 +74,17 @@ Celery task: runs on `knowhere_queue` for long-running cleanup.
 ```
 
 Visual reindex requires full re-ingest (render + embed is not reversible from Milvus scalars alone).
+
+### 3.3 `collections_used` and specialized fan-out
+
+On successful ingest, each document records which Milvus collections received vectors (`collections_used`). The KB-level catalog unions these collections ([ADR-006](../architecture/adr/006-ingest-query-routing-contract.md)).
+
+At query time, `RetrieverOrchestrator` may fan out to specialized collections (e.g. `eagle_text_biomed`) when:
+
+- A domain `QueryRouteClassifier` adds them to the plan, or
+- Scope-aware catalog union includes them for scoped KBs/documents/tags.
+
+Core default routing (G4) never auto-queries specialized collections without such a plan. See [Plugin architecture](../architecture/plugin-architecture.md).
 
 ---
 
@@ -200,7 +211,7 @@ if not kb_exists_sync(kb):
     raise ValueError(f"知识库未注册: {kb}")
 ```
 
-MCP `ingest` tool and `POST /ingest` both propagate this error. Prevents orphan vectors in Milvus without a registry row.
+MCP `core_ingest` tool and `POST /ingest` both propagate this error. Prevents orphan vectors in Milvus without a registry row.
 
 ---
 

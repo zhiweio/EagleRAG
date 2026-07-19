@@ -36,6 +36,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+from starlette.routing import Mount
+
 from eagle_rag.api.mcp_server import configure_mcp_auth, mcp
 from eagle_rag.config import get_settings
 from eagle_rag.telemetry import configure_telemetry, get_logger
@@ -77,34 +79,51 @@ def build_mcp_app(path: str | None = None) -> Any:
     )
 
 
-def get_combined_lifespan(mcp_app: Any) -> Any:
-    """Return a host lifespan callable combining telemetry and fastmcp ``mcp_app.lifespan``.
+def _normalize_mount_path(path: str) -> str:
+    """Starlette treats root mount as ``""``; callers may pass ``"/"``."""
+    return "" if path == "/" else path
 
-    The return value is an ``@asynccontextmanager``-decorated lifespan function
-    that can be passed directly to ``FastAPI(lifespan=...)`` /
-    ``Starlette(lifespan=...)`` (Starlette invokes it with the host app instance
-    and expects an async context manager).
 
-    Entry order:
-    1. ``configure_telemetry(get_settings())`` -- initialize loguru + structlog + OTel
-       (idempotent; failure only logs and does not block startup, mirroring the
-       original ``app.py`` lifespan behavior).
-    2. ``mcp_app.lifespan`` -- start the fastmcp ``StreamableHTTPSessionManager``
-       task group (even in stateless mode the task group must start to host the
-       per-request transport).
+def _swap_mount(host_app: Any, mount_path: str, sub_app: Any) -> None:
+    """Replace a Starlette ``Mount`` route (used to refresh fastmcp per lifespan)."""
+    target = _normalize_mount_path(mount_path)
+    router = host_app.router
+    new_routes: list[Any] = []
+    replaced = False
+    for route in router.routes:
+        if isinstance(route, Mount) and _normalize_mount_path(route.path) == target:
+            new_routes.append(Mount(route.path, app=sub_app))
+            replaced = True
+        else:
+            new_routes.append(route)
+    if not replaced:
+        new_routes.append(Mount(target, app=sub_app))
+    router.routes = new_routes
 
-    Exit is in reverse order (exit mcp_app lifespan first, then return).
+
+def get_combined_lifespan(mount_path: str) -> Any:
+    """Return a host lifespan that refreshes fastmcp HTTP state each cycle.
+
+    ``StreamableHTTPSessionManager`` only allows one ``run()`` per sub-app instance.
+    Tests and dev reload create multiple lifespan cycles on the same host app, so
+    each cycle builds a fresh fastmcp sub-app and swaps the ``Mount`` target.
     """
 
     @asynccontextmanager
-    async def combined_lifespan(app: Any) -> AsyncIterator[None]:
+    async def combined_lifespan(host_app: Any) -> AsyncIterator[None]:
         try:
             configure_telemetry(get_settings())
         except Exception:  # noqa: BLE001
             logger.exception("telemetry configure failed")
-        # ``mcp_app.lifespan`` is a Starlette ``Lifespan`` callable and must be
-        # invoked with the app instance.
-        async with mcp_app.lifespan(mcp_app):
+        try:
+            from eagle_rag.plugins import get_plugin_manager
+
+            get_plugin_manager()
+        except Exception:  # noqa: BLE001
+            logger.exception("plugin manager load failed")
+        fresh_mcp = build_mcp_app(path="/")
+        _swap_mount(host_app, mount_path, fresh_mcp)
+        async with fresh_mcp.lifespan(fresh_mcp):
             yield
 
     return combined_lifespan

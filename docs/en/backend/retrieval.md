@@ -1,8 +1,10 @@
 # Retrieval
 
-Eagle-RAG retrieval combines two specialized retrievers behind a routing query engine: **KnowhereGraphRetriever** for structured text (1536-d, Milvus `eagle_text` + graph expansion) and **PixelRAGVisualRetriever** for visual tiles (2048-d, Milvus `eagle_visual`). Both return LlamaIndex `NodeWithScore` objects consumed by the generation engine.
+Eagle-RAG retrieval combines two specialized retrievers behind a routing query engine: **KnowhereGraphRetriever** for structured text (1536-d, Milvus `eagle_text` + graph expansion) and **PixelRAGVisualRetriever** for visual tiles (2048-d, Milvus `eagle_visual`). Domain deployments additionally use **RetrieverOrchestrator** (`eagle_rag/plugins/retriever_orchestrator.py`) to query multiple collections per plan, optional per-plan `RERANK` hooks, and **RRF merge** (`eagle_rag/router/rerank_fusion.py`). Core default routing (G4) never auto-queries specialized collections.
 
-**Source modules:** `eagle_rag/retrievers/knowhere_graph_retriever.py`, `eagle_rag/retrievers/pixelrag_visual_retriever.py`
+**Source modules:** `eagle_rag/retrievers/knowhere_graph_retriever.py`, `eagle_rag/retrievers/pixelrag_visual_retriever.py`, `eagle_rag/plugins/retriever_orchestrator.py`, `eagle_rag/router/rerank_fusion.py`
+
+See [Plugin architecture](../architecture/plugin-architecture.md) for multi-encoder fusion and scope-aware catalog union.
 
 ---
 
@@ -31,7 +33,11 @@ Knowhere indexes `type="section_summary"` nodes alongside fine-grained chunks. A
 
 This follows the parent-document retriever pattern (LlamaIndex `RecursiveRetriever`; Chen et al., arXiv:2310.09435 on hierarchical indexing).
 
-### 1.5 Reranking (downstream)
+### 1.6 Reciprocal rank fusion (RRF)
+
+When multiple `CollectionQueryPlan` objects are active (domain plugins or scope-aware catalog union), `RetrieverOrchestrator` runs ANN per plan, optionally applies per-plan `RERANK` hooks, then merges with RRF — never raw cross-embedding scores. Dedupe by `source_chunk_id` (if set) or `(document_id, path)`. See [ADR-004](../architecture/adr/004-multi-encoder-rrf-fusion.md).
+
+### 1.7 Reranking (downstream)
 
 Retrieval returns top-K candidates; **cross-encoder reranking** happens in the generation engine (`DashScopeRerank` / qwen3-rerank). Bi-encoders are fast but approximate; cross-encoders jointly encode query+passage for higher precision at lower K (Nogueira & Cho, arXiv:1901.04085; Reimers & Gurevych, arXiv:1908.10084).
 
@@ -42,27 +48,47 @@ Retrieval returns top-K candidates; **cross-encoder reranking** happens in the g
 ```mermaid
 flowchart LR
     Q[Query string] --> RE[EagleRouterQueryEngine]
-    RE --> RD[route_query]
-    RD --> TR[KnowhereGraphRetriever]
-    RD --> VR[PixelRAGVisualRetriever]
+    RE --> QA[apply_query_assemble hooks]
+    QA --> RD[QueryRouteClassifier / route_query]
+    RD --> RO[RetrieverOrchestrator]
+    RO --> TR[KnowhereGraphRetriever / per-plan ANN]
+    RO --> VR[PixelRAGVisualRetriever / per-plan ANN]
     TR --> TI[VectorStoreIndex eagle_text]
     TI --> ANN1[HNSW ANN + scalar filter]
     ANN1 --> GE[connect_to graph expansion]
     VR --> EQ[embed_query 2048-d]
     EQ --> SV[search_visual eagle_visual]
     SV --> ANN2[HNSW ANN + scalar filter]
-    GE --> NWS[NodeWithScore list]
-    ANN2 --> NWS
+    GE --> RRF[merge_rrf]
+    ANN2 --> RRF
+    RRF --> NWS[NodeWithScore list]
     NWS --> GEN[EagleMultimodalQueryEngine]
 ```
 
 ---
 
-## 3. Code walkthrough: KnowhereGraphRetriever
+## 3. RetrieverOrchestrator (multi-collection)
+
+**File:** `eagle_rag/plugins/retriever_orchestrator.py`
+
+When `QueryRouteClassifier` (`CLASSIFY_QUERY` hook) returns multiple `CollectionQueryPlan` objects, the orchestrator:
+
+1. Runs ANN per plan (best-effort: failed plans are skipped and audited).
+2. Optionally applies per-plan `RERANK` hook.
+3. Merges with RRF (`merge_rrf` in `eagle_rag/router/rerank_fusion.py`).
+4. Returns deduplicated `NodeWithScore` list.
+
+**Core default (G4):** only `eagle_text` (+ `eagle_visual` when hybrid/image). Never specialized collections unless a domain classifier or scope-aware catalog union adds them.
+
+**Scope-aware union:** if `scope_filter` KBs / documents / tags catalog includes specialized collections (`collections_used`), those plans are forced even when the classifier abstains.
+
+---
+
+## 4. Code walkthrough: KnowhereGraphRetriever
 
 **File:** `eagle_rag/retrievers/knowhere_graph_retriever.py`
 
-### 3.1 Constructor parameters
+### 4.1 Constructor parameters
 
 | Parameter | Purpose |
 |-----------|---------|
@@ -72,7 +98,7 @@ flowchart LR
 | `source_type`, `year` | Facet filters (AND) |
 | `document_id` | Client-side post-filter |
 
-### 3.2 Filter assembly (`_build_filters`)
+### 4.2 Filter assembly (`_build_filters`)
 
 Builds LlamaIndex `MetadataFilters`:
 
@@ -95,7 +121,7 @@ MetadataFilters(filters=[scope_group, source_type_filter, year_filter], conditio
 
 Translated by `MilvusVectorStore` to Milvus boolean expressions.
 
-### 3.3 Retrieval flow (`_retrieve`)
+### 4.3 Retrieval flow (`_retrieve`)
 
 1. `get_text_index()` — lazy `VectorStoreIndex` singleton.
 2. `text_index.as_retriever(similarity_top_k=K, filters=...)` → ANN search.
@@ -103,21 +129,21 @@ Translated by `MilvusVectorStore` to Milvus boolean expressions.
 4. **Graph expansion:** for each hit, read `metadata["connect_to"]`, fetch related nodes from docstore, deduplicate by `node_id`, inherit parent score.
 5. Telemetry via `ai_logger.info("retrieve", retriever="text", ...)`.
 
-### 3.4 Error degradation
+### 4.4 Error degradation
 
 Any Milvus/embedding exception → log warning, return `[]`. The router engine decides whether to proceed with visual-only results.
 
-### 3.5 Graph expansion detail
+### 4.5 Graph expansion detail
 
 `connect_to` entries may be plain chunk_id strings or dicts `{target, relation, ref, position}`. Missing docstore or absent targets are silently skipped — expansion is best-effort.
 
 ---
 
-## 4. Code walkthrough: PixelRAGVisualRetriever
+## 5. Code walkthrough: PixelRAGVisualRetriever
 
 **File:** `eagle_rag/retrievers/pixelrag_visual_retriever.py`
 
-### 4.1 Retrieval flow
+### 5.1 Retrieval flow
 
 ```python
 query_vector = embed_query(query_str)          # Qwen3-VL text encoding, 2048-d
@@ -131,7 +157,7 @@ results = search_visual(
 nodes = [self._to_node_with_score(r) for r in results]
 ```
 
-### 4.2 ImageNode construction
+### 5.2 ImageNode construction
 
 Each Milvus hit becomes an `ImageNode` with metadata:
 
@@ -143,15 +169,15 @@ Each Milvus hit becomes an `ImageNode` with metadata:
 
 Score defaults to 1.0 if Milvus returns None.
 
-### 4.3 Cross-modal encoding
+### 5.3 Cross-modal encoding
 
-`embed_query()` delegates to `_Qwen3VLVisualEncoder.embed_text()` — the same singleton used at ingest. This ensures query and tile vectors are in the same normalized space (last-token pooling + L2 norm).
+`embed_query()` delegates to `get_visual_encoder().embed_text()` — the same factory used at ingest. This ensures query and tile vectors are in the same normalized space (same `embedding.visual.provider`; last-token pooling + L2 on the local path).
 
 ---
 
-## 5. Milvus schema & filter expressions
+## 6. Milvus schema & filter expressions
 
-### 5.1 Text collection `eagle_text`
+### 6.1 Text collection `eagle_text`
 
 **Vector:** 1536-d FLOAT_VECTOR, COSINE metric (via LlamaIndex `MilvusVectorStore`).
 
@@ -178,7 +204,7 @@ kb_name == "finance" and source_type == "policy"
 
 Index params (managed by LlamaIndex Milvus integration): HNSW with COSINE; scalar fields indexed as dynamic metadata.
 
-### 5.2 Visual collection `eagle_visual`
+### 6.2 Visual collection `eagle_visual`
 
 **Vector:** 2048-d FLOAT_VECTOR, **IP** (inner product) metric.
 
@@ -209,7 +235,7 @@ Built by `_build_search_expr()` in `search_visual()`.
 
 ---
 
-## 6. LlamaIndex integration
+## 7. LlamaIndex integration
 
 | Component | Role |
 |-----------|------|
@@ -227,15 +253,15 @@ Visual retrieval **does not** use `VectorStoreIndex` — it calls `pymilvus.Milv
 
 ---
 
-## 7. Scope filtering
+## 8. Scope filtering
 
 Two scope mechanisms coexist:
 
-### 7.1 Legacy `scope: list[str]`
+### 8.1 Legacy `scope: list[str]`
 
 Document ID list; client-side filter after retrieval (`_filter_by_scope`).
 
-### 7.2 Advanced `scope_filter: ScopeSelection`
+### 8.2 Advanced `scope_filter: ScopeSelection`
 
 ```json
 {
@@ -245,13 +271,14 @@ Document ID list; client-side filter after retrieval (`_filter_by_scope`).
 }
 ```
 
-- Tags resolve to document IDs via `document_keywords` table (`resolve_tags_to_document_ids`).
+- Tags resolve to document IDs via `document_keywords` table (`resolve_tags_to_document_ids`, namespace-scoped).
 - Union (OR) semantics: `(kb_name IN ...) OR (document_id IN ...)` pushed to Milvus.
+- Specialized collections from `collections_used` catalog unioned when scope matches ([scope_routing](../architecture/plugin-architecture.md)).
 - Capped by `router.max_scope_documents` (default 500).
 
 ---
 
-## 8. Design tensions and tuning
+## 9. Design tensions and tuning
 
 | Tension | Location | Effect | Mitigation |
 | --- | --- | --- | --- |
@@ -262,19 +289,21 @@ Document ID list; client-side filter after retrieval (`_filter_by_scope`).
 | **Post-filter legacy scope** | `_filter_by_scope` when `scope_filter` inactive | Milvus returns global top-K then Python filters — wastes ANN work and skews scores | Prefer `scope_filter` pushdown for multi-doc QA |
 | **Visual query–image gap** | `embed_query` text in 2048-d screenshot space | Pure policy-text questions retrieve irrelevant page regions | Router `visual` path; use `chunk_type` / `parent_section` filters |
 | **Empty retriever degradation** | except → `[]` | Hybrid query silently becomes single-path | Inspect `recall` step `text_count`/`visual_count` in SSE |
+| **RRF vs raw scores** | `merge_rrf` after multi-plan ANN | Cannot sort mixed 1536-d / domain-encoder hits by score | Use rank positions in telemetry, not raw Milvus distance |
+| **G4 specialized abstain** | Core `CLASSIFY_QUERY` | Domain collections never queried unless classifier or catalog union adds them | Expected Core behavior; enable domain profile for specialized recall |
 | **Section summary drill-down** | Parent-document pattern not automatic in retriever | Must filter `type=="section_summary"` or rely on path overlap in prompt | Two-stage search in client or future retriever mode |
 
 **ANN + filter interaction:** Milvus applies scalar predicates during HNSW search when inverted indexes exist; without them, filter runs post-ANN — same `expr`, different latency profile (see [vector-stores](vector-stores.md) §8).
 
 ---
 
-## 9. Config & tuning
+## 10. Config & tuning
 
-### 8.1 Retrieval top_k
+### 10.1 Retrieval top_k
 
 Set at query time via `QueryRequest.top_k` (default 5). Passed to both retrievers as `similarity_top_k` / `top_k`.
 
-### 8.2 Embedding
+### 10.2 Embedding
 
 ```yaml
 embedding:
@@ -287,7 +316,7 @@ embedding:
     dim: 2048
 ```
 
-### 8.3 Milvus visual index
+### 10.3 Milvus visual index
 
 ```yaml
 milvus:
@@ -306,7 +335,7 @@ milvus:
 | Narrower results | Add `source_type` / `year` facet filters |
 | Section-first retrieval | Filter `type == "section_summary"` then drill by path |
 
-### 8.4 Rerank (downstream)
+### 10.4 Rerank (downstream)
 
 ```yaml
 rerank:
@@ -318,7 +347,7 @@ Generation engine `top_n` (default 3) controls post-rerank count — see [genera
 
 ---
 
-## 10. Tests
+## 11. Tests
 
 **Primary:** `tests/test_retrievers.py`
 
@@ -337,23 +366,24 @@ Generation engine `top_n` (default 3) controls post-rerank count — see [genera
 
 - `tests/test_milvus_structure_fetch.py` — document structure reconstruction from Milvus
 - `tests/test_router_generation.py` — end-to-end route → retrieve → generate
+- `tests/plugins/test_encoder_runtime.py` — domain encoder routing
 
 ---
 
-## 11. MCP exposure
+## 12. MCP exposure
 
 MCP tools call retrievers directly:
 
 | Tool | Retriever |
 |------|-----------|
-| `retrieve_text` | `KnowhereGraphRetriever` |
-| `retrieve_visual` | `PixelRAGVisualRetriever` |
+| `core_retrieve_text` | `KnowhereGraphRetriever` / `RetrieverOrchestrator` |
+| `core_retrieve_visual` | `PixelRAGVisualRetriever` |
 
 Both accept `kb_name`, `top_k`, and facet filters.
 
 ---
 
-## 12. Performance characteristics
+## 13. Performance characteristics
 
 | Retriever | Bottleneck | Typical latency driver |
 |-----------|-----------|----------------------|
@@ -365,7 +395,7 @@ Both retrievers emit OpenTelemetry spans (`retrieve.text`, `retrieve.visual`) an
 
 ---
 
-## 13. References
+## 14. References
 
 - Karpukhin et al., *Dense Passage Retrieval*, [arXiv:2004.04906](https://arxiv.org/abs/2004.04906)
 - Nogueira & Cho, *Passage Re-ranking with BERT*, [arXiv:1901.04085](https://arxiv.org/abs/1901.04085)

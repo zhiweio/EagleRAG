@@ -23,7 +23,7 @@
       "filter": "过滤",
       "kbName": "知识库",
       "kbNameAll": "全部",
-      "kbNamePlaceholder": "输入知识库标识，如 finance",
+      "kbNamePlaceholder": "输入知识库标识，如 my-kb",
       "kbNameClear": "清除",
       "kbNameHint": "留空使用系统默认知识库；设置后仅检索该知识库"
     },
@@ -77,7 +77,12 @@
       "adaptivePdf": "PDF→图片切片",
       "adaptiveMd": "MD→文本+面包屑",
       "adaptiveXlsx": "XLSX→数据表",
-      "openFull": "查看完整来源"
+      "openFull": "查看完整来源",
+      "anchorsTitle": "四锚点",
+      "anchorChunkType": "chunk_type",
+      "anchorParentSection": "parent_section",
+      "anchorContentSummary": "content_summary",
+      "anchorSourceChunkId": "source_chunk_id"
     },
     "rail": {
       "sources": "来源",
@@ -119,7 +124,11 @@
       "thinkingLive": "思考中",
       "thinkingDone": "已思考 · {count} 步",
       "count": "条",
-      "empty": "无步骤信息"
+      "empty": "无步骤信息",
+      "collectionPlans": "检索集合",
+      "planEncoder": "编码器 {encoder}",
+      "planTopK": "top_k {topK}",
+      "planTopKUnit": "k"
     },
     "search": {
       "ask": "问答",

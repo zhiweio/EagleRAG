@@ -75,6 +75,13 @@ dependencies = [
     "prometheus-client",  # MCP /metrics
 ]
 
+# Optional feature extras: `uv sync --extra biomed`
+[project.optional-dependencies]
+biomed = [
+    # BiomedCLIP (radiology text↔image) via open_clip; Core Qwen path does not need this.
+    "open-clip-torch>=2.23.0",
+]
+
 # Dev / docs dependency groups: `uv sync --group dev` / `uv sync --group docs`
 [dependency-groups]
 dev = [
@@ -82,6 +89,7 @@ dev = [
     "pytest-asyncio",
     "ruff",
     "mypy",
+    "fakeredis",
 ]
 # Docs site build deps: `uv sync --group docs`.
 # mkdocs-static-i18n provides bilingual folder layout (en/zh).
@@ -102,7 +110,7 @@ build-backend = "hatchling.build"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["eagle_rag"]
+packages = ["eagle_rag", "plugins"]
 
 # cef-capi-py is a hard dependency declared by pixelrag, but pixelrag_render /
 # pixelrag_embed never import it (CDP backend uses Chrome DevTools Protocol over WebSocket, not CEF).
@@ -118,6 +126,9 @@ override-dependencies = [
     "alembic>=1.14",
     # knowhere-shared pins psutil==5.9.8 (no linux/aarch64 wheel); use a version with prebuilt wheels.
     "psutil>=7.0",
+    # knowhere-shared pins kombu==5.4.0; that release calls get_connection('_'), which
+    # redis-py >=5.3.0 warns about. 5.5.4+ selects the no-arg API when redis>=5.3.
+    "kombu>=5.5.4",
 ]
 
 [tool.ruff]

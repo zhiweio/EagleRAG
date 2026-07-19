@@ -38,6 +38,7 @@ __all__ = [
     "PdfFormSelector",
     "ExtensionSelector",
     "ContentTypeSelector",
+    "PluginHookSelector",
     "FallbackChain",
 ]
 
@@ -172,6 +173,38 @@ class ContentTypeSelector:
             hit = ct.startswith(match) if mode == "startswith" else match in ct
             if hit:
                 return [rule.pipeline]
+        return None
+
+
+class PluginHookSelector:
+    """Invoke ``INGEST_ROUTE_SELECTORS`` hooks (domain plugins, e.g. biomed G7)."""
+
+    def select(self, ctx: IngestRouteContext) -> list[str] | None:
+        try:
+            from eagle_rag.plugins import get_plugin_manager
+            from eagle_rag.plugins.hookbus import HookContext
+            from eagle_rag.plugins.hooks import Hook
+
+            manager = get_plugin_manager()
+            hook_ctx = HookContext(
+                plugin_namespace=manager.default_namespace,
+                kb_name=ctx.kb_name,
+            )
+            decision = manager.bus.invoke_first(
+                Hook.INGEST_ROUTE_SELECTORS,
+                hook_ctx,
+                file_path=ctx.local_path,
+                file_name=ctx.filename or ctx.cleaned_name,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("INGEST_ROUTE_SELECTORS hook failed", exc_info=True)
+            return None
+        if decision is None:
+            return None
+        if isinstance(decision, str):
+            return [decision]
+        if isinstance(decision, list) and decision:
+            return [str(x) for x in decision]
         return None
 
 

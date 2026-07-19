@@ -88,6 +88,7 @@ def cache_key(
     kb_name: str | None = None,
     *,
     image_token: str = "",
+    plugin_namespace: str | None = None,
 ) -> str:
     """Compute the cache key.
 
@@ -102,6 +103,8 @@ def cache_key(
     Returns:
         Cache key in the form ``mcp:{tool}:{sha256_hex}``.
     """
+    from eagle_rag.db.repositories.base import instance_namespace
+
     scope_sorted = sorted(scope) if scope else []
     raw = json.dumps(
         {
@@ -111,6 +114,7 @@ def cache_key(
             "top_k": top_k,
             "kb_name": kb_name or "",
             "image_token": image_token,
+            "plugin_namespace": instance_namespace(plugin_namespace),
         },
         sort_keys=True,
         ensure_ascii=False,

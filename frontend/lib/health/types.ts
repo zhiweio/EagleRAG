@@ -81,7 +81,7 @@ export interface CollectionField {
 export interface CollectionRow {
   name: string;
   /** i18n key under `health.*Drawer.tag.*` */
-  tagKey: "visual" | "text" | "patent" | "finance" | "kb" | "storage";
+  tagKey: "visual" | "text" | "kb" | "storage";
   count: string;
   fields: CollectionField[];
   meta: string;

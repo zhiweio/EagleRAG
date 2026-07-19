@@ -49,7 +49,7 @@ Cross-module: [backend index](../backend/index.md), [observability](../ops/obser
 | Pattern | Where | Effect |
 | --- | --- | --- |
 | **Fail-closed** | `parse_with_knowhere_sdk()` | `KnowhereError` → task `FAILED` |
-| **Fail-fast** | `pixelrag_adapter._ensure_loaded()` | Wrong `provider` → `ValueError` |
+| **Fail-fast** | `visual_encoder.get_visual_encoder()` | Unknown `provider` → `ValueError` |
 | **Best-effort writes** | Milvus upsert edge cases | Logged; ingest may complete |
 | **Non-blocking side effects** | `knowhere_parse` steps 5.2, 5.5, 5.7 | Tag catalog, visual dispatch, doc_nav |
 | **Lazy singletons** | Stores, encoders | No import-time connection storms |
@@ -60,6 +60,15 @@ Cross-module: [backend index](../backend/index.md), [observability](../ops/obser
 | **Retriever empty list** | `_fetch_nodes()` | Degraded answer, not 500 |
 | **MCP `resilient_call`** | `mcp_server.py` | `{"error": ...}` preserves session |
 | **Tag resolution fail** | `_resolve_scope_filter()` | Ignore tags; continue |
+| **QUERY_ASSEMBLE hook fail** | `hotpath_hooks.apply_query_assemble` | Per-subscriber try/except; failed hook skipped; query proceeds |
+| **Namespace mismatch** | `eagle_rag/db/namespace.py` | Explicit `plugin_namespace` ≠ `default_namespace` → **403** (unless `allow_namespace_override`) |
+| **Encoder mode unavailable** | `EncoderRegistry` / `encoder_mode` in `plugins.options` | Falls back per plugin contract; ingest may skip specialized collection |
+| **Specialized plan best-effort** | `RetrieverOrchestrator` | One collection plan failure → log + continue other plans |
+| **Plugin load probe** | `GET /health/plugins` | Loaded manifests + Celery module list; import failure surfaces in response |
+
+### Plugin operations
+
+`GET /health/plugins` returns `default_namespace`, `enabled_modules`, per-plugin `manifests` (including `milvus_db_name`, `provides_specialized_collections`, `provides_mcp_tools`), and `celery_modules` for worker consistency checks. Use after profile changes or plugin deploys.
 
 ### `knowhere_parse` failure taxonomy
 
@@ -253,6 +262,10 @@ When Redis pub/sub unavailable for `/admin/logs`:
 | Text-first UX vs visual fidelity | `knowhere_parse` marks `ready` before `knowhere_visual_chunks` | Users may get text-only answers until visual queue drains |
 | Probe fail-open vs mis-route | PDF probe exception → treat as text PDF | Lower `text_page_ratio` for KBs with scanned forms |
 | Health signal vs probe latency | Celery `inspect.ping` timeout 1.0s | `down` ≠ `unknown` — see probe matrix in [troubleshooting](../ops/troubleshooting.md) |
+| QUERY_ASSEMBLE degrade | Per-subscriber try/except in `apply_query_assemble` | Check `GET /health/plugins`; plugin logs |
+| Namespace 403 | `resolve_namespace()` | Align `EAGLE_RAG_PROFILE` / `default_namespace` with client |
+| Encoder mode fallback | `plugins.options.<ns>.encoder_mode` | Verify encoder deps; see plugin manifest |
+| Specialized plan partial | `RetrieverOrchestrator` best-effort per plan | Scope/catalog union; check `collections_used` on documents |
 
 ---
 
@@ -291,7 +304,7 @@ KNOWHERE_POLL_TIMEOUT=3600
 
 ### Operator checklist
 
-- [ ] Monitor `/health` and `/admin/probes`
+- [ ] Monitor `/health`, `/health/plugins`, and `/admin/probes`
 - [ ] Watch `pixelrag_queue` LLEN — backlog signals render bottleneck
 - [ ] Replay `FAILED` tasks after fixing Knowhere or API keys
 - [ ] Drain dead letter after root-cause fix

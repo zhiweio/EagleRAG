@@ -22,8 +22,9 @@ from eagle_rag.api.schemas.documents import (
     DocumentStructureOut,
     ImageMetaOut,
 )
+from eagle_rag.documents.reconstruct import reconstruct_document
 from eagle_rag.images.store import get_image_bytes, get_image_meta
-from eagle_rag.index.document_structure import build_document_structure, load_chunk_html
+from eagle_rag.index.document_structure import load_chunk_html
 from eagle_rag.index.registry import count_documents, delete_document, get_document, list_documents
 from eagle_rag.storage.minio_client import get_object_bytes
 
@@ -31,6 +32,17 @@ __all__ = ["router", "images_router"]
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 images_router = APIRouter(prefix="/images", tags=["images"])
+
+
+def _guess_document_media_type(name: str) -> str:
+    """Guess Content-Type for inline preview; prefer text/markdown for .md files."""
+    guessed = mimetypes.guess_type(name)[0]
+    lower = name.lower()
+    if lower.endswith((".md", ".markdown")) and (
+        guessed is None or guessed == "application/octet-stream"
+    ):
+        return "text/markdown; charset=utf-8"
+    return guessed or "application/octet-stream"
 
 
 @router.get("", response_model=DocumentListResponse)
@@ -82,7 +94,7 @@ async def get_document_structure_api(document_id: str) -> DocumentStructureOut:
     doc = await get_document(document_id)
     if doc is None:
         raise HTTPException(status_code=404, detail=f"document not found: {document_id}")
-    result = await asyncio.to_thread(build_document_structure, document_id, doc)
+    result = await asyncio.to_thread(reconstruct_document, document_id, doc)
     return DocumentStructureOut.model_validate(result)
 
 
@@ -106,7 +118,7 @@ async def get_document_file_api(document_id: str) -> Response:
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"file read failed: {exc}") from exc
     name = doc.get("name") or document_id
-    media_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    media_type = _guess_document_media_type(name)
     headers = {"Content-Disposition": f"inline; filename*=UTF-8''{quote(name)}"}
     return Response(content=data, media_type=media_type, headers=headers)
 

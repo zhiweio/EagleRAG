@@ -32,8 +32,10 @@ from eagle_rag.db import (
     async_fetch,
     async_fetchrow,
     sync_execute,
+    sync_fetchall,
     sync_fetchone,
 )
+from eagle_rag.db.repositories.base import instance_namespace
 
 __all__ = [
     "register_document",
@@ -42,6 +44,8 @@ __all__ = [
     "update_extra",
     "get_document_sync",
     "get_document",
+    "lookup_documents_sync",
+    "lookup_document_ids_by_name_terms",
     "list_documents",
     "count_documents",
     "delete_document",
@@ -51,6 +55,10 @@ __all__ = [
 def _resolve_kb(kb_name: str | None) -> str:
     """Fall back to global ``settings.kb_name`` when ``kb_name`` is None."""
     return kb_name if kb_name is not None else get_settings().kb_name
+
+
+def _resolve_ns(plugin_namespace: str | None) -> str:
+    return instance_namespace(plugin_namespace)
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +73,7 @@ def register_document(
     source_type: str,
     pipeline: str,
     kb_name: str | None = None,
+    plugin_namespace: str | None = None,
     source_uri: str | None = None,
     sha256: str | None = None,
     status: str = "pending",
@@ -73,12 +82,14 @@ def register_document(
 ) -> dict[str, Any]:
     """Register a document (INSERT ON CONFLICT update). Returns the document dict."""
     kb = _resolve_kb(kb_name)
+    ns = _resolve_ns(plugin_namespace)
     extra_json = json.dumps(extra or {}, ensure_ascii=False)
     sync_execute(
         """
         INSERT INTO documents (document_id, name, source_type, source_uri, pipeline,
-                               status, sha256, chunk_count, extra, updated_at, kb_name)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, NOW(), %s)
+                               status, sha256, chunk_count, extra, updated_at, kb_name,
+                               plugin_namespace)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, NOW(), %s, %s)
         ON CONFLICT (document_id) DO UPDATE SET
             name = EXCLUDED.name,
             source_type = EXCLUDED.source_type,
@@ -89,6 +100,7 @@ def register_document(
             chunk_count = EXCLUDED.chunk_count,
             extra = EXCLUDED.extra,
             kb_name = EXCLUDED.kb_name,
+            plugin_namespace = EXCLUDED.plugin_namespace,
             updated_at = NOW()
         """,
         (
@@ -102,6 +114,7 @@ def register_document(
             chunk_count,
             extra_json,
             kb,
+            ns,
         ),
     )
     row = get_document_sync(document_id)
@@ -146,15 +159,70 @@ def update_extra(document_id: str, patch: dict[str, Any]) -> bool:
     return True
 
 
-def get_document_sync(document_id: str) -> dict[str, Any] | None:
+def get_document_sync(
+    document_id: str,
+    *,
+    plugin_namespace: str | None = None,
+) -> dict[str, Any] | None:
     """Synchronously fetch a single document."""
+    ns = _resolve_ns(plugin_namespace)
     row = sync_fetchone(
         """SELECT document_id, name, source_type, source_uri, pipeline, status,
                   sha256, chunk_count, extra, created_at, updated_at, kb_name
-           FROM documents WHERE document_id=%s""",
-        (document_id,),
+           FROM documents WHERE document_id=%s AND plugin_namespace=%s""",
+        (document_id, ns),
     )
     return _row_to_dict(row)
+
+
+def lookup_documents_sync(
+    document_ids: list[str],
+    *,
+    plugin_namespace: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Batch-fetch document registry rows keyed by ``document_id``."""
+    ids = list(dict.fromkeys(doc_id for doc_id in document_ids if doc_id))
+    if not ids:
+        return {}
+    ns = _resolve_ns(plugin_namespace)
+    placeholders = ", ".join("%s" for _ in ids)
+    rows = sync_fetchall(
+        f"""SELECT document_id, name, source_type, source_uri, pipeline, status,
+                   sha256, chunk_count, extra, created_at, updated_at, kb_name
+            FROM documents
+            WHERE plugin_namespace=%s AND document_id IN ({placeholders})""",
+        (ns, *ids),
+    )
+    out: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        doc = _row_to_dict(row)
+        if doc and doc.get("document_id"):
+            out[str(doc["document_id"])] = doc
+    return out
+
+
+def lookup_document_ids_by_name_terms(
+    terms: list[str],
+    *,
+    kb_name: str | None = None,
+    plugin_namespace: str | None = None,
+    limit: int = 24,
+) -> list[str]:
+    """Return document_ids whose registry ``name`` contains any of ``terms``."""
+    needles = [t.strip().lower() for t in terms if t and t.strip()]
+    if not needles:
+        return []
+    ns = _resolve_ns(plugin_namespace)
+    kb = _resolve_kb(kb_name)
+    clauses = " OR ".join("name ILIKE %s" for _ in needles)
+    params: list[Any] = [ns, kb, *[f"%{term}%" for term in needles]]
+    rows = sync_fetchall(
+        f"""SELECT document_id FROM documents
+            WHERE plugin_namespace=%s AND kb_name=%s AND ({clauses})
+            LIMIT {int(limit)}""",
+        tuple(params),
+    )
+    return [str(row[0]) for row in rows if row and row[0]]
 
 
 # ---------------------------------------------------------------------------
@@ -162,13 +230,19 @@ def get_document_sync(document_id: str) -> dict[str, Any] | None:
 # ---------------------------------------------------------------------------
 
 
-async def get_document(document_id: str) -> dict[str, Any] | None:
+async def get_document(
+    document_id: str,
+    *,
+    plugin_namespace: str | None = None,
+) -> dict[str, Any] | None:
     """Asynchronously fetch a single document."""
+    ns = _resolve_ns(plugin_namespace)
     row = await async_fetchrow(
         """SELECT document_id, name, source_type, source_uri, pipeline, status,
                   sha256, chunk_count, extra, created_at, updated_at, kb_name
-           FROM documents WHERE document_id=$1""",
+           FROM documents WHERE document_id=$1 AND plugin_namespace=$2""",
         document_id,
+        ns,
     )
     return _row_to_dict(row)
 
@@ -180,11 +254,12 @@ def _document_filter_clause(
     pipeline: str | None = None,
     status: str | None = None,
     kb_name: str | None = None,
+    plugin_namespace: str | None = None,
 ) -> tuple[str, list[Any]]:
     """Build the shared WHERE clause and params for document list/count queries."""
-    where: list[str] = []
-    params: list[Any] = []
-    idx = 1
+    where: list[str] = ["plugin_namespace = $1"]
+    params: list[Any] = [_resolve_ns(plugin_namespace)]
+    idx = 2
     if q:
         where.append(f"name ILIKE ${idx}")
         params.append(f"%{q}%")
@@ -204,7 +279,7 @@ def _document_filter_clause(
     if kb_name is not None:
         where.append(f"kb_name=${idx}")
         params.append(kb_name)
-    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    clause = "WHERE " + " AND ".join(where)
     return clause, params
 
 
@@ -215,6 +290,7 @@ async def list_documents(
     pipeline: str | None = None,
     status: str | None = None,
     kb_name: str | None = None,
+    plugin_namespace: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
@@ -225,6 +301,7 @@ async def list_documents(
         pipeline=pipeline,
         status=status,
         kb_name=kb_name,
+        plugin_namespace=plugin_namespace,
     )
     idx = len(params) + 1
     params.extend([limit, offset])
@@ -245,6 +322,7 @@ async def count_documents(
     pipeline: str | None = None,
     status: str | None = None,
     kb_name: str | None = None,
+    plugin_namespace: str | None = None,
 ) -> int:
     """Count documents matching the filters (used as pagination total)."""
     clause, params = _document_filter_clause(
@@ -253,17 +331,39 @@ async def count_documents(
         pipeline=pipeline,
         status=status,
         kb_name=kb_name,
+        plugin_namespace=plugin_namespace,
     )
     row = await async_fetchrow(f"SELECT COUNT(*)::int AS cnt FROM documents {clause}", *params)
     return int(row["cnt"] or 0) if row else 0
 
 
-async def delete_document(document_id: str) -> bool:
-    """Asynchronously delete a document registry row."""
+async def delete_document(
+    document_id: str,
+    *,
+    plugin_namespace: str | None = None,
+) -> bool:
+    """Delete a document registry row and recompute KB catalog (G31)."""
+    ns = _resolve_ns(plugin_namespace)
+    row = await async_fetchrow(
+        "SELECT kb_name FROM documents WHERE document_id=$1 AND plugin_namespace=$2",
+        document_id,
+        ns,
+    )
+    if row is None:
+        return False
+    kb_name = row["kb_name"]
     async with acquire_async() as conn:
-        result = await conn.execute("DELETE FROM documents WHERE document_id=$1", document_id)
-    # asyncpg returns "DELETE n"; n>0 means deletion succeeded.
-    return result.startswith("DELETE") and result != "DELETE 0"
+        result = await conn.execute(
+            "DELETE FROM documents WHERE document_id=$1 AND plugin_namespace=$2",
+            document_id,
+            ns,
+        )
+    deleted = result.startswith("DELETE") and result != "DELETE 0"
+    if deleted and kb_name:
+        from eagle_rag.db.repositories.catalog import recompute_kb_collections
+
+        recompute_kb_collections(kb_name, plugin_namespace=ns)
+    return deleted
 
 
 # ---------------------------------------------------------------------------

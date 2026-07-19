@@ -9,17 +9,25 @@ import { useMemo, useRef, useState } from "react";
 import { LogTerminal, type LogTerminalHandle } from "./LogTerminal";
 import { DrawerPanel } from "./drawer-parts";
 
-/** Tone color per tool name — gives each exposed tool a distinct identity. */
+/** Tone color per tool name — core_* MCP names + short aliases. */
 const TOOL_ACCENT: Record<string, { dot: string; text: string; bg: string }> = {
+  core_query: { dot: "bg-accent", text: "text-accent", bg: "bg-accent-soft" },
+  core_ingest: { dot: "bg-success", text: "text-success", bg: "bg-success-soft" },
+  core_retrieve_text: { dot: "bg-warning", text: "text-warning", bg: "bg-warning-soft" },
+  core_retrieve_visual: { dot: "bg-success", text: "text-success", bg: "bg-success-soft" },
   query: { dot: "bg-accent", text: "text-accent", bg: "bg-accent-soft" },
+  ingest: { dot: "bg-success", text: "text-success", bg: "bg-success-soft" },
+  retrieve_text: { dot: "bg-warning", text: "text-warning", bg: "bg-warning-soft" },
+  retrieve_visual: { dot: "bg-success", text: "text-success", bg: "bg-success-soft" },
   trace: { dot: "bg-warning", text: "text-warning", bg: "bg-warning-soft" },
   read: { dot: "bg-success", text: "text-success", bg: "bg-success-soft" },
-  ingest: { dot: "bg-success", text: "text-success", bg: "bg-success-soft" },
 };
 
 function toolAccent(name: string) {
+  const stripped = name.replace(/^core_/, "");
   return (
-    TOOL_ACCENT[name] ?? {
+    TOOL_ACCENT[name] ??
+    TOOL_ACCENT[stripped] ?? {
       dot: "bg-foreground-tertiary",
       text: "text-foreground-secondary",
       bg: "bg-(--surface-muted)",

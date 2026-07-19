@@ -1,0 +1,76 @@
+# Multi-role R&D workflows for HUTCHMED oncology innovative-drug RAG eval.
+# Each workflow maps to queries in eval_queries.jsonl (field: workflow).
+
+enterprise: HUTCHMED
+kb_name: hutchmed
+
+roles:
+  discovery:
+    title: Target biology / discovery scientist
+    goals:
+      - Target pathway and resistance mechanism literature
+      - Biomarker and patient-selection evidence
+  medchem:
+    title: Medicinal chemist
+    goals:
+      - Compound / SMILES / InChI cards for pipeline and competitor TKIs
+      - Chemical similarity via biomed_retrieve_compounds
+  clinical:
+    title: Translational / clinical scientist
+    goals:
+      - Trial registry + publication evidence chains
+      - Combination regimens (TKI + PD-1, EGFR + MET)
+  ci:
+    title: Competitive intelligence
+    goals:
+      - Same-target TKI landscape and differentiation
+      - Public pipeline / company positioning
+  ra:
+    title: Regulatory affairs
+    goals:
+      - Label indication language
+      - FDA / ICH public guidance for oncology endpoints
+
+workflows:
+  - id: literature_review
+    role: discovery
+    steps:
+      - biomed_query_entities for target / drug aliases
+      - POST /search with UMLS-bearing query (routes to eagle_text_biomed)
+      - Inspect sources path + document structure
+  - id: compound_match
+    role: medchem
+    steps:
+      - Resolve SMILES from compound card or biomed_retrieve_compounds
+      - POST /search with SMILES / chemical keywords
+  - id: clinical_trial
+    role: clinical
+    steps:
+      - Search NCT / intervention name
+      - Cross-check with full-text paper hits
+  - id: combination_therapy
+    role: clinical
+    steps:
+      - Query drug A + drug B + indication
+      - Confirm both agents appear in must_include_terms coverage
+  - id: competitive_intelligence
+    role: ci
+    steps:
+      - Compare pipeline drug vs competitor TKI
+      - Optional company pipeline page grounding
+  - id: regulatory
+    role: ra
+    steps:
+      - Label indication / warning retrieval
+      - Guidance document retrieval (endpoints, GCP)
+  - id: pipeline
+    role: ci
+    steps:
+      - Company public pipeline page
+      - Map to fruquintinib / savolitinib / surufatinib entities
+
+smoke_checklist:
+  - task biomed:health
+  - task biomed:corpus CORPUS_ARGS='--limit 40'   # or full run without --limit
+  - task biomed:e2e
+  - task biomed:eval

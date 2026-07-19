@@ -1,6 +1,6 @@
 # Backend
 
-Eagle-RAG's backend is an **industry-agnostic, multi-tenant multimodal RAG data layer** for Agents and LLMs. It combines [FastAPI](https://fastapi.tiangolo.com/) (HTTP API), [Celery](https://docs.celeryq.dev/) (async ingest), [LlamaIndex](https://docs.llamaindex.ai/) (retrieval orchestration), [Milvus](https://milvus.io/docs) (dual vector collections), and PostgreSQL (metadata/audit). A single `kb_name` threads through every layer to isolate knowledge bases.
+Eagle-RAG's backend is an **industry-agnostic, multi-tenant multimodal RAG data layer** for Agents and LLMs. It combines [FastAPI](https://fastapi.tiangolo.com/) (HTTP API), [Celery](https://docs.celeryq.dev/) (async ingest), [LlamaIndex](https://docs.llamaindex.ai/) (retrieval orchestration), [Milvus](https://milvus.io/docs) (per-domain vector databases), PostgreSQL (metadata/audit), and an in-process **plugin microkernel** (`eagle_rag/plugins/`). Deploy-time `plugin_namespace` binds a Milvus Database and PostgreSQL repository filter; request-time `kb_name` isolates knowledge bases inside that domain. See [Plugin architecture](../architecture/plugin-architecture.md).
 
 Application entry: `eagle_rag/api/app.py`. No auth middleware on REST (intranet). Schema migrations: `task db:migrate`.
 
@@ -26,12 +26,14 @@ Eagle-RAG extends text RAG with a **dual-pipeline** architecture: structured par
 ```mermaid
 flowchart TD
     CLIENT(["Client / Agent"]) --> API["API layer<br/>FastAPI + MCP /mcp"]
-    API --> SERVICES["Service layer<br/>router engine · generation · ingest runner"]
+    API --> KERNEL["Plugin microkernel<br/>PluginManager · HookBus · orchestrators"]
+    KERNEL --> SERVICES["Service layer<br/>router engine · generation · ingest runner"]
     SERVICES --> ADAPTERS["Adapters<br/>Knowhere SDK · PixelRAG library"]
     SERVICES --> RETRIEVERS["Retrievers<br/>KnowhereGraphRetriever · PixelRAGVisualRetriever"]
-    ADAPTERS --> STORES["Stores<br/>Milvus text/visual · registry · dedup"]
-    RETRIEVERS --> STORES
-    STORES --> INFRA["Infrastructure<br/>PostgreSQL · Milvus · Redis · MinIO"]
+    KERNEL --> RETRIEVERS
+    ADAPTERS --> REPOS["Repositories + Milvus<br/>eagle_text/eagle_visual · specialized collections"]
+    RETRIEVERS --> REPOS
+    REPOS --> INFRA["Infrastructure<br/>PostgreSQL · Milvus · Redis · MinIO"]
     API --> TASKS["Task queue<br/>3 Celery queues + dead-letter"]
     TASKS --> ADAPTERS
 ```
@@ -56,14 +58,18 @@ Celery workers cannot share the asyncpg pool. Alembic normalizes DSN in `alembic
 
 ---
 
-## Milvus collections (`eagle_text` + `eagle_visual`)
+## Milvus collections and domain isolation
+
+Each deployed instance binds one Milvus **Database** via `MilvusClientPool` (`eagle_rag/index/milvus_pool.py`) — `db_name` is set at client construction, not switched per request. Base collections in every domain Database:
 
 | Collection | Dim | Metric | Index | Embed model |
 |------------|-----|--------|-------|------------|
 | `eagle_text` | 1536 | COSINE | HNSW (LlamaIndex) | Qwen text-embedding-v4 |
 | `eagle_visual` | 2048 | IP | HNSW M=16, efConstruction=256 | Qwen3-VL-Embedding-2B |
 
-Tenant isolation: `kb_name == "{tenant}"` on every query. Scope union: `(kb_name in [...] or document_id in [...])`.
+Domain plugins may add **specialized collections** (e.g. `eagle_text_biomed`). Core default routing never auto-queries those collections (G4); only a domain `QueryRouteClassifier` or scope-aware catalog union may add them.
+
+KB isolation inside a domain: `kb_name == "{tenant}"` on every query. Scope union: `(kb_name in [...] or document_id in [...])`. Cross-domain retrieval uses multiple instances, not Core fan-out across Milvus Databases.
 
 ---
 
@@ -97,6 +103,7 @@ Each page includes theoretical background, code walkthrough, **design tensions a
 | Wrong pipeline / parser | [ingest-pipeline](ingest-pipeline.md) §6, [router-engine](router-engine.md) §7 |
 | Ingest stuck / duplicate tiles | [task-queue](task-queue.md) §9 (acks, DLQ) |
 | Tenant or scope leaks | [retrieval](retrieval.md) §8, [kb-management](kb-management.md) §8 |
+| Plugin / namespace mismatch | [database](database.md) §3, [Plugin architecture](../architecture/plugin-architecture.md) |
 
 | Page | Lines | Scope |
 |------|-------|-------|
@@ -112,7 +119,7 @@ Each page includes theoretical background, code walkthrough, **design tensions a
 | [kb-management](kb-management.md) | 200+ | KB registry, lifecycle, stats, health |
 | [admin-module](admin-module.md) | 200+ | MCP log, queue metrics, config snapshot |
 | [sessions-notifications](sessions-notifications.md) | 200+ | Chat sessions, scope persistence, notifications |
-| [mcp-server](mcp-server.md) | 250+ | Four MCP tools, HTTP/stdio, resilience |
+| [mcp-server](mcp-server.md) | 250+ | Core MCP tools (`core_*`), plugin registration, HTTP/stdio, resilience |
 | [schemas](schemas.md) | 250+ | Pydantic v2 request/response contracts |
 
 ---
@@ -121,7 +128,8 @@ Each page includes theoretical background, code walkthrough, **design tensions a
 
 Documented in the architecture section:
 
-- **[Multi-tenancy](../architecture/multi-tenancy.md)** — `kb_name` on every table, dedup PK, Milvus filter, MinIO prefix.
+- **[Plugin architecture](../architecture/plugin-architecture.md)** — microkernel, hooks, orchestrators, MCP G3 filter, RAG-only boundary.
+- **[Multi-tenancy](../architecture/multi-tenancy.md)** — `plugin_namespace` (domain) + `kb_name` (KB), dedup PK, Milvus `db_name`, repository filter, MinIO prefix.
 - **[Reliability](../architecture/reliability.md)** — lazy singletons, fail-closed Knowhere, fail-fast PixelRAG, best-effort writes.
 - **[Routing matrix](../architecture/routing-matrix.md)** — ingest pipeline selection by format + content form.
 - **[Multimodal fusion](../architecture/multimodal-fusion.md)** — four visual anchor fields, parent-document retrieval.
@@ -154,6 +162,7 @@ No OpenAI / Cohere adapters. Configuration: `eagle_rag/settings.yaml`.
 | Milvus structure | `tests/test_milvus_structure_fetch.py` |
 | API integration | `tests/test_api_query_sessions_documents_tasks.py` |
 | MCP | `tests/test_mcp_*.py` |
+| Plugins | `tests/plugins/test_*.py` |
 | Attachments | `tests/test_attachments_parser.py` |
 
 Run: `uv run pytest tests/`

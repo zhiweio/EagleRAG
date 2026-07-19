@@ -170,7 +170,7 @@ function RetrievalNote({ count }: { count: number }) {
 function SourceList({ items, onCite }: { items: FlatSource[]; onCite: (n: number) => void }) {
   const t = useTranslations("qa.sources");
   return (
-    <Sources className="mt-1" defaultOpen>
+    <Sources className="mt-1 w-full" defaultOpen>
       <SourcesTrigger count={items.length} label={t("count")} />
       <SourcesContent>
         {items.map((item) => {

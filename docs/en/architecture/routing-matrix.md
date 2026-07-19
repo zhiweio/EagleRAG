@@ -243,17 +243,17 @@ content_type_rules:
 ## `source_type` (metadata only)
 
 ```python
-# eagle_rag/ingest/router.py:281-305
+# eagle_rag/ingest/router.py — simplified
 def infer_source_type(filename, source_uri=None, source_type_hint=None) -> str:
-    if source_type_hint in {policy, financial, business, bidding, tax, other}:
-        return hint
-    for rule in get_settings().ingest.source_type.rules:
+    if source_type_hint:                      # free-form hint wins
+        return source_type_hint.strip().lower()
+    for rule in get_settings().ingest.source_type.rules:  # Core default: []
         if _has_keyword(text, rule.keywords):
             return rule.source_type
     return cfg.default  # "other"
 ```
 
-**Does not affect `route()`.** Stored on document registry and Milvus metadata for query filters.
+**Does not affect `route()`.** Stored on document registry and Milvus metadata for query filters. Core defaults to `rules: []` (no finance/tax hardcoding); industry keywords belong in deploy profiles / domain config.
 
 ---
 
@@ -321,6 +321,24 @@ Visual dispatch failure is **logged only** — text index and document `SUCCESS`
 | Heuristics | Keyword rules in `router.heuristic.rules` |
 
 Attachments with documents bias toward `hybrid`. Details: [router engine](../backend/router-engine.md).
+
+---
+
+## Plugin overlay (ingest + query)
+
+**Ingest format → pipeline is unchanged** — `route()` in `eagle_rag/ingest/router.py` still decides Knowhere vs PixelRAG by extension, PDF probe, and filename prefix. Plugins do not replace that matrix.
+
+After parse/chunk, the **plugin microkernel** extends ingest and query:
+
+| Phase | Hook / component | Role |
+| --- | --- | --- |
+| Ingest classify | `CLASSIFY_*` | Domain chunk routing (e.g. dual-encoder text) |
+| Ingest embed / upsert | `EMBED_*`, `UPSERT_VECTORS` | Specialized collections in the bound Milvus Database |
+| Query route | `QueryRouteClassifier` / `CLASSIFY_QUERY` | Add specialized collection plans (Core default never auto-queries them — G4) |
+| Query retrieve | `RetrieverOrchestrator` | Multi-collection ANN + RRF merge |
+| Context assembly | `QUERY_ASSEMBLE` | Structured context packs for Agents |
+
+Domain `source_type` rules live under `settings.plugins.options[<namespace>]` — not in Core `ingest.source_type.rules`. See [Plugin architecture](plugin-architecture.md) and [ADR-006](adr/006-ingest-query-routing-contract.md).
 
 ---
 

@@ -1,27 +1,34 @@
 # MCP Tools
 
-Eagle-RAG exposes four MCP tools for LLM agents via **FastMCP** (`eagle_rag/api/mcp_server.py`). Tools call the service layer **directly** — no HTTP round-trip to `/query` or `/ingest`.
+Eagle-RAG exposes **RAG-only** MCP tools for LLM agents via **FastMCP** (`eagle_rag/api/mcp_server.py` + `eagle_rag/plugins/mcp_registry.py`). Tools call the service layer **directly** — no HTTP round-trip to `/query` or `/ingest`.
 
 Transport: streamable HTTP at `settings.mcp.streamable_http_path` (default `/mcp`), stdio fallback for subprocess clients.
 
 REST discovery: `GET /mcp/tools` returns `TOOL_DEFINITIONS` metadata.
 
+!!! important "Naming and scope"
+    Core tools use the `core_*` prefix (no legacy aliases). An instance registers only `core_*` + `default_namespace` plugin tools (G3). Tools must retrieve/assemble context — side-effect names are banned ([ADR-008](../architecture/adr/008-rag-only-plugin-platform.md)). Domain examples: `biomed_query_entities`, `lakehouse_bi_query_semantic_context` when the matching profile is active.
+
 ---
 
-## Tool catalogue
+## Tool catalogue (Core)
 
 | Tool | Service | Returns |
 |------|---------|---------|
-| `ingest` | `runner.ingest` | `{ job_id, status, document_id, dedup_hit }` |
-| `query` | `EagleRouterQueryEngine.query` | `{ answer, sources, route, steps }` |
-| `retrieve_text` | `KnowhereGraphRetriever` | `[{ node_id, text, score, metadata }]` |
-| `retrieve_visual` | `PixelRAGVisualRetriever` | `[{ image_id, document_id, page, position, score }]` |
+| `core_ingest` | `runner.ingest` | `{ job_id, status, document_id, dedup_hit }` |
+| `core_query` | `EagleRouterQueryEngine.query` | `{ answer, sources, route, steps }` |
+| `core_retrieve_text` | `KnowhereGraphRetriever` | `[{ node_id, text, score, metadata }]` |
+| `core_retrieve_visual` | `PixelRAGVisualRetriever` | `[{ image_id, document_id, page, position, score }]` |
+
+Domain examples (when the matching profile is enabled): `biomed_query_entities`, `lakehouse_bi_query_semantic_context`.
+
+**G3 exposure rule:** MCP `list_tools` / FastMCP registration includes `core_*` plus tools from `settings.plugins.default_namespace` only — not every loaded plugin module.
 
 On failure, tools return `{ "error": "…" }` (dict) or `[{ "error": "…" }]` (list) without killing the MCP session.
 
 ---
 
-## `ingest`
+## `core_ingest`
 
 ### Parameters (`TOOL_DEFINITIONS`)
 
@@ -36,7 +43,7 @@ On failure, tools return `{ "error": "…" }` (dict) or `[{ "error": "…" }]` (
     },
     "source_type": {
       "type": "string",
-      "enum": ["policy", "financial", "business", "bidding", "tax", "other"]
+      "description": "Free-form metadata hint (not an enum; Core has empty keyword rules by default)"
     },
     "kb_name": {
       "type": "string",
@@ -63,7 +70,7 @@ On failure, tools return `{ "error": "…" }` (dict) or `[{ "error": "…" }]` (
 
 ---
 
-## `query`
+## `core_query`
 
 ### Parameters
 
@@ -96,7 +103,7 @@ On failure, tools return `{ "error": "…" }` (dict) or `[{ "error": "…" }]` (
 
 ### REST vs MCP
 
-| Feature | REST `/query` | MCP `query` |
+| Feature | REST `/query` | MCP `core_query` |
 |---------|---------------|-------------|
 | Streaming | SSE `/query/stream` | No — single response |
 | Sessions | Yes | No |
@@ -105,7 +112,7 @@ On failure, tools return `{ "error": "…" }` (dict) or `[{ "error": "…" }]` (
 
 ---
 
-## `retrieve_text`
+## `core_retrieve_text`
 
 ### Parameters
 
@@ -137,15 +144,15 @@ On failure, tools return `{ "error": "…" }` (dict) or `[{ "error": "…" }]` (
 
 **Caching:** `mcp_cache` keyed by `(tool, query, scope, top_k, kb_name)` — hits skip Milvus.
 
-**Scope filter:** MCP `retrieve_text` does **not** accept `scope_filter` — use `scope` document list or REST `/search` for tag/KB union.
+**Scope filter:** MCP `core_retrieve_text` does **not** accept `scope_filter` — use `scope` document list or REST `/search` for tag/KB union.
 
 ---
 
-## `retrieve_visual`
+## `core_retrieve_visual`
 
 ### Parameters
 
-Same as `retrieve_text` (`query`, `scope`, `top_k`, `kb_name`).
+Same as `core_retrieve_text` (`query`, `scope`, `top_k`, `kb_name`).
 
 ### Return shape
 
@@ -161,7 +168,7 @@ Same as `retrieve_text` (`query`, `scope`, `top_k`, `kb_name`).
 ]
 ```
 
-Cached similarly to `retrieve_text`.
+Cached similarly to `core_retrieve_text`.
 
 ---
 
@@ -198,7 +205,7 @@ from llama_index.tools.mcp import BasicMCPClient
 
 client = BasicMCPClient("python", ["-m", "eagle_rag.api.mcp_server"])
 tools = await client.list_tools()
-result = await client.call_tool("query", {"query": "…", "kb_name": "finance"})
+result = await client.call_tool("core_query", {"query": "…", "kb_name": "finance"})
 ```
 
 HTTP transport: point MCP client at `http://host:8001/mcp` (port from `settings.mcp.port`).
@@ -209,5 +216,5 @@ HTTP transport: point MCP client at `http://host:8001/mcp` (port from `settings.
 
 - [MCP server (backend)](../backend/mcp-server.md)
 - [Health & admin](health-admin.md) — MCP dashboard + call log
-- [Query](query.md) — REST parity for `query` tool
-- [Ingest](ingest.md) — REST parity for `ingest` tool
+- [Query](query.md) — REST parity for `core_query` tool
+- [Ingest](ingest.md) — REST parity for `core_ingest` tool

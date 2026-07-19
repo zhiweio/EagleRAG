@@ -103,7 +103,7 @@ function SummaryStrip({
 }
 
 /**
- * DashboardKBCard — multi-tenant knowledge base table (design ref: stats + tenant list).
+ * DashboardKBCard — knowledge-base table for the current deployment domain (stats + KB list).
  */
 export function DashboardKBCard() {
   const t = useTranslations("dashboard.kbCard");

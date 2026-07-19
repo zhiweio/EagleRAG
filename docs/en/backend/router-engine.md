@@ -1,8 +1,10 @@
 # Router engine
 
-The router engine decides **which retrieval modalities** to invoke (text, visual, or both) and orchestrates the full query path: route → retrieve → (optional) generate. It sits between the API layer and the retrievers/generation engine.
+The router engine decides **which retrieval modalities and Milvus collections** to invoke (text, visual, hybrid, or multi-collection domain plans) and orchestrates the full query path: route → retrieve → (optional) generate. It sits between the API layer and the retrievers/generation engine. Plugin integration adds `apply_query_assemble` hooks, `QueryRouteClassifier` (`CLASSIFY_QUERY`), and `RetrieverOrchestrator` with RRF merge.
 
-**Source modules:** `eagle_rag/router/router_engine.py`, `eagle_rag/router/selectors.py`, `eagle_rag/router/models.py`, `eagle_rag/router/llm_factory.py`
+**Source modules:** `eagle_rag/router/router_engine.py`, `eagle_rag/router/selectors.py`, `eagle_rag/router/models.py`, `eagle_rag/router/llm_factory.py`, `eagle_rag/router/rerank_fusion.py`, `eagle_rag/plugins/retriever_orchestrator.py`, `eagle_rag/plugins/hotpath_hooks.py`
+
+See [Plugin architecture](../architecture/plugin-architecture.md) for query path and G4 Core default.
 
 ---
 
@@ -16,7 +18,7 @@ Eagle-RAG implements routing as a **FallbackChain** of selectors — a rule-base
 
 ### 1.2 Multi-index retrieval
 
-Hybrid mode queries two independent vector indexes (`eagle_text` 1536-d cosine, `eagle_visual` 2048-d IP) and merges results. This is a **multi-index fusion** pattern distinct from single-index multimodal embeddings.
+Hybrid mode queries two independent vector indexes (`eagle_text` 1536-d cosine, `eagle_visual` 2048-d IP) and merges results. Domain plugins may add specialized collections; `RetrieverOrchestrator` runs ANN per `CollectionQueryPlan` and merges with **RRF** (`eagle_rag/router/rerank_fusion.py`) — never raw cross-embedding scores. Core default (G4) never auto-queries specialized collections.
 
 ### 1.3 Bi-encoder recall vs cross-encoder rerank
 
@@ -33,14 +35,17 @@ Advanced scope filters implement **metadata-filtered ANN** — pre-filtering the
 ```mermaid
 flowchart TD
     QR[QueryRequest] --> ERQE[EagleRouterQueryEngine]
-    ERQE --> RQ[route_query]
+    ERQE --> QA[apply_query_assemble]
+    QA --> RQ[route_query / CLASSIFY_QUERY]
     RQ --> FC[FallbackChain selectors]
-    FC --> RD[RouteDecision]
+    FC --> RD[RouteDecision / QueryRouteDecision]
     RD --> FN[_fetch_nodes]
-    FN --> T[KnowhereGraphRetriever]
-    FN --> V[PixelRAGVisualRetriever]
-    T --> MERGE[Merge NodeWithScore]
-    V --> MERGE
+    FN --> RO[RetrieverOrchestrator]
+    RO --> T[KnowhereGraphRetriever / per-plan ANN]
+    RO --> V[PixelRAGVisualRetriever / per-plan ANN]
+    T --> RRF[merge_rrf]
+    V --> RRF
+    RRF --> MERGE[NodeWithScore list]
     MERGE --> MODE{mode?}
     MODE -->|search| MAP[_map_nodes_to_search_payload]
     MODE -->|query| GEN[EagleMultimodalQueryEngine]
@@ -51,8 +56,9 @@ Two classes:
 
 | Class | Role |
 |-------|------|
-| `route_query()` | Pure routing decision (no retrieval) |
-| `EagleRouterQueryEngine` | Route + retrieve + search/query/stream |
+| `route_query()` | Modality routing decision (no retrieval) |
+| `QueryRouteClassifier` / `CLASSIFY_QUERY` | Multi-collection plan selection (domain plugins) |
+| `EagleRouterQueryEngine` | Query assemble → route → retrieve (orchestrator) → search/query/stream |
 
 ---
 
@@ -157,14 +163,30 @@ When `active=True`, retrievers are **re-instantiated** with scope parameters pus
 
 ### 4.3 Retrieval orchestration (`_fetch_nodes`)
 
-Based on `RouteDecision.selected`:
+Before routing, `apply_query_assemble` runs `QUERY_ASSEMBLE` hooks (when `plugins.query_assemble_enabled`).
+
+Based on `RouteDecision.selected` and `QueryRouteDecision` plans:
 
 ```python
 if "text" in selected:
-    nodes.extend(text_retriever.retrieve(query))
+    nodes.extend(text_retriever.retrieve(query))  # or RetrieverOrchestrator per plan
 if "visual" in selected:
     nodes.extend(visual_retriever.retrieve(query))
 ```
+
+When domain plugins are active, `_fetch_nodes` delegates to `RetrieverOrchestrator.retrieve()` which:
+
+1. `QUERY_DENSE_EXPAND` (first) — dense rewrite + sparse terms + `QueryRetrievalIntent` in `retrieval_hints`.
+2. ANN per `CollectionQueryPlan` (best-effort); hybrid fuse when collection is in `router.hybrid_text_collections` or `EncoderRegistry.CollectionProfile.hybrid_enabled`.
+3. Per-plan `RERANK` (first) — Tier-1 domain rerank.
+4. `RETRIEVE_SUPPLEMENT` (all) — entity-anchored or other supplemental hits.
+5. RRF merge + dedupe (`merge_rrf`).
+6. `RRF_POST_MERGE` (first) — optional candidate injection before merged rerank.
+7. `RERANK_MERGED` (first) or Core `qwen3-rerank` per `RerankPolicy`.
+
+Core never imports domain plugins on this path; all domain logic is hook-registered. See [Plugin architecture](../architecture/plugin-architecture.md) § Query path.
+
+**Core default (G4):** only `eagle_text` (+ `eagle_visual` when hybrid/image). Specialized collections require domain `CLASSIFY_QUERY` or scope-aware `collections_used` catalog union.
 
 Retriever selection logic:
 
@@ -259,9 +281,13 @@ The router engine itself is **not** a LlamaIndex query engine — it orchestrate
 | **Legacy `scope` post-filter** | `_filter_by_scope` after ANN | Retrieves global neighbors then drops — recall bias toward out-of-scope docs that matched query semantically | Migrate clients to `scope_filter` |
 | **kb_name on decision vs request** | `route_query` kb fallback | `RouteDecision.kb_name` may differ from retriever filters if selectors omit tenant | Always pass `kb_name` on `QueryRequest` |
 | **Heuristic keyword collision** | `config.router.heuristic.rules` first-match | Finance keyword list may fire on non-financial homographs | Domain-specific YAML rules per deployment |
+| **G4 specialized abstain** | Core `CLASSIFY_QUERY` | Specialized collections never queried on Core profile | Enable domain profile + classifier or scope catalog union |
+| **RRF latency** | `RetrieverOrchestrator` multi-plan | N collections → N ANN calls before merge | Scope narrowly; monitor per-plan audit |
+| **QUERY_ASSEMBLE degrade** | Per-subscriber try/except | Failed hook skipped; query proceeds | Check HookBus audit in admin health |
+
 | **Search/query parity** | `search()` vs `query()` attachment handling | `/search` ignores attachments — different recall than `/query` with files | Use `/query` when attachments matter |
 
-**Latency budget:** `route_query` is sync and cheap; `_fetch_nodes` dominates (2× ANN + embed_query). Profile `trace_span` `retrieve.text` / `retrieve.visual` before optimizing selectors.
+**Latency budget:** `route_query` and `apply_query_assemble` are sync and cheap; `_fetch_nodes` / `RetrieverOrchestrator` dominates (N× ANN + embed_query). Profile `trace_span` `retrieve.text` / `retrieve.visual` before optimizing selectors.
 
 ---
 
@@ -271,6 +297,9 @@ The router engine itself is **not** a LlamaIndex query engine — it orchestrate
 router:
   mode: auto                    # auto | text | visual | hybrid
   max_scope_documents: 500      # tag → doc_id cap
+  parent_doc_retrieval: true    # Core two-stage section_summary drill-down
+  recall_top_k: 30              # per-plan ANN pool before rerank
+  hybrid_text_collections: []   # profile override, e.g. biomed: [eagle_text_biomed, eagle_text_medcpt]
   source_content_max_chars: 4000
   structure_max_nodes: 2000
   llm:
@@ -284,6 +313,10 @@ router:
       - keywords: [政策, policy, law]
         route: text
     default: text
+
+plugins:
+  query_assemble_enabled: true
+  default_namespace: core
 ```
 
 **Environment overrides:**
@@ -302,6 +335,7 @@ ROUTER_MAX_SCOPE_DOCUMENTS=1000
 | Force visual for all queries | `router.mode: visual` |
 | Domain-specific keywords | Add rules to `heuristic.rules` |
 | Large tag selections | Increase `max_scope_documents` |
+| Domain hybrid sparse | Set `router.hybrid_text_collections` in profile or `EncoderRegistry.register_collection(..., hybrid_enabled=True)` |
 | Smaller API payloads | Lower `source_content_max_chars` |
 
 Query-time override: pass `mode` in `QueryRequest` to bypass global setting.
@@ -323,7 +357,7 @@ Query-time override: pass `mode` in `QueryRequest` to bypass global setting.
 | SSE event sequence | route → recall → sources → token → done |
 | Attachment hybrid | Doc attachment → hybrid route |
 
-**Related:** `tests/test_retrievers.py` (retriever filter contracts in isolation).
+**Related:** `tests/test_retrievers.py` (retriever filter contracts in isolation), `tests/plugins/test_hotpath_hooks.py` (QUERY_ASSEMBLE wiring).
 
 ---
 

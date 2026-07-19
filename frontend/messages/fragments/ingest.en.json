@@ -21,11 +21,16 @@
       "docsCount": "{count} docs",
       "updatedAgo": "updated {time}",
       "dropTitle": "Drag to batch upload · or click to browse",
-      "dropHint": "Supports PDF · Word · Excel/CSV · Images · URL · up to 50MB per file",
+      "dropHint": "Supports PDF · Word · Excel/CSV · Images · URL · up to 200MB / 200 PDF pages (MinerU limit)",
       "submit": "Submit to queue",
       "submitting": "Submitting…",
-      "systemDefault": "System default namespace",
-      "filesSelected": "{count} files selected"
+      "systemDefault": "System default knowledge base",
+      "filesSelected": "{count} files selected",
+      "error": {
+        "file_too_large": "File exceeds the maximum size of {maxMb}MB (MinerU Precision Extract limit). Reduce or split the file and try again.",
+        "pdf_too_many_pages": "PDF has {pages} pages; maximum allowed is {max} (MinerU Precision Extract limit). Split the PDF and re-upload.",
+        "pdf_unreadable": "This PDF could not be read for page-count validation. Re-export or repair the file and try again."
+      }
     },
     "url": {
       "tab": {
@@ -35,14 +40,25 @@
       "title": "Submit URL",
       "placeholder": "Paste a public URL (https://...) — web page, PDF, image",
       "submit": "Submit URL",
-      "submitting": "Validating…",
+      "submitting": "Submitting…",
+      "checking": "Checking reachability…",
+      "checkingPdf": "Checking PDF limits…",
+      "kbRequired": "Select a target knowledge base before submitting.",
       "invalidFormat": "Please enter a valid URL starting with http:// or https://",
+      "preview": {
+        "ok": "Reachable · HTTP {status}",
+        "pdf": "PDF · {pages} pages · HTTP {status}",
+        "image": "Image · HTTP {status}",
+        "sslInsecure": "TLS certificate chain incomplete — fetched with relaxed verification"
+      },
       "error": {
         "invalid_url_format": "Invalid URL format. Only http:// and https:// URLs are accepted.",
         "url_target_forbidden": "This URL points to a private or restricted address and cannot be fetched by the server.",
         "url_unreachable": "The server cannot reach this URL. Check if the link is public and accessible.",
         "url_timeout": "The URL took too long to respond. Try again later or use a different link.",
         "url_bad_status": "The URL returned an error status.",
+        "url_ssl_error": "TLS certificate verification failed for this URL.",
+        "client_timeout": "Validation timed out. Check the link or try again later.",
         "fallback": "URL submission failed. Please verify the link and try again."
       }
     },
@@ -144,6 +160,7 @@
     "toast": {
       "created": "Created {count} ingest tasks, dispatching to Celery queue.",
       "createdHint": "Queue position {range} · GPU rendering starts within ~2 min",
+      "queued": "URL queued for indexing",
       "success": "Ingest succeeded",
       "failed": "Ingest failed",
       "documentId": "Document ID",

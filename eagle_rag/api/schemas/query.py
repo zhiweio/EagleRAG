@@ -34,6 +34,10 @@ class ScopeSelection(BaseModel):
 
 
 class QueryRequest(BaseModel):
+    plugin_namespace: str | None = Field(
+        default=None,
+        description="Ignored in production; must match instance namespace or returns 403",
+    )
     session_id: str | None = Field(default=None, description="Auto-create a session when omitted")
     query: str = ""
     mode: str | None = Field(default=None, description="auto | text | visual | hybrid")
@@ -52,6 +56,9 @@ class QueryRequest(BaseModel):
 
     @model_validator(mode="after")
     def _validate_query_or_attachments(self) -> QueryRequest:
+        from eagle_rag.api.deps import validate_request_namespace
+
+        validate_request_namespace(self.plugin_namespace)
         has_query = bool(self.query.strip())
         has_attachments = bool(self.attachments)
         if not has_query and not has_attachments:
@@ -149,6 +156,10 @@ class QueryResponse(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str = ""
+    plugin_namespace: str | None = Field(
+        default=None,
+        description="Ignored in production; must match instance namespace or returns 403",
+    )
     mode: str | None = Field(default=None, description="auto | text | visual | hybrid")
     scope: list[str] | None = Field(
         default=None, description="Restrict to these document_id values"
@@ -165,6 +176,9 @@ class SearchRequest(BaseModel):
 
     @model_validator(mode="after")
     def _validate_query_or_attachments(self) -> SearchRequest:
+        from eagle_rag.api.deps import validate_request_namespace
+
+        validate_request_namespace(self.plugin_namespace)
         has_query = bool(self.query.strip())
         has_attachments = bool(self.attachments)
         if not has_query and not has_attachments:

@@ -1,12 +1,13 @@
 # syntax=docker/dockerfile:1.7
-# Eagle-RAG MCP HTTP 服务镜像（多阶段构建，非 root 运行）。
+# Eagle-RAG MCP HTTP service image (multi-stage, non-root runtime).
 #
-# 与 ``docker/Dockerfile.api`` 共享 base image / python 版本 / uv 安装模式 / 非 root
-# 用户（``eagle``，uid 1000），仅 ENTRYPOINT 不同：独立 MCP streamable HTTP 服务
-# （``uvicorn eagle_rag.api.mcp_server_http:app``，stateless + JSON-only）。
+# Shares base image / Python version / uv install mode / non-root user (``eagle``,
+# uid 1000) with ``docker/Dockerfile.api``. Only the ENTRYPOINT differs: standalone
+# MCP streamable HTTP (``uvicorn eagle_rag.api.mcp_server_http:app``,
+# stateless + JSON-only).
 #
-# 构建：docker build -f docker/Dockerfile.mcp -t eagle-rag-mcp .
-# 运行：docker run -p 8081:8081 -e AUTH_API_KEY=... eagle-rag-mcp
+# Build: docker build -f docker/Dockerfile.mcp -t eagle-rag-mcp .
+# Run:   docker run -p 8081:8081 -e AUTH_API_KEY=... eagle-rag-mcp
 ARG PYTHON_VERSION=3.12
 
 # ---------------- builder ----------------
@@ -16,14 +17,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/opt/venv \
-    # 强制 uv 使用 base 镜像的系统 Python（与 Dockerfile.api 一致），避免 runtime
-    # 阶段 venv 软链目标缺失。
+    # Force uv to use the base-image system Python (same as Dockerfile.api) so
+    # runtime venv symlinks are not broken.
     UV_PYTHON_PREFERENCE=only-system
 
 WORKDIR /app
 
-# 系统依赖：与 Dockerfile.api 对齐（MCP 工具会调用 vision / 渲染 service 层，
-# 需要浏览器运行库与 CJK 字体）+ git（核心依赖 pixelrag 含 git+https 依赖）。
+# System deps aligned with Dockerfile.api (MCP tools call vision/render layers;
+# need browser libs + CJK fonts) + git (pixelrag is a git+https dependency).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libdrm2 libxkbcommon0 \
         libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
@@ -31,12 +32,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl git \
     && rm -rf /var/lib/apt/lists/*
 
-# uv（固定来源镜像，不单独安装）。
+# uv (pinned upstream image; not installed separately).
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# 先装依赖（利用层缓存）：仅按锁文件同步，不安装项目自身（源码稍后复制）。
-# pixelrag_render / pixelrag_embed 已在核心 dependencies 中，默认安装，
-# 使 MCP 工具能调用 pixelrag_render/embed。
+# Install deps first (layer cache): sync from lockfile without installing the project
+# (source is copied later). pixelrag_render / pixelrag_embed are core dependencies.
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
@@ -46,19 +46,25 @@ FROM python:${PYTHON_VERSION}-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:${PATH}" \
-    # fastmcp 无状态模式默认开启：任意副本可处理任意请求，无粘性路由，支持水平扩展。
+    # fastmcp stateless mode: any replica can handle any request (no sticky routing).
     FASTMCP_STATELESS_HTTP=true \
-    # MCP 独立 HTTP 服务默认参数（可被运行时环境变量覆盖）。
+    # Standalone MCP HTTP defaults (overridable at runtime).
     MCP_TRANSPORT=http \
     MCP_HOST=0.0.0.0 \
     MCP_PORT=8081 \
     MCP_WORKERS=4 \
     MCP_STANDALONE=true \
-    MCP_AUTH_PROVIDER=static-token
+    MCP_AUTH_PROVIDER=static-token \
+    # PluginAudit multi-sink defaults (JSONL + Redis recent via MCP_REDIS_URL / CELERY_BROKER_URL).
+    TELEMETRY_ENABLED=true \
+    AI_TELEMETRY_LOG_FILE=logs/ai_telemetry.jsonl \
+    OP_LOG_FILE=logs/eagle_rag.log \
+    PLUGIN_AUDIT_ENABLED=true \
+    PLUGIN_AUDIT_REDIS_ENABLED=true
 
 WORKDIR /app
 
-# 运行期系统库（与 Dockerfile.api 一致）+ curl（健康检查探测）。
+# Runtime system libs (same as Dockerfile.api) + curl (healthcheck).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libdrm2 libxkbcommon0 \
         libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
@@ -66,28 +72,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 从 builder 拷贝虚拟环境。
+# Copy venv from builder.
 COPY --from=builder /opt/venv /opt/venv
 
-# 非 root 用户（与 Dockerfile.api 一致）：先创建并 chown /app 及运行期可写目录（logs / data），
-# 再切换 USER。settings.yaml 默认 op_log_file/ai_log_file 在 logs/、data_dir=./data，相对 /app；
-# 若 /app 归 root，eagle 无权创建 logs/ → 启动期 PermissionError（uv-docker 最佳实践）。
+# Non-root user (same as Dockerfile.api): chown /app and writable dirs (logs / data)
+# before USER. settings.yaml defaults put op/ai logs under logs/ and data_dir=./data
+# relative to /app; root-owned /app causes PermissionError at startup.
 RUN useradd --create-home --uid 1000 eagle \
     && mkdir -p /app/logs /app/data \
     && chown -R eagle:eagle /app
 
-# 源码与锁文件（eagle_rag/settings.yaml 随包内）。
+# Source and lockfiles (eagle_rag/settings.yaml ships in-package).
 COPY --chown=eagle:eagle pyproject.toml uv.lock ./
 COPY --chown=eagle:eagle eagle_rag ./eagle_rag
+COPY --chown=eagle:eagle plugins ./plugins
 
 USER eagle
 
 EXPOSE 8081
 
-# ENTRYPOINT：独立 MCP streamable HTTP 服务。
-# - shell form 以便 ${MCP_WORKERS} 在运行时展开（Docker Swarm stack env / `docker run -e` 覆盖生效）。
-# - ``eagle_rag.api.mcp_server_http:app`` 为模块级 Starlette ASGI 应用，
-#   uvicorn 以 import string 加载，支持 ``--workers`` 多进程 prefork。
-# - ``--host 0.0.0.0 --port 8081`` 对齐 settings.mcp 默认值。
+# ENTRYPOINT: standalone MCP streamable HTTP service.
+# - Shell form so ${MCP_WORKERS} expands at runtime (Swarm stack env / docker run -e).
+# - ``eagle_rag.api.mcp_server_http:app`` is a module-level Starlette ASGI app;
+#   uvicorn loads the import string and supports ``--workers`` prefork.
+# - ``--host 0.0.0.0 --port 8081`` matches settings.mcp defaults.
 ENTRYPOINT uvicorn eagle_rag.api.mcp_server_http:app \
     --host 0.0.0.0 --port 8081 --workers ${MCP_WORKERS}

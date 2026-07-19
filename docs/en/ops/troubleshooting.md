@@ -341,6 +341,41 @@ Taskfile runs `unset POSTGRES_PASSWORD APP_ENV` for knowhere tasks. If you invok
 
 ---
 
+## Plugin and profile issues
+
+### Wrong `EAGLE_RAG_PROFILE` or namespace mismatch
+
+| Symptom | Likely cause |
+| --- | --- |
+| HTTP **403** on API with `plugin_namespace` detail | Client sent `plugin_namespace` ≠ `settings.plugins.default_namespace` |
+| Domain MCP tools missing from `/mcp/tools` | Profile enables plugin but `default_namespace` does not match tool namespace (G3) |
+| Milvus empty but Postgres has documents | API/worker `EAGLE_RAG_PROFILE` differs — writing to another Database |
+| `GET /health/plugins` shows unexpected `enabled_modules` | Stale worker env; plugin module import path wrong |
+
+**Fix**
+
+```bash
+# API and all workers must share the same profile
+docker compose exec api printenv EAGLE_RAG_PROFILE
+docker compose exec worker-router printenv EAGLE_RAG_PROFILE
+curl -s localhost:8000/health/plugins | jq '.default_namespace, .manifests[].namespace'
+curl -s localhost:8000/mcp/tools | jq '.tools[].name'
+```
+
+Restart all app containers after changing `.env` (`get_settings()` is cached per process).
+
+### Plugin import / manifest errors
+
+| Symptom | Check |
+| --- | --- |
+| `enabled_modules` shorter than `settings.plugins.enabled` | Import error in `plugins/<name>/__init__.py` — inspect API startup logs |
+| `celery_modules` mismatch vs API | Worker missing `EAGLE_RAG_PROFILE` or `./plugins` mount |
+| Specialized collections never queried | Core G4 — need domain `QueryRouteClassifier` or scope-aware catalog union |
+
+Ensure dev override mounts `./plugins:/app/plugins:ro` on api and workers ([docker](docker.md)).
+
+---
+
 ## MCP-specific issues
 
 | Symptom | Metric / log | Fix |
@@ -357,10 +392,10 @@ Prometheus metrics live on MCP standalone `/metrics` ([`eagle_rag/metrics.py`](h
 
 | Symptom | Cause |
 | --- | --- |
-| Browser network error | `NEXT_PUBLIC_API_URL` wrong in frontend build |
+| Browser network error | `NEXT_PUBLIC_API_BASE` wrong in frontend build |
 | CORS (local) | API host not reachable from browser |
 
-Dev Docker: `NEXT_PUBLIC_API_URL=http://localhost:8000`. Frontend `depends_on: api: service_healthy`.
+Dev Docker: `NEXT_PUBLIC_API_BASE=http://localhost:8000`. Frontend `depends_on: api: service_healthy`.
 
 ---
 

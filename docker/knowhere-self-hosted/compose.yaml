@@ -1,16 +1,16 @@
-# Knowhere 文档语义解析服务（独立自托管栈）。
+# Knowhere document semantic parsing service (standalone self-hosted stack).
 #
-# 本文件从 eagle-rag 主 compose 中拆分，可独立维护与部署：
+# Split from eagle-rag main compose for independent maintenance and deployment:
 #   cd docker/knowhere-self-hosted
-#   docker network create knowhere-net 2>/dev/null || true   # 与 eagle-rag 共享的网络
+#   docker network create knowhere-net 2>/dev/null || true   # Shared network with eagle-rag
 #   docker compose up -d
 #
-# eagle-rag 容器经共享外部网络 knowhere-net 以 DNS 名 ``knowhere`` 访问 API :5005，
-# 故 eagle-rag 侧 KNOWHERE_BASE_URL=http://knowhere:5005 无需改动。
-# 本机直连（非容器）改为 KNOWHERE_BASE_URL=http://localhost:5005。
+# eagle-rag containers reach API :5005 via shared external network knowhere-net using DNS name ``knowhere``,
+# so eagle-rag KNOWHERE_BASE_URL=http://knowhere:5005 needs no change.
+# For local direct access (non-container), use KNOWHERE_BASE_URL=http://localhost:5005.
 #
-# 环境变量优先级：env.defaults（vendor 默认） < .env（用户覆盖，勿提交真实密钥）。
-# LLM/解析密钥（DS_KEY / ALI_API_KEYS / MINERU_API_KEYS）填入本目录 .env，参见 .env.example。
+# Env var precedence: env.defaults (vendor defaults) < .env (user overrides; do not commit real secrets).
+# LLM/parsing keys (DS_KEY / ALI_API_KEYS / MINERU_API_KEYS) go in this directory's .env; see .env.example.
 
 services:
   app:
@@ -35,12 +35,12 @@ services:
       - knowhere_model_cache:/data/models
       - knowhere_secrets:/data/secrets
     healthcheck:
-      # 官方镜像基于 python:3.12-slim 且 Dockerfile 安装了 curl，故用 curl 探测 /health。
+      # Official image is python:3.12-slim with curl installed in Dockerfile; probe /health with curl.
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:5005/health >/dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 90s   # 与官方 Dockerfile HEALTHCHECK 一致，给足预热
+      start_period: 90s   # Matches official Dockerfile HEALTHCHECK; allow warmup time
     logging:
       driver: json-file
       options:
@@ -50,7 +50,7 @@ services:
       default: {}
       knowhere-net:
         aliases:
-          # eagle-rag 容器以 DNS 名 knowhere 访问此服务（http://knowhere:5005）。
+          # eagle-rag containers reach this service via DNS name knowhere (http://knowhere:5005).
           - knowhere
 
   postgres:
@@ -115,11 +115,11 @@ services:
     networks:
       default:
         aliases:
-          # app 的 S3_ENDPOINT_URL=http://localhost.localstack.cloud:4566 解析到此别名
+          # app S3_ENDPOINT_URL=http://localhost.localstack.cloud:4566 resolves to this alias
           - localhost.localstack.cloud
       knowhere-net:
-        # 让 eagle-rag worker 容器也能解析 localhost.localstack.cloud，
-        # 否则 Knowhere SDK 从 worker 上传文件时 Connection refused。
+        # Let eagle-rag worker containers resolve localhost.localstack.cloud too;
+        # otherwise Knowhere SDK file uploads from worker get Connection refused.
         aliases:
           - localhost.localstack.cloud
           - localstack
@@ -137,8 +137,8 @@ services:
 networks:
   default:
     driver: bridge
-  # 与 eagle-rag 主 compose 共享的外部网络：eagle-rag 容器据此以 DNS 名 knowhere 访问 API。
-  # 首次部署前需创建：docker network create knowhere-net
+  # External network shared with eagle-rag main compose: eagle-rag containers reach API via DNS name knowhere.
+  # Create before first deploy: docker network create knowhere-net
   knowhere-net:
     external: true
     name: knowhere-net

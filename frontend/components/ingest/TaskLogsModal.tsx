@@ -127,7 +127,9 @@ export function TaskLogsModal({ task, onClose, onRetry }: TaskLogsModalProps) {
   }, []);
 
   const phase = normalizeStatus(snapshot.status);
-  const isFailed = phase === "failed";
+  const rawStatus = (snapshot.status ?? "").toLowerCase();
+  // Match Actions column: terminal failure + Celery retrying both expose Retry.
+  const isFailed = phase === "failed" || rawStatus === "retrying";
   const isSuccess = phase === "success";
   const exitCode = isFailed ? 1 : isSuccess ? 0 : null;
   const duration = durationSeconds(snapshot);

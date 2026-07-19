@@ -54,7 +54,9 @@ __all__ = [
     "McpSettings",
     "McpOAuthSettings",
     "McpMtlsSettings",
+    "PluginSettings",
     "get_settings",
+    "plugin_options",
 ]
 
 # Match ${VAR} and ${VAR:-default} (os.path.expandvars does not support :- defaults).
@@ -74,11 +76,13 @@ class AppSettings(BaseModel):
 class MilvusSettings(BaseModel):
     host: str
     port: int
+    db_name: str = "default"
     text_collection: str
     visual_collection: str
     dim_text: int
     dim_visual: int
     visual_index_type: str  # hnsw | diskann
+    auto_create_db: bool = True
 
 
 class KnowhereParserSettings(BaseModel):
@@ -150,9 +154,24 @@ class TextEmbeddingSettings(BaseModel):
 
 
 class VisualEmbeddingSettings(BaseModel):
+    """Core visual embedding (PixelRAG tiles / image queries).
+
+    ``provider``:
+    - ``pixelrag`` — local Hugging Face Qwen3-VL-Embedding (torch/transformers)
+    - ``dashscope`` — Bailian ``qwen3-vl-embedding`` via DashScope MultiModalEmbedding
+
+    Ingest and query must use the same provider; switching requires rebuilding
+    ``eagle_visual`` (vectors are not mixed across backends).
+    """
+
     provider: str
     model: str
     dim: int
+    api_key: str = ""
+    base_url: str = ""  # native DashScope API base (not OpenAI-compatible)
+    batch_size: int = 5
+    timeout_s: float = 60.0
+    max_retries: int = 3
 
 
 class EmbeddingSettings(BaseModel):
@@ -269,6 +288,18 @@ class RouterSettings(BaseModel):
     source_content_max_chars: int = 4000
     # Upper bound on section nodes persisted / served for a document's semantic tree.
     structure_max_nodes: int = 2000
+    # Two-stage parent-document retrieval on ``eagle_text`` (G5).
+    parent_doc_retrieval: bool = True
+    # RRF fusion constant for multi-collection merge (G8).
+    rrf_k: int = 60
+    # ANN recall width before rerank; final response is capped at ``final_top_k``.
+    recall_top_k: int = 30
+    final_top_k: int = 5
+    # Dense vs sparse weight for in-process hybrid fusion (1.0 = dense only).
+    hybrid_alpha: float = 0.6
+    hybrid_text_enabled: bool = True
+    # Optional override; when empty, hybrid eligibility uses encoder registry profiles.
+    hybrid_text_collections: list[str] = Field(default_factory=list)
 
 
 class QueueConfig(BaseModel):
@@ -395,61 +426,38 @@ class SourceTypeRule(BaseModel):
 
 
 class IngestSourceTypeSettings(BaseModel):
-    """source_type inference config: ordered rules (first match wins) plus a default value."""
+    """source_type inference: optional keyword rules; default is free-form ``other``.
 
-    rules: list[SourceTypeRule] = [
-        SourceTypeRule(
-            keywords=[
-                "财报",
-                "报表",
-                "资产负债",
-                "利润表",
-                "现金流量",
-                "审计报告",
-                "financial",
-                "balance",
-                "income",
-                "cashflow",
-                "table",
-            ],
-            source_type="financial",
-        ),
-        SourceTypeRule(
-            keywords=[
-                "政策",
-                "法规",
-                "条例",
-                "办法",
-                "通知",
-                "公告",
-                "policy",
-                "law",
-                "regulation",
-                "act",
-            ],
-            source_type="policy",
-        ),
-        SourceTypeRule(
-            keywords=["招标", "中标", "投标", "采购", "bidding", "tender"],
-            source_type="bidding",
-        ),
-        SourceTypeRule(
-            keywords=["税", "税务", "个税", "增值税", "tax", "vat"],
-            source_type="tax",
-        ),
-        SourceTypeRule(
-            keywords=["工商", "企业信息", "营业执照", "公司简介", "business", "company"],
-            source_type="business",
-        ),
-    ]
+    Industry-specific keyword lists belong in domain plugins / deployment YAML —
+    Core ships an empty rule list so finance/tax/policy are not hard-coded.
+    """
+
+    rules: list[SourceTypeRule] = []
     default: str = "other"
 
 
 class UrlPrefetchConfig(BaseModel):
-    """URL preflight config (validate/ssrf/prefetch before dispatching ingest-by-URL)."""
+    """URL preflight config for ``POST /ingest/validate/url`` (and enqueue SSRF)."""
 
-    timeout_sec: float = 10.0
+    dns_timeout_sec: float = 3.0
+    timeout_sec: float = 5.0
     max_redirects: int = 3
+    pdf_download_timeout_sec: float = 30.0
+    verify_ssl: bool = True
+    # After SSRF passes, retry once with verify=False when the peer sends an
+    # incomplete certificate chain (common on some corporate sites).
+    ssl_verify_fallback: bool = True
+
+
+class IngestLimitsConfig(BaseModel):
+    """Early size/page guards aligned with MinerU Precision Extract API caps.
+
+    Defaults match mineru.net Precision Extract: 200 MiB / 200 pages per file.
+    """
+
+    enabled: bool = True
+    max_file_bytes: int = 209_715_200  # 200 MiB
+    max_pdf_pages: int = 200
 
 
 class IngestSettings(BaseModel):
@@ -458,6 +466,7 @@ class IngestSettings(BaseModel):
     routing: IngestRoutingSettings = IngestRoutingSettings()
     source_type: IngestSourceTypeSettings = IngestSourceTypeSettings()
     url_prefetch: UrlPrefetchConfig = UrlPrefetchConfig()
+    limits: IngestLimitsConfig = Field(default_factory=IngestLimitsConfig)
 
 
 class AuthSettings(BaseModel):
@@ -490,6 +499,11 @@ class TelemetrySettings(BaseModel):
     otlp_endpoint: str = ""
     otlp_insecure: bool = True
     redis_log_channel: str = "logs"
+    # PluginAudit multi-sink knobs (memory ring + Redis recent + AI JSONL + metrics).
+    plugin_audit_enabled: bool = True
+    plugin_audit_ring_cap: int = 1000
+    plugin_audit_redis_enabled: bool = True
+    plugin_audit_health_limit: int = 50
 
 
 class McpOAuthSettings(BaseModel):
@@ -537,6 +551,20 @@ class McpSettings(BaseModel):
     mtls: McpMtlsSettings = McpMtlsSettings()
 
 
+class PluginSettings(BaseModel):
+    """In-process plugin loading and instance namespace binding.
+
+    Per-plugin knobs live under ``options`` keyed by plugin namespace (e.g.
+    ``options.biomed.default_dual_text_search``), not as Core-typed fields.
+    """
+
+    enabled: list[str] = ["eagle_rag.plugins.core_defaults"]
+    default_namespace: str = "core"
+    allow_namespace_override: bool = False
+    query_assemble_enabled: bool = True
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
 class Settings(BaseSettings):
     """Top-level config aggregate; YAML loading + environment variable overrides."""
 
@@ -567,6 +595,9 @@ class Settings(BaseSettings):
     auth: AuthSettings
     telemetry: TelemetrySettings = TelemetrySettings()
     mcp: McpSettings = McpSettings()
+    plugins: PluginSettings = Field(default_factory=PluginSettings)
+    # Deployment profile name (P2-4); applied in ``get_settings`` from YAML ``profiles:``.
+    active_profile: str | None = None
 
 
 def _expand_vars(value: Any) -> Any:
@@ -608,16 +639,61 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return _expand_vars(raw)
 
 
+def _apply_profile(data: dict[str, Any]) -> dict[str, Any]:
+    """Merge ``profiles.<name>`` overlays when ``EAGLE_RAG_PROFILE`` / ``active_profile`` is set.
+
+    Profile keys overlay top-level settings (deep-merge for nested mappings). Env
+    ``EAGLE_RAG_PROFILE`` wins over YAML ``active_profile``.
+    """
+    profile_name = (
+        os.environ.get("EAGLE_RAG_PROFILE")
+        or os.environ.get("PLUGIN_PROFILE")
+        or data.get("active_profile")
+        or ""
+    )
+    profile_name = str(profile_name).strip()
+    if not profile_name:
+        return data
+
+    profiles = data.get("profiles")
+    if not isinstance(profiles, dict) or profile_name not in profiles:
+        raise ValueError(
+            f"unknown deployment profile {profile_name!r}; "
+            f"known={sorted(profiles) if isinstance(profiles, dict) else []}"
+        )
+    overlay = profiles[profile_name]
+    if not isinstance(overlay, dict):
+        raise ValueError(f"profile {profile_name!r} must be a mapping")
+
+    merged = dict(data)
+    for key, value in overlay.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            nested = dict(merged[key])
+            nested.update(value)
+            merged[key] = nested
+        else:
+            merged[key] = value
+    merged["active_profile"] = profile_name
+    return merged
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Return the singleton ``Settings``.
 
     Reads the YAML file pointed to by ``EAGLE_RAG_SETTINGS_PATH`` first, falling back
-    to the in-package ``settings.yaml``. After YAML placeholder expansion, ``Settings``
-    is constructed and may still be overridden by ``EAGLE_RAG_<SECTION>__<FIELD>``
-    environment variables.
+    to the in-package ``settings.yaml``. After YAML placeholder expansion and optional
+    profile merge (``EAGLE_RAG_PROFILE``), ``Settings`` is constructed and may still be
+    overridden by ``EAGLE_RAG_<SECTION>__<FIELD>`` environment variables.
     """
     path_str = os.environ.get("EAGLE_RAG_SETTINGS_PATH", str(_DEFAULT_SETTINGS_PATH))
     path = Path(path_str)
-    data = _load_yaml(path)
+    data = _apply_profile(_load_yaml(path))
     return Settings(**data)
+
+
+def plugin_options(namespace: str, settings: Settings | None = None) -> dict[str, Any]:
+    """Return ``settings.plugins.options[namespace]`` (empty dict when absent)."""
+    cfg = settings or get_settings()
+    raw = cfg.plugins.options.get(namespace) if cfg.plugins.options else None
+    return dict(raw) if isinstance(raw, dict) else {}

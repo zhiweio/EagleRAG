@@ -2,6 +2,12 @@
 
 **Semantic-tree anchored pixel fusion** links Knowhere's document structure to PixelRAG's visual tiles inside one Milvus cluster. This page explains the theory, walks the actual code path (`extract_visual_chunks` → `upsert_visual`), and documents ANN math, tuning tensions, configuration, and failure modes.
 
+## Plugin architecture boundary (shipped)
+
+The PixelRAG visual modality (render + Qwen3-VL + `eagle_visual`) is a **Core first-class citizen**; domain plugins cannot disable it. Four-anchor bridging (`chunk_type` / `parent_section` / `content_summary` / `source_chunk_id`) is implemented by default via the `INGEST_VISUAL_EXTRACT` hook; domain plugins may override anchor assignment. Cross-collection document trees use `reconstruct_document` and `GET /documents/{id}/structure`.
+
+**Retrieval vs generation fusion:** Within Core, text (`eagle_text`) and visual (`eagle_visual`) hits merge in `EagleMultimodalQueryEngine` for VLM prompting. Domain plugins may add **specialized collections** in the same Milvus Database; `RetrieverOrchestrator` runs per-plan ANN and merges with **RRF** ([ADR-004](adr/004-multi-encoder-rrf-fusion.md)) — distinct from the text+visual merge at generation time. See [Plugin architecture](plugin-architecture.md).
+
 ---
 
 ## Theory and foundations
@@ -29,7 +35,7 @@ Text and images live in different embedding manifolds:
 | Text | Qwen `text-embedding-v4` | 1536 | Cosine (LlamaIndex default) |
 | Visual | Qwen3-VL-Embedding-2B | 2048 | IP on L2-normalized vectors |
 
-[Gao et al., 2023](https://arxiv.org/abs/2312.10997) discusses multi-vector retrieval — Eagle-RAG runs two ANN queries at query time and fuses in the generation engine.
+[Gao et al., 2023](https://arxiv.org/abs/2312.10997) discusses multi-vector retrieval — Eagle-RAG runs ANN on `eagle_text` and `eagle_visual` at query time and fuses in the generation engine; domain deployments may add more collections merged via RRF before generation ([ADR-004](adr/004-multi-encoder-rrf-fusion.md)).
 
 ### ANN: HNSW intuition
 
@@ -82,7 +88,7 @@ flowchart TB
     end
     subgraph Flesh["PixelRAG — visual flesh"]
         REN["pixelrag_render tiles"]
-        EMB["_Qwen3VLVisualEncoder 2048d"]
+        EMB["get_visual_encoder 2048d"]
     end
     subgraph Store["Milvus 2.6"]
         ET[("eagle_text 1536d<br/>LlamaIndex")]
@@ -157,14 +163,19 @@ For corpus beyond RAM, switch to DiskANN (`MILVUS_VISUAL_INDEX_TYPE=diskann`) �
 
 ## Innovation 2: Qwen3-VL visual encoding
 
-`_Qwen3VLVisualEncoder` singleton in `eagle_rag/ingest/pixelrag_adapter.py`:
+`get_visual_encoder()` in `eagle_rag/ingest/visual_encoder.py` selects a backend from `embedding.visual.provider`. Render stays in `pixelrag_adapter` (`pixelrag_render`); embed calls go through the factory.
+
+| Provider | Backend | Notes |
+| --- | --- | --- |
+| `pixelrag` (default) | `LocalQwen3VLEncoder` | Local HF Qwen3-VL-Embedding-2B; device `auto` → cuda → mps → cpu |
+| `dashscope` | `DashScopeQwen3VLEncoder` | Bailian `qwen3-vl-embedding` via DashScope `MultiModalEmbedding`; needs `DASHSCOPE_API_KEY` |
 
 ### Architecture intuition
 
 - **Dual-tower** — query text and document images mapped to shared 2048-d space
-- **Last-token pooling** — representation taken at `<|endoftext|>` (EOS) token after chat template; captures full image+instruction context
+- **Last-token pooling** (local) — representation taken at EOS after chat template; captures full image+instruction context
 - **L2 normalization** — \(\|\mathbf{v}\|_2 = 1\) before upsert → IP search = cosine
-- **`provider == "pixelrag"`** — `_ensure_loaded()` raises if misconfigured; **no mock embeddings**
+- **Provider lock** — ingest and query must share the same provider; unknown values raise `ValueError`; **no mock embeddings**. Switching backends requires rebuilding `eagle_visual`.
 
 ### Preprocessing
 
@@ -174,23 +185,24 @@ For corpus beyond RAM, switch to DiskANN (`MILVUS_VISUAL_INDEX_TYPE=diskann`) �
 | `pixelrag.tile_height` | 8192 px | Vertical slice per page |
 | `pixelrag.quality` | 85 | JPEG quality for tiles |
 | `pixelrag.embed_instruction` | `"Represent the user's input."` | Shared query/document instruction |
+| `pixelrag.embed_device` | `auto` | Local HF device only (`provider=pixelrag`) |
 
 Screenshot fine-tuning in Qwen3-VL-Embedding improves recall on document layouts vs generic CLIP encoders ([PixelRAG paper](https://github.com/StarTrail-org/PixelRAG)).
 
-### Lazy singleton pattern
+### Lazy factory pattern
 
 ```python
-# Pattern in pixelrag_adapter.py
-_encoder: _Qwen3VLVisualEncoder | None = None
+# eagle_rag/ingest/visual_encoder.py
+def get_visual_encoder() -> VisualEncoder:
+    # caches (provider, model) → LocalQwen3VLEncoder | DashScopeQwen3VLEncoder
+    ...
 
-def _get_encoder() -> _Qwen3VLVisualEncoder:
-    global _encoder
-    if _encoder is None:
-        _encoder = _Qwen3VLVisualEncoder(...)
-    return _encoder
+# pixelrag_adapter.embed_tiles / embed_query
+encoder = get_visual_encoder()
+vectors = encoder.embed_images(tile_bytes)  # or encoder.embed_text(query)
 ```
 
-API process does not load GPU weights until a worker or handler calls `embed()`.
+With `provider=pixelrag`, the API process does not load GPU weights until a worker or handler calls `embed_*()`. With `provider=dashscope`, there is no local weight load — only API calls.
 
 ---
 
@@ -348,7 +360,7 @@ Scanned PDF, image file, URL, HTML:
 flowchart LR
     DOC --> PB["pixelrag_build"]
     PB --> REN["pixelrag_render tiles"]
-    REN --> EMB["_Qwen3VLVisualEncoder"]
+    REN --> EMB["get_visual_encoder"]
     EMB --> UV["upsert_visual_batch<br/>chunk_type=tile"]
     UV --> EV[("eagle_visual")]
 ```
@@ -395,7 +407,7 @@ Generation details: [multimodal engine](../backend/generation.md). Retrieval: [r
 
 | Tension | Code / setting | Why it matters |
 | --- | --- | --- |
-| Pooling geometry | Last-token at `<\|im_end\|>` in `_Qwen3VLVisualEncoder` | Must match Qwen3-VL-Embedding training; mean pooling shifts query–tile geometry |
+| Pooling geometry | Last-token at EOS in `LocalQwen3VLEncoder` (local path) | Must match Qwen3-VL-Embedding training; mean pooling shifts query–tile geometry |
 | Metric vs normalization | `metric_type=IP` on L2-normalized 2048-d vectors | Inner product equals cosine; unnormalized vectors break ranking |
 | Tile granularity | `pixelrag.tile_height`, `viewport_width` (875 → 28px patches) | Smaller tiles ↑ recall on footnotes; ↑ ingest embed cost linearly |
 | Anchor field cardinality | Four fields on `upsert_visual` | `parent_section LIKE` without `chunk_type` mixes table tiles with figure tiles |
@@ -413,14 +425,17 @@ Generation details: [multimodal engine](../backend/generation.md). Retrieval: [r
 | `milvus.visual_index_type` | `hnsw` vs `diskann` |
 | `pixelrag.tile_height` | Tiles per page — recall granularity |
 | `pixelrag.viewport_width` | Patch alignment (875 → 28px multiples) |
-| `pixelrag.embed_device` | `auto` / `cuda` / `mps` / `cpu` |
-| `embedding.visual.provider` | Must be `pixelrag` |
+| `pixelrag.embed_device` | `auto` / `cuda` / `mps` / `cpu` (local HF only) |
+| `embedding.visual.provider` | `pixelrag` (local HF) or `dashscope` (Bailian); same for ingest+query; switch ⇒ rebuild `eagle_visual` |
+| `embedding.visual.model` | Local path/HF id or Bailian model name (`qwen3-vl-embedding`) |
 | `router.structure_max_nodes` | Cap `doc_nav` tree in PostgreSQL |
 | `kb.visual_entity_limit` | Capacity planning for visual vectors |
 
 ```bash
 MILVUS_VISUAL_INDEX_TYPE=diskann
-PIXELRAG_EMBED_DEVICE=cuda
+PIXELRAG_EMBED_DEVICE=cuda          # provider=pixelrag
+# VISUAL_EMBEDDING_PROVIDER=dashscope
+# VISUAL_EMBEDDING_MODEL=qwen3-vl-embedding
 ```
 
 ---
@@ -433,7 +448,7 @@ PIXELRAG_EMBED_DEVICE=cuda
 | `knowhere_visual_chunks` OOM | Worker crash; retry → dead letter | Keep `pixelrag_queue` c=1; add RAM |
 | Milvus upsert fails | Logged; possible missing visuals | Check Milvus; re-ingest document |
 | Missing `parent_section` | Visual hit still searchable globally | Expected for `pixelrag_build` tiles |
-| Encoder load fails | `pixelrag_build` `FAILED` | Verify `pixelrag_embed` install, GPU drivers |
+| Encoder load fails | `pixelrag_build` `FAILED` | Local: verify `pixelrag_embed` / HF weights / GPU. DashScope: verify `DASHSCOPE_API_KEY` and model name |
 | Dimension mismatch | Milvus insert error | Ensure `dim_visual: 2048` matches model |
 | Legacy collection no `kb_name` | Auto drop+recreate on `ensure_collection` | **Data loss** — backup before upgrade |
 

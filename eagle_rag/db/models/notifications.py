@@ -14,13 +14,17 @@ class Notification(SQLModel, table=True):
     """``notifications`` table: task event notifications."""
 
     __tablename__ = "notifications"
-    __table_args__ = (Index("idx_notifications_read", "read", "created_at"),)
+    __table_args__ = (
+        Index("idx_notifications_read", "read", "created_at"),
+        Index("idx_notifications_namespace", "plugin_namespace"),
+    )
 
     id: str = Field(primary_key=True, sa_type=Text())
     type: str = Field(sa_column=Column("type", Text(), nullable=False))
     title: str = Field(sa_type=Text())
     body: str = Field(default="", sa_type=Text())
     kb_name: str | None = Field(default=None, sa_type=Text())
+    plugin_namespace: str = Field(default="core", sa_type=Text())
     job_id: str | None = Field(default=None, sa_type=Text())
     read: bool = Field(
         default=False,

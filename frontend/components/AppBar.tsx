@@ -75,7 +75,7 @@ export function AppBar() {
         </button>
 
         {/* Right · locale */}
-        <div className="ml-auto flex shrink-0 items-center">
+        <div className="ml-auto flex shrink-0 items-center gap-3">
           <LocaleSwitcher />
         </div>
       </div>

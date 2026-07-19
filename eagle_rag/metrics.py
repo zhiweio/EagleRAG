@@ -15,6 +15,10 @@ Metrics:
 - ``mcp_circuit_state{tool}`` (Gauge): circuit-breaker state, ``0=closed`` /
   ``1=half-open`` / ``2=open``. Updated automatically via the
   ``CircuitBreakerListener.state_change`` callback (SubTask 4.3).
+- ``plugin_audit_decisions_total{category,plugin_namespace,outcome}`` (Counter):
+  PluginAudit decision events (``outcome`` = ``ok`` / ``error``).
+- ``plugin_audit_rrf_dedupe_total{plugin_namespace}`` (Counter): RRF cross-
+  collection dedupe events (G32 double-write monitoring).
 
 Instrumentation: decorate MCP tool functions with ``@with_metrics(tool_name)`` to
 automatically inc/dec active requests, observe duration, and inc
@@ -48,6 +52,8 @@ __all__ = [
     "MCP_TOOL_DURATION",
     "MCP_ACTIVE_REQUESTS",
     "MCP_CIRCUIT_STATE",
+    "PLUGIN_AUDIT_DECISIONS",
+    "PLUGIN_AUDIT_RRF_DEDUPE",
     "metrics_handler",
     "health_handler",
     "metrics_app",
@@ -85,6 +91,18 @@ MCP_CIRCUIT_STATE = Gauge(
     "mcp_circuit_state",
     "MCP tool circuit-breaker state (0=closed, 1=half-open, 2=open)",
     ["tool"],
+)
+
+PLUGIN_AUDIT_DECISIONS = Counter(
+    "plugin_audit_decisions_total",
+    "Plugin classification/routing/hook decision count",
+    ["category", "plugin_namespace", "outcome"],
+)
+
+PLUGIN_AUDIT_RRF_DEDUPE = Counter(
+    "plugin_audit_rrf_dedupe_total",
+    "Cross-collection RRF dedupe events (G32 double-write monitoring)",
+    ["plugin_namespace"],
 )
 
 # State string -> gauge numeric value.

@@ -96,7 +96,7 @@
       "totalDocs": "Total docs",
       "activeTenants": "KB instances",
       "storageAlerts": "Storage alerts",
-      "colTenant": "Tenant name",
+      "colTenant": "Knowledge base",
       "colStorage": "Storage",
       "colDocuments": "Documents",
       "colStatus": "Status",
@@ -104,7 +104,7 @@
       "statusSyncing": "Syncing",
       "statusDegraded": "Degraded",
       "empty": "No knowledge bases yet",
-      "alertHint": "{count} tenant(s) need attention"
+      "alertHint": "{count} knowledge base(s) need attention"
     },
     "healthCard": {
       "title": "Service health",

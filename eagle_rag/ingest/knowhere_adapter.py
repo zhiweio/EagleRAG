@@ -21,10 +21,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from eagle_rag.config import get_settings
-from eagle_rag.index.milvus_text_store import upsert_text_nodes
+from eagle_rag.db.repositories import dedup
 from eagle_rag.index.registry import update_chunk_count, update_extra, update_status
 from eagle_rag.index.tag_catalog import upsert_document_keywords
-from eagle_rag.storage import dedup
+from eagle_rag.plugins.pipeline import ParseContext, ParseResult
 from eagle_rag.storage.minio_client import download_file
 from eagle_rag.tasks.dead_letter import retry_on_failure, with_retry
 from eagle_rag.tasks.state import TaskState, update_state
@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "KnowhereError",
+    "KnowherePipeline",
     "knowhere_parse",
     "parse_with_knowhere_sdk",
     "chunks_to_text_nodes",
@@ -44,6 +45,7 @@ __all__ = [
     "dispatch_visual_chunks",
     "aggregate_keyword_counts",
     "infer_level_from_path",
+    "upsert_text_nodes",
 ]
 
 logger = get_logger(__name__)
@@ -93,6 +95,29 @@ def aggregate_keyword_counts(nodes: list[TextNode]) -> dict[str, int]:
             seen.add(token)
             counts[token] = counts.get(token, 0) + 1
     return counts
+
+
+def upsert_text_nodes(
+    nodes: list[TextNode],
+    *,
+    plugin_namespace: str | None = None,
+    kb_name: str | None = None,
+    document_id: str | None = None,
+) -> list[str]:
+    """Write text nodes via IngestOrchestrator (test-compatible entry point)."""
+    from eagle_rag.plugins.ingest_helpers import ingest_text_nodes
+
+    settings = get_settings()
+    resolved_kb = kb_name if kb_name is not None else settings.kb_name
+    resolved_doc = document_id
+    if not resolved_doc and nodes:
+        resolved_doc = str((nodes[0].metadata or {}).get("document_id") or "")
+    return ingest_text_nodes(
+        nodes,
+        plugin_namespace=plugin_namespace or settings.plugins.default_namespace,
+        kb_name=resolved_kb,
+        document_id=resolved_doc or "",
+    )
 
 
 def _normalize_parsing_params(params: dict) -> dict:
@@ -677,6 +702,67 @@ def dispatch_visual_chunks(
 
 
 # ---------------------------------------------------------------------------
+# Ingest pipeline wrapper
+# ---------------------------------------------------------------------------
+
+
+class KnowherePipeline:
+    """Registered knowhere ingest pipeline (minimal Celery dispatch wrapper)."""
+
+    name = "knowhere"
+
+    def celery_task_name(self) -> str:
+        return "eagle_rag.tasks.knowhere_parse"
+
+    def queue(self) -> str:
+        return "knowhere_queue"
+
+    def parse(self, ctx: ParseContext) -> ParseResult:
+        from eagle_rag.plugins.hotpath_hooks import apply_parse_hook
+
+        raw = parse_with_knowhere_sdk(
+            ctx.file_path,
+            file_name=ctx.file_name,
+            kb_name=ctx.kb_name,
+        )
+        raw = apply_parse_hook(
+            raw,
+            file_path=ctx.file_path,
+            file_name=ctx.file_name,
+            plugin_namespace=get_settings().plugins.default_namespace,
+            kb_name=ctx.kb_name,
+            document_id=ctx.document_id,
+        )
+        chunks = getattr(raw, "chunks", None) or []
+        return ParseResult(raw=raw, pipeline=self.name, chunk_count=len(chunks))
+
+    def to_nodes(self, parse_result: ParseResult, ctx: ParseContext) -> list[Any]:
+        from eagle_rag.plugins.hotpath_hooks import apply_chunk_hook
+
+        nodes = chunks_to_text_nodes(
+            parse_result.raw,
+            document_id=ctx.document_id,
+            source_type=ctx.source_type,
+            kb_name=ctx.kb_name,
+        )
+        section_nodes = sections_to_text_nodes(
+            parse_result.raw,
+            document_id=ctx.document_id,
+            source_type=ctx.source_type,
+            kb_name=ctx.kb_name,
+        )
+        nodes.extend(section_nodes)
+        return apply_chunk_hook(
+            nodes,
+            file_path=ctx.file_path,
+            file_name=ctx.file_name,
+            plugin_namespace=get_settings().plugins.default_namespace,
+            kb_name=ctx.kb_name,
+            document_id=ctx.document_id,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Celery task
 # ---------------------------------------------------------------------------
 
@@ -693,6 +779,7 @@ def knowhere_parse(  # noqa: ANN001
     source_uri: str | None = None,
     kb_name: str | None = None,
     sha256: str | None = None,
+    plugin_namespace: str | None = None,
 ) -> None:
     """Knowhere pipeline: fetch file → SDK parse → vectorize → Milvus → update registry.
 
@@ -705,8 +792,22 @@ def knowhere_parse(  # noqa: ANN001
         source_type: Source type (policy/financial/business/bidding/tax/other).
         source_uri: Original source URI (logging only).
         kb_name: Knowledge base id; falls back to ``settings.kb_name`` when None.
+        plugin_namespace: Plugin namespace from the router; defaults to instance binding.
     """
+    from eagle_rag.db.repositories.base import instance_namespace
+
     effective_kb = kb_name if kb_name is not None else get_settings().kb_name
+    ns = instance_namespace(plugin_namespace)
+
+    from eagle_rag.tasks.state import get_audit, prepare_rerun
+
+    existing = get_audit(job_id)
+    if existing is not None:
+        if (existing.get("status") or "").lower() == TaskState.SUCCESS.value:
+            return
+        # Worker restart / Celery redelivery leaves audits mid-pipeline
+        # (embedding/indexing). prepare_rerun bridges to a legal RENDERING entry.
+        prepare_rerun(job_id)
 
     try:
         with trace_span("ingest.knowhere"):
@@ -729,16 +830,51 @@ def knowhere_parse(  # noqa: ANN001
                 download_file(object_key, tmp_path)
                 file_path = str(tmp_path)
 
+            # 1b. Defense-in-depth: reject oversize / over-page PDFs before MinerU.
+            # Permanent failures — return without raising so Celery does not retry.
+            from eagle_rag.ingest.limits import IngestLimitError, validate_ingest_file
+
+            try:
+                validate_ingest_file(Path(file_path), name)
+            except IngestLimitError as limit_exc:
+                try:
+                    ai_logger.info(
+                        "ingest",
+                        job_id=job_id,
+                        document_id=document_id,
+                        pipeline="knowhere",
+                        kb_name=effective_kb,
+                        status="failed",
+                        error=truncate(str(limit_exc), 256),
+                        duration_ms=int((time.monotonic() - t0) * 1000),
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.debug("telemetry emit failed", exc_info=True)
+                update_state(job_id, TaskState.FAILED, error=str(limit_exc))
+                return
+
             # 2. Parse via Knowhere SDK; KnowhereError bubbles up → outer handler marks FAILED.
             parse_result = parse_with_knowhere_sdk(file_path, kb_name=effective_kb, file_name=name)
 
+            from eagle_rag.plugins.hotpath_hooks import apply_chunk_hook, apply_parse_hook
+
+            parse_result = apply_parse_hook(
+                parse_result,
+                file_path=str(file_path),
+                file_name=name,
+                plugin_namespace=ns,
+                kb_name=effective_kb,
+                document_id=document_id,
+            )
+
             # 3. Vectorization stage.
+            chunk_count = len(getattr(parse_result, "chunks", None) or [])
             update_state(
                 job_id,
                 TaskState.EMBEDDING,
                 current=0,
-                total=len(parse_result.chunks),
-                log_entry=f"Parse complete, {len(parse_result.chunks)} chunks",
+                total=chunk_count,
+                log_entry=f"Parse complete, {chunk_count} chunks",
             )
 
             # 4. Chunk → TextNode.
@@ -756,16 +892,40 @@ def knowhere_parse(  # noqa: ANN001
                 kb_name=effective_kb,
             )
             nodes.extend(section_nodes)
+            nodes = apply_chunk_hook(
+                nodes,
+                file_path=str(file_path),
+                file_name=name,
+                plugin_namespace=ns,
+                kb_name=effective_kb,
+                document_id=document_id,
+            )
 
             # 5. Write Milvus text index (failure bubbles up → FAILED; no silent success).
             update_state(job_id, TaskState.INDEXING, log_entry="Writing Milvus text index")
-            upsert_text_nodes(nodes)
+            from eagle_rag.plugins.ingest_tracker import (
+                clear_ingest_collections,
+                snapshot_ingest_collections,
+            )
+
+            clear_ingest_collections()
+            upsert_text_nodes(
+                nodes,
+                plugin_namespace=get_settings().plugins.default_namespace,
+                kb_name=effective_kb,
+                document_id=document_id,
+            )
 
             # 5.2 Populate the keyword (tag) catalog from chunk keywords. Non-blocking:
             # a catalog write failure must not fail the ingest (Milvus already written).
             try:
                 keyword_counts = aggregate_keyword_counts(nodes)
-                upsert_document_keywords(document_id, effective_kb, keyword_counts)
+                upsert_document_keywords(
+                    document_id,
+                    effective_kb,
+                    keyword_counts,
+                    plugin_namespace=get_settings().plugins.default_namespace,
+                )
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "tag catalog write failed (non-blocking) doc=%s: %s",
@@ -775,7 +935,23 @@ def knowhere_parse(  # noqa: ANN001
 
             # 5.5 Extract visual chunks; dispatch to pixelrag_queue (failure is non-blocking).
             try:
-                visual_chunks = extract_visual_chunks(parse_result)
+                from eagle_rag.plugins import get_plugin_manager
+                from eagle_rag.plugins.hookbus import HookContext
+                from eagle_rag.plugins.hooks import Hook
+
+                mgr = get_plugin_manager()
+                hook_ctx = HookContext(
+                    plugin_namespace=ns,
+                    kb_name=effective_kb,
+                    document_id=document_id,
+                )
+                visual_chunks = mgr.bus.invoke_first(
+                    Hook.INGEST_VISUAL_EXTRACT,
+                    hook_ctx,
+                    parse_result,
+                )
+                if visual_chunks is None:
+                    visual_chunks = extract_visual_chunks(parse_result)
                 if visual_chunks:
                     dispatch_visual_chunks(
                         job_id,
@@ -810,6 +986,22 @@ def knowhere_parse(  # noqa: ANN001
             # 6. Update the registry.
             update_chunk_count(document_id, len(nodes))
             update_status(document_id, "ready")
+
+            settings_ns = get_settings()
+            collections = snapshot_ingest_collections()
+            if not collections:
+                collections = [settings_ns.milvus.text_collection]
+            if visual_chunks:
+                collections = sorted(set(collections) | {settings_ns.milvus.visual_collection})
+
+            from eagle_rag.plugins.ingest_catalog import commit_ingest_catalog
+
+            commit_ingest_catalog(
+                document_id,
+                effective_kb,
+                collections,
+                plugin_namespace=ns,
+            )
 
             # 7. Done.
             update_state(

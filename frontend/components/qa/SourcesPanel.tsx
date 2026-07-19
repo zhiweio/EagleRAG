@@ -511,8 +511,9 @@ function EmptyState({ layout }: { layout: PanelLayout }) {
   return (
     <div
       className={cn(
-        "flex flex-1 flex-col items-center justify-center gap-3 text-center",
-        layout === "expanded" ? "px-12 py-16" : "px-8",
+        // Fill the scroll pane so content can sit away from the tab divider.
+        "flex min-h-full flex-col items-center justify-center gap-3.5 text-center",
+        layout === "expanded" ? "px-12 py-16" : "px-8 py-14",
       )}
     >
       <span
@@ -521,15 +522,17 @@ function EmptyState({ layout }: { layout: PanelLayout }) {
       >
         <Layers size={22} strokeWidth={1.8} />
       </span>
-      <p className="font-medium text-foreground-secondary text-sm">{t("empty")}</p>
-      <p
-        className={cn(
-          "text-foreground-tertiary text-xs leading-relaxed",
-          layout === "expanded" ? "max-w-md" : "max-w-60",
-        )}
-      >
-        {t("emptyHint")}
-      </p>
+      <div className="flex flex-col items-center gap-1.5">
+        <p className="font-medium text-foreground-secondary text-sm">{t("empty")}</p>
+        <p
+          className={cn(
+            "text-foreground-tertiary text-xs leading-relaxed",
+            layout === "expanded" ? "max-w-md" : "max-w-60",
+          )}
+        >
+          {t("emptyHint")}
+        </p>
+      </div>
     </div>
   );
 }

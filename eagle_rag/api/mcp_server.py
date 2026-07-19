@@ -9,18 +9,18 @@ Reuses the service layer (runner / engine / retrievers) directly without HTTP
 self-calls, avoiding network round-trips and auth overhead, and shares the same
 business logic as the ``/query`` and ``/ingest`` REST routes.
 
-Tool list:
-1. ``ingest(source_uri, source_type, kb_name)`` -> dispatch document ingest
+Tool list (namespaced via ``register_mcp_tool``):
+1. ``core_ingest(source_uri, source_type, kb_name)`` -> dispatch document ingest
    (Celery async).
-2. ``query(query, mode, scope, kb_name, scope_filter, image_base64, image_mime)``
+2. ``core_query(query, mode, scope, kb_name, scope_filter, image_base64, image_mime)``
    -> routed Q&A, returns answer / sources / route / steps.
-3. ``retrieve_text(query, scope, top_k, kb_name)`` -> pure text vector retrieval
+3. ``core_retrieve_text(query, scope, top_k, kb_name)`` -> pure text vector retrieval
    (KnowhereGraphRetriever).
-4. ``retrieve_visual(query, image_base64, image_mime, scope, top_k, kb_name)``
+4. ``core_retrieve_visual(query, image_base64, image_mime, scope, top_k, kb_name)``
    -> visual Tile retrieval (PixelRAGVisualRetriever).
 
 Design notes:
-- Uses FastMCP (``@mcp.tool`` decorator) and calls the service layer
+- Uses FastMCP via ``register_mcp_tool`` (``@mcp.tool`` under the hood) and calls the service layer
   synchronously (runner/engine/retrievers are all sync; FastMCP tools are sync
   by default and run inside an internal thread pool).
 - Tool functions lazy-import the service layer and try/except to return a
@@ -44,6 +44,7 @@ from fastmcp import FastMCP
 from eagle_rag.mcp_cache import cache_key, get_cached, set_cached
 from eagle_rag.mcp_resilience import CircuitBreakerError, resilient_call
 from eagle_rag.metrics import _set_cache_hit, with_metrics
+from eagle_rag.plugins.mcp_registry import TOOL_DEFINITIONS, register_mcp_tool
 from eagle_rag.telemetry import get_logger
 
 logger = get_logger(__name__)
@@ -77,168 +78,37 @@ def _image_cache_token(image_bytes: bytes | None) -> str:
     return hashlib.sha256(image_bytes).hexdigest()[:16]
 
 
-# Tool metadata list: mirrors the functions registered by ``@mcp.tool`` below, for
-# the REST ``/mcp/tools`` route to read directly (avoids await mcp.list_tools() in
-# a sync HTTP handler).
-TOOL_DEFINITIONS: list[dict[str, Any]] = [
-    {
-        "name": "ingest",
-        "description": (
-            "Ingest a document. Accepts a local file path or web URL (file types include "
-            "PDF/Word/Markdown/Excel/images, etc.). Asynchronously dispatches to the Celery "
-            "router queue and returns job_id / document_id for subsequent status polling "
-            "and query scoping."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "source_uri": {
-                    "type": "string",
-                    "description": "File path or web URL (http/https prefix is treated as a URL)",
-                },
-                "source_type": {
-                    "type": "string",
-                    "enum": ["policy", "financial", "business", "bidding", "tax", "other"],
-                    "description": "Document source type hint, optional",
-                },
-                "kb_name": {
-                    "type": "string",
-                    "description": "Knowledge base id (multi-tenant); optional, defaults to config",
-                },
-            },
-            "required": ["source_uri"],
-        },
-    },
-    {
-        "name": "query",
-        "description": (
-            "Multimodal Q&A. Auto-routes to text / visual / hybrid retrieval and generates "
-            "the final answer, returning the answer, sources, route decision, and execution steps."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": (
-                        "User natural-language question (optional when image_base64 is set)"
-                    ),
-                },
-                "image_base64": {
-                    "type": "string",
-                    "description": "Inline base64 image payload (optional when query is set)",
-                },
-                "image_mime": {
-                    "type": "string",
-                    "description": "Optional MIME hint for image_base64 validation",
-                },
-                "mode": {
-                    "type": "string",
-                    "enum": ["auto", "text", "visual", "hybrid"],
-                    "description": "Retrieval mode; defaults to auto",
-                },
-                "scope": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of document_ids to constrain recall; optional",
-                },
-                "kb_name": {
-                    "type": "string",
-                    "description": "Knowledge base id (multi-tenant); optional, defaults to config",
-                },
-                "scope_filter": {
-                    "type": "object",
-                    "description": (
-                        "Advanced scope filter combining knowledge bases, documents and tags "
-                        "as a union (OR); optional. Overrides scope when non-empty."
-                    ),
-                    "properties": {
-                        "kb_names": {"type": "array", "items": {"type": "string"}},
-                        "document_ids": {"type": "array", "items": {"type": "string"}},
-                        "tags": {"type": "array", "items": {"type": "string"}},
-                    },
-                },
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "retrieve_text",
-        "description": (
-            "Pure text vector retrieval (Knowhere + graph expansion). Returns Top-K text chunks "
-            "with their hierarchical metadata; does not generate an answer."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Retrieval query string"},
-                "scope": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of document_ids to constrain recall; optional",
-                },
-                "top_k": {
-                    "type": "integer",
-                    "default": 5,
-                    "description": "Number of results to return; defaults to 5",
-                },
-                "kb_name": {
-                    "type": "string",
-                    "description": "Knowledge base id (multi-tenant); optional, defaults to config",
-                },
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "retrieve_visual",
-        "description": (
-            "Visual Tile retrieval (PixelRAG). Returns Top-K visual chunks (including image id, "
-            "page number, and position); does not generate an answer."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Retrieval query string (optional when image_base64 is set)",
-                },
-                "image_base64": {
-                    "type": "string",
-                    "description": "Inline base64 image for visual similarity search",
-                },
-                "image_mime": {
-                    "type": "string",
-                    "description": "Optional MIME hint for image_base64 validation",
-                },
-                "scope": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of document_ids to constrain recall; optional",
-                },
-                "top_k": {
-                    "type": "integer",
-                    "default": 5,
-                    "description": "Number of results to return; defaults to 5",
-                },
-                "kb_name": {
-                    "type": "string",
-                    "description": "Knowledge base id (multi-tenant); optional, defaults to config",
-                },
-            },
-            "required": [],
-        },
-    },
-]
-
-
 # ---------------------------------------------------------------------------
 # MCP tool implementations
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool()
-@with_metrics("ingest")
+@register_mcp_tool(
+    namespace="core",
+    name="ingest",
+    description=(
+        "Ingest a document. Accepts a local file path or web URL (file types include "
+        "PDF/Word/Markdown/Excel/images, etc.). Asynchronously dispatches to the Celery "
+        "router queue and returns job_id / document_id for subsequent status polling "
+        "and query scoping."
+    ),
+    properties={
+        "source_uri": {
+            "type": "string",
+            "description": "File path or web URL (http/https prefix is treated as a URL)",
+        },
+        "source_type": {
+            "type": "string",
+            "description": "Optional document source-type hint (industry-agnostic free string).",
+        },
+        "kb_name": {
+            "type": "string",
+            "description": "Knowledge base id (multi-tenant); optional, defaults to config",
+        },
+    },
+    required=["source_uri"],
+)
+@with_metrics("core_ingest")
 def ingest(
     source_uri: str, source_type: str | None = None, kb_name: str | None = None
 ) -> dict[str, Any]:
@@ -246,8 +116,7 @@ def ingest(
 
     Args:
         source_uri: File path or web URL (http/https prefix is treated as a URL).
-        source_type: Document source type hint
-            (policy/financial/business/bidding/tax/other).
+        source_type: Document source type hint (free string metadata).
         kb_name: Knowledge base identifier (multi-tenant isolation); optional,
             defaults to system config.
 
@@ -277,7 +146,7 @@ def ingest(
                 kb_name=kb_name,
             )
 
-        raw = resilient_call("ingest", _do_ingest)
+        raw = resilient_call("core_ingest", _do_ingest)
         result = {
             "job_id": raw.get("job_id"),
             "status": raw.get("status"),
@@ -289,7 +158,7 @@ def ingest(
             from eagle_rag.admin.mcp_log import record_mcp_call
 
             record_mcp_call(
-                tool_name="ingest",
+                tool_name="core_ingest",
                 arguments=_args,
                 result_summary=(
                     f"status={result.get('status')}, document_id={result.get('document_id')}"
@@ -306,7 +175,7 @@ def ingest(
             from eagle_rag.admin.mcp_log import record_mcp_call
 
             record_mcp_call(
-                tool_name="ingest",
+                tool_name="core_ingest",
                 arguments=_args,
                 result_summary="circuit_open",
                 caller="mcp",
@@ -315,14 +184,14 @@ def ingest(
         except Exception:  # noqa: BLE001
             logger.opt(exception=True).warning("MCP call log write failed (ingest)")
         logger.warning("MCP ingest circuit breaker open: %s", exc)
-        return {"error": "circuit_open: ingest"}
+        return {"error": "circuit_open: core_ingest"}
     except TimeoutError as exc:
         _latency = int((_time.perf_counter() - _start) * 1000)
         try:
             from eagle_rag.admin.mcp_log import record_mcp_call
 
             record_mcp_call(
-                tool_name="ingest",
+                tool_name="core_ingest",
                 arguments=_args,
                 result_summary="timeout",
                 caller="mcp",
@@ -331,14 +200,16 @@ def ingest(
         except Exception:  # noqa: BLE001
             logger.opt(exception=True).warning("MCP call log write failed (ingest)")
         logger.warning("MCP ingest tool call timed out: %s", exc)
-        return {"error": "timeout: ingest"}
+        return {"error": "timeout: core_ingest"}
     except Exception as exc:  # noqa: BLE001
+        from eagle_rag.ingest.limits import IngestLimitError
+
         _latency = int((_time.perf_counter() - _start) * 1000)
         try:
             from eagle_rag.admin.mcp_log import record_mcp_call
 
             record_mcp_call(
-                tool_name="ingest",
+                tool_name="core_ingest",
                 arguments=_args,
                 result_summary=f"error: {type(exc).__name__}: {exc}",
                 caller="mcp",
@@ -347,11 +218,61 @@ def ingest(
         except Exception:  # noqa: BLE001
             logger.opt(exception=True).warning("MCP call log write failed (ingest)")
         logger.warning("MCP ingest tool call failed: %s", exc)
+        if isinstance(exc, IngestLimitError):
+            return {"error": exc.to_detail()}
         return {"error": f"{type(exc).__name__}: {exc}"}
 
 
-@mcp.tool()
-@with_metrics("query")
+@register_mcp_tool(
+    namespace="core",
+    name="query",
+    description=(
+        "Multimodal Q&A. Auto-routes to text / visual / hybrid retrieval and generates "
+        "the final answer, returning the answer, sources, route decision, and execution steps."
+    ),
+    properties={
+        "query": {
+            "type": "string",
+            "description": "User natural-language question (optional when image_base64 is set)",
+        },
+        "image_base64": {
+            "type": "string",
+            "description": "Inline base64 image payload (optional when query is set)",
+        },
+        "image_mime": {
+            "type": "string",
+            "description": "Optional MIME hint for image_base64 validation",
+        },
+        "mode": {
+            "type": "string",
+            "enum": ["auto", "text", "visual", "hybrid"],
+            "description": "Retrieval mode; defaults to auto",
+        },
+        "scope": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "List of document_ids to constrain recall; optional",
+        },
+        "kb_name": {
+            "type": "string",
+            "description": "Knowledge base id (multi-tenant); optional, defaults to config",
+        },
+        "scope_filter": {
+            "type": "object",
+            "description": (
+                "Advanced scope filter combining knowledge bases, documents and tags "
+                "as a union (OR); optional. Overrides scope when non-empty."
+            ),
+            "properties": {
+                "kb_names": {"type": "array", "items": {"type": "string"}},
+                "document_ids": {"type": "array", "items": {"type": "string"}},
+                "tags": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+    },
+    required=[],
+)
+@with_metrics("core_query")
 def query(
     query: str | None = None,
     mode: str | None = None,
@@ -410,7 +331,7 @@ def query(
                 query_image_bytes=image_bytes,
             )
 
-        result = resilient_call("query", _do_query)
+        result = resilient_call("core_query", _do_query)
         # Trim to the agreed four fields (engine may return extras; unify here).
         result = {
             "answer": result.get("answer"),
@@ -425,7 +346,7 @@ def query(
             _answer = result.get("answer") or ""
             _answer_len = len(_answer) if isinstance(_answer, str) else 0
             record_mcp_call(
-                tool_name="query",
+                tool_name="core_query",
                 arguments=_args,
                 result_summary=f"route={result.get('route')}, answer_len={_answer_len}",
                 caller="mcp",
@@ -440,7 +361,7 @@ def query(
             from eagle_rag.admin.mcp_log import record_mcp_call
 
             record_mcp_call(
-                tool_name="query",
+                tool_name="core_query",
                 arguments=_args,
                 result_summary="circuit_open",
                 caller="mcp",
@@ -449,14 +370,14 @@ def query(
         except Exception:  # noqa: BLE001
             logger.opt(exception=True).warning("MCP call log write failed (query)")
         logger.warning("MCP query circuit breaker open: %s", exc)
-        return {"error": "circuit_open: query"}
+        return {"error": "circuit_open: core_query"}
     except TimeoutError as exc:
         _latency = int((_time.perf_counter() - _start) * 1000)
         try:
             from eagle_rag.admin.mcp_log import record_mcp_call
 
             record_mcp_call(
-                tool_name="query",
+                tool_name="core_query",
                 arguments=_args,
                 result_summary="timeout",
                 caller="mcp",
@@ -465,14 +386,14 @@ def query(
         except Exception:  # noqa: BLE001
             logger.opt(exception=True).warning("MCP call log write failed (query)")
         logger.warning("MCP query tool call timed out: %s", exc)
-        return {"error": "timeout: query"}
+        return {"error": "timeout: core_query"}
     except Exception as exc:  # noqa: BLE001
         _latency = int((_time.perf_counter() - _start) * 1000)
         try:
             from eagle_rag.admin.mcp_log import record_mcp_call
 
             record_mcp_call(
-                tool_name="query",
+                tool_name="core_query",
                 arguments=_args,
                 result_summary=f"error: {type(exc).__name__}: {exc}",
                 caller="mcp",
@@ -484,8 +405,33 @@ def query(
         return {"error": f"{type(exc).__name__}: {exc}"}
 
 
-@mcp.tool()
-@with_metrics("retrieve_text")
+@register_mcp_tool(
+    namespace="core",
+    name="retrieve_text",
+    description=(
+        "Pure text vector retrieval (Knowhere + graph expansion). Returns Top-K text chunks "
+        "with their hierarchical metadata; does not generate an answer."
+    ),
+    properties={
+        "query": {"type": "string", "description": "Retrieval query string"},
+        "scope": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "List of document_ids to constrain recall; optional",
+        },
+        "top_k": {
+            "type": "integer",
+            "default": 5,
+            "description": "Number of results to return; defaults to 5",
+        },
+        "kb_name": {
+            "type": "string",
+            "description": "Knowledge base id (multi-tenant); optional, defaults to config",
+        },
+    },
+    required=["query"],
+)
+@with_metrics("core_retrieve_text")
 def retrieve_text(
     query: str,
     scope: list[str] | None = None,
@@ -511,7 +457,7 @@ def retrieve_text(
     _start = _time.perf_counter()
     _args = {"query": query, "scope": scope, "top_k": top_k, "kb_name": kb_name}
     # Cache read: on hit, return immediately and skip vector retrieval + rerank.
-    _ckey = cache_key("retrieve_text", query, scope=scope, top_k=top_k, kb_name=kb_name)
+    _ckey = cache_key("core_retrieve_text", query, scope=scope, top_k=top_k, kb_name=kb_name)
     _cached = get_cached(_ckey)
     if _cached is not None:
         _latency = int((_time.perf_counter() - _start) * 1000)
@@ -519,7 +465,7 @@ def retrieve_text(
             from eagle_rag.admin.mcp_log import record_mcp_call
 
             record_mcp_call(
-                tool_name="retrieve_text",
+                tool_name="core_retrieve_text",
                 arguments=_args,
                 result_summary=f"cache_hit hits={len(_cached)}",
                 caller="mcp",
@@ -530,13 +476,18 @@ def retrieve_text(
         _set_cache_hit(True)
         return _cached
     try:
+        from eagle_rag.plugins import get_plugin_manager
         from eagle_rag.retrievers.knowhere_graph_retriever import KnowhereGraphRetriever
 
         def _do_retrieve():
-            retriever = KnowhereGraphRetriever(top_k=top_k, kb_name=kb_name)
+            retriever = KnowhereGraphRetriever(
+                top_k=top_k,
+                kb_name=kb_name,
+                plugin_namespace=get_plugin_manager().default_namespace,
+            )
             return retriever.retrieve(query)
 
-        nodes = resilient_call("retrieve_text", _do_retrieve) or []
+        nodes = resilient_call("core_retrieve_text", _do_retrieve) or []
         scope_set = set(scope) if scope else None
         out: list[dict[str, Any]] = []
         for nws in nodes:
@@ -571,7 +522,7 @@ def retrieve_text(
             from eagle_rag.admin.mcp_log import record_mcp_call
 
             record_mcp_call(
-                tool_name="retrieve_text",
+                tool_name="core_retrieve_text",
                 arguments=_args,
                 result_summary=f"hits={len(out)}",
                 caller="mcp",
@@ -586,7 +537,7 @@ def retrieve_text(
             from eagle_rag.admin.mcp_log import record_mcp_call
 
             record_mcp_call(
-                tool_name="retrieve_text",
+                tool_name="core_retrieve_text",
                 arguments=_args,
                 result_summary="circuit_open",
                 caller="mcp",
@@ -595,14 +546,14 @@ def retrieve_text(
         except Exception:  # noqa: BLE001
             logger.opt(exception=True).warning("MCP call log write failed (retrieve_text)")
         logger.warning("MCP retrieve_text circuit breaker open: %s", exc)
-        return [{"error": "circuit_open: retrieve_text"}]
+        return [{"error": "circuit_open: core_retrieve_text"}]
     except TimeoutError as exc:
         _latency = int((_time.perf_counter() - _start) * 1000)
         try:
             from eagle_rag.admin.mcp_log import record_mcp_call
 
             record_mcp_call(
-                tool_name="retrieve_text",
+                tool_name="core_retrieve_text",
                 arguments=_args,
                 result_summary="timeout",
                 caller="mcp",
@@ -611,14 +562,14 @@ def retrieve_text(
         except Exception:  # noqa: BLE001
             logger.opt(exception=True).warning("MCP call log write failed (retrieve_text)")
         logger.warning("MCP retrieve_text tool call timed out: %s", exc)
-        return [{"error": "timeout: retrieve_text"}]
+        return [{"error": "timeout: core_retrieve_text"}]
     except Exception as exc:  # noqa: BLE001
         _latency = int((_time.perf_counter() - _start) * 1000)
         try:
             from eagle_rag.admin.mcp_log import record_mcp_call
 
             record_mcp_call(
-                tool_name="retrieve_text",
+                tool_name="core_retrieve_text",
                 arguments=_args,
                 result_summary=f"error: {type(exc).__name__}: {exc}",
                 caller="mcp",
@@ -630,8 +581,44 @@ def retrieve_text(
         return [{"error": f"{type(exc).__name__}: {exc}"}]
 
 
-@mcp.tool()
-@with_metrics("retrieve_visual")
+@register_mcp_tool(
+    namespace="core",
+    name="retrieve_visual",
+    description=(
+        "Visual Tile retrieval (PixelRAG). Returns Top-K visual chunks (including image id, "
+        "page number, and position); does not generate an answer."
+    ),
+    properties={
+        "query": {
+            "type": "string",
+            "description": "Retrieval query string (optional when image_base64 is set)",
+        },
+        "image_base64": {
+            "type": "string",
+            "description": "Inline base64 image for visual similarity search",
+        },
+        "image_mime": {
+            "type": "string",
+            "description": "Optional MIME hint for image_base64 validation",
+        },
+        "scope": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "List of document_ids to constrain recall; optional",
+        },
+        "top_k": {
+            "type": "integer",
+            "default": 5,
+            "description": "Number of results to return; defaults to 5",
+        },
+        "kb_name": {
+            "type": "string",
+            "description": "Knowledge base id (multi-tenant); optional, defaults to config",
+        },
+    },
+    required=[],
+)
+@with_metrics("core_retrieve_visual")
 def retrieve_visual(
     query: str | None = None,
     scope: list[str] | None = None,
@@ -673,7 +660,7 @@ def retrieve_visual(
     except ValueError as exc:
         return [{"error": str(exc)}]
     _ckey = cache_key(
-        "retrieve_visual",
+        "core_retrieve_visual",
         query or "",
         scope=scope,
         top_k=top_k,
@@ -687,7 +674,7 @@ def retrieve_visual(
             from eagle_rag.admin.mcp_log import record_mcp_call
 
             record_mcp_call(
-                tool_name="retrieve_visual",
+                tool_name="core_retrieve_visual",
                 arguments=_args,
                 result_summary=f"cache_hit hits={len(_cached)}",
                 caller="mcp",
@@ -698,13 +685,18 @@ def retrieve_visual(
         _set_cache_hit(True)
         return _cached
     try:
+        from eagle_rag.plugins import get_plugin_manager
         from eagle_rag.retrievers.pixelrag_visual_retriever import PixelRAGVisualRetriever
 
         def _do_retrieve():
-            retriever = PixelRAGVisualRetriever(top_k=top_k, kb_name=kb_name)
+            retriever = PixelRAGVisualRetriever(
+                top_k=top_k,
+                kb_name=kb_name,
+                plugin_namespace=get_plugin_manager().default_namespace,
+            )
             return retriever.retrieve(query or "", query_image_bytes=image_bytes)
 
-        nodes = resilient_call("retrieve_visual", _do_retrieve) or []
+        nodes = resilient_call("core_retrieve_visual", _do_retrieve) or []
         scope_set = set(scope) if scope else None
         out: list[dict[str, Any]] = []
         for nws in nodes:
@@ -731,7 +723,7 @@ def retrieve_visual(
             from eagle_rag.admin.mcp_log import record_mcp_call
 
             record_mcp_call(
-                tool_name="retrieve_visual",
+                tool_name="core_retrieve_visual",
                 arguments=_args,
                 result_summary=f"hits={len(out)}",
                 caller="mcp",
@@ -746,7 +738,7 @@ def retrieve_visual(
             from eagle_rag.admin.mcp_log import record_mcp_call
 
             record_mcp_call(
-                tool_name="retrieve_visual",
+                tool_name="core_retrieve_visual",
                 arguments=_args,
                 result_summary="circuit_open",
                 caller="mcp",
@@ -755,14 +747,14 @@ def retrieve_visual(
         except Exception:  # noqa: BLE001
             logger.opt(exception=True).warning("MCP call log write failed (retrieve_visual)")
         logger.warning("MCP retrieve_visual circuit breaker open: %s", exc)
-        return [{"error": "circuit_open: retrieve_visual"}]
+        return [{"error": "circuit_open: core_retrieve_visual"}]
     except TimeoutError as exc:
         _latency = int((_time.perf_counter() - _start) * 1000)
         try:
             from eagle_rag.admin.mcp_log import record_mcp_call
 
             record_mcp_call(
-                tool_name="retrieve_visual",
+                tool_name="core_retrieve_visual",
                 arguments=_args,
                 result_summary="timeout",
                 caller="mcp",
@@ -771,14 +763,14 @@ def retrieve_visual(
         except Exception:  # noqa: BLE001
             logger.opt(exception=True).warning("MCP call log write failed (retrieve_visual)")
         logger.warning("MCP retrieve_visual tool call timed out: %s", exc)
-        return [{"error": "timeout: retrieve_visual"}]
+        return [{"error": "timeout: core_retrieve_visual"}]
     except Exception as exc:  # noqa: BLE001
         _latency = int((_time.perf_counter() - _start) * 1000)
         try:
             from eagle_rag.admin.mcp_log import record_mcp_call
 
             record_mcp_call(
-                tool_name="retrieve_visual",
+                tool_name="core_retrieve_visual",
                 arguments=_args,
                 result_summary=f"error: {type(exc).__name__}: {exc}",
                 caller="mcp",

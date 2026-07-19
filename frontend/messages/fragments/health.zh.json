@@ -50,7 +50,7 @@
     "mcpConfig": {
       "title": "MCP Server Configuration",
       "badge": "Streamable HTTP",
-      "desc": "将以下端点配置到你的 Agent / LLM 应用中，即可获得通用知识库检索能力（支持 finance / patent / pharma 多库）。",
+      "desc": "将以下端点配置到你的 Agent / LLM 应用中，即可获得通用知识库检索能力（通过 kb_name 多库隔离）。",
       "copy": "复制",
       "copied": "已复制",
       "statusOnline": "在线",
@@ -218,8 +218,6 @@
       "documents": "{n} 个文档",
       "partitionMeta": "文档：{documents} · 切片：{chunks}",
       "tag": {
-        "patent": "专利知识库",
-        "finance": "财务知识库",
         "kb": "知识库"
       },
       "actions": {

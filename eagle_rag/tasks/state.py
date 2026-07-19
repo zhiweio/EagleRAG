@@ -32,6 +32,8 @@ __all__ = [
     "validate_transition",
     "transition",
     "create_audit",
+    "prepare_rerun",
+    "downstream_owns_lifecycle",
     "update_state",
     "get_audit",
     "list_audits",
@@ -94,9 +96,20 @@ ALLOWED_TRANSITIONS: dict[TaskState, set[TaskState]] = {
     TaskState.FAILED: {
         TaskState.PENDING,
         TaskState.RENDERING,
+        TaskState.RETRYING,
         TaskState.FAILED,
     },  # Auto-retry / manual replay
 }
+
+
+# States where knowhere/pixelrag (not router) owns the audit lifecycle.
+_DOWNSTREAM_ACTIVE_STATES = frozenset(
+    {
+        TaskState.EMBEDDING,
+        TaskState.INDEXING,
+        TaskState.RETRYING,
+    }
+)
 
 
 class InvalidStateTransitionError(Exception):
@@ -114,6 +127,43 @@ def transition(from_state: TaskState, to_state: TaskState) -> None:
         raise InvalidStateTransitionError(
             f"illegal state transition: {from_state.value} -> {to_state.value}"
         )
+
+
+def downstream_owns_lifecycle(status: TaskState | str) -> bool:
+    """Return whether a downstream ingest task owns the job lifecycle."""
+    if not isinstance(status, TaskState):
+        status = TaskState(str(status).lower())
+    return status in _DOWNSTREAM_ACTIVE_STATES
+
+
+def prepare_rerun(job_id: str, *, log_entry: str | None = None) -> TaskState | None:
+    """Move an interrupted audit into a state that can legally enter ``RENDERING``.
+
+    Worker restarts (acks_late redelivery) leave audits in ``embedding`` /
+    ``indexing`` / ``rendering``. Restarting the pipeline calls
+    ``update_state(RENDERING)`` which is illegal from those states and aborts
+    the rerun. This helper bridges via ``RETRYING`` (or ``PENDING`` from
+    ``FAILED``). Returns the status after preparation, or ``None`` if missing.
+    """
+    row = sync_fetchone("SELECT status FROM task_audit WHERE job_id = %s", (job_id,))
+    if row is None:
+        return None
+    current = TaskState(row[0])
+    if current in (TaskState.PENDING, TaskState.RETRYING, TaskState.SUCCESS):
+        return current
+    if current == TaskState.FAILED:
+        update_state(
+            job_id,
+            TaskState.PENDING,
+            log_entry=log_entry or "Reset failed audit for rerun",
+        )
+        return TaskState.PENDING
+    update_state(
+        job_id,
+        TaskState.RETRYING,
+        log_entry=log_entry or "Interrupted; preparing pipeline rerun",
+    )
+    return TaskState.RETRYING
 
 
 # ---------------------------------------------------------------------------
@@ -135,10 +185,12 @@ _COLUMNS = (
     "created_at",
     "updated_at",
     "kb_name",
+    "plugin_namespace",
 )
 _SELECT_SQL = (
     "SELECT job_id, document_id, name, source_uri, pipeline, status, progress, "
-    "current, total, error, logs, created_at, updated_at, kb_name FROM task_audit"
+    "current, total, error, logs, created_at, updated_at, kb_name, plugin_namespace "
+    "FROM task_audit"
 )
 
 
@@ -173,14 +225,19 @@ def create_audit(
     kb_name: str | None = None,
     name: str | None = None,
     source_uri: str | None = None,
+    plugin_namespace: str | None = None,
 ) -> None:
     """Insert a PENDING audit record (called when a task is enqueued)."""
+    from eagle_rag.db.repositories.base import instance_namespace
+
     kb = _resolve_kb(kb_name)
+    ns = instance_namespace(plugin_namespace)
     sync_execute(
         "INSERT INTO task_audit "
-        "(job_id, document_id, name, source_uri, pipeline, status, progress, logs, kb_name) "
-        "VALUES (%s, %s, %s, %s, %s, %s, 0, '[]', %s)",
-        (job_id, document_id, name, source_uri, pipeline, TaskState.PENDING.value, kb),
+        "(job_id, document_id, name, source_uri, pipeline, status, progress, logs, kb_name, "
+        "plugin_namespace) "
+        "VALUES (%s, %s, %s, %s, %s, %s, 0, '[]', %s, %s)",
+        (job_id, document_id, name, source_uri, pipeline, TaskState.PENDING.value, kb, ns),
     )
 
 
@@ -252,6 +309,7 @@ def _maybe_notify(job_id: str, state: TaskState, *, error: str | None = None) ->
         if audit is None:
             return
         kb = audit.get("kb_name")
+        ns = audit.get("plugin_namespace")
         pipeline = (audit.get("pipeline") or "ingest").lower()
         if pipeline == "rebuild":
             if state == TaskState.SUCCESS:
@@ -261,6 +319,7 @@ def _maybe_notify(job_id: str, state: TaskState, *, error: str | None = None) ->
                     body=f"Knowledge base {kb or ''} reindex job {job_id[:8]}… finished",
                     kb_name=kb,
                     job_id=job_id,
+                    plugin_namespace=ns,
                 )
             else:
                 create_notification_sync(
@@ -269,6 +328,7 @@ def _maybe_notify(job_id: str, state: TaskState, *, error: str | None = None) ->
                     body=error or f"Knowledge base {kb or ''} reindex job {job_id[:8]}… failed",
                     kb_name=kb,
                     job_id=job_id,
+                    plugin_namespace=ns,
                 )
         elif state == TaskState.SUCCESS:
             create_notification_sync(
@@ -277,6 +337,7 @@ def _maybe_notify(job_id: str, state: TaskState, *, error: str | None = None) ->
                 body=f"Job {job_id[:8]}… ({pipeline}) succeeded",
                 kb_name=kb,
                 job_id=job_id,
+                plugin_namespace=ns,
             )
         else:
             create_notification_sync(
@@ -285,6 +346,7 @@ def _maybe_notify(job_id: str, state: TaskState, *, error: str | None = None) ->
                 body=error or f"Job {job_id[:8]}… failed",
                 kb_name=kb,
                 job_id=job_id,
+                plugin_namespace=ns,
             )
     except Exception as exc:  # noqa: BLE001
         logger.debug("notification write failed (non-fatal): %s", exc)
@@ -305,18 +367,21 @@ def get_audit(job_id: str) -> dict[str, Any] | None:
     return _row_to_dict(row) if row is not None else None
 
 
-def list_audits(
+def _audit_filter_clause(
     *,
     status: TaskState | str | None = None,
     pipeline: str | None = None,
     document_id: str | None = None,
     kb_name: str | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> list[dict[str, Any]]:
-    """List audit records matching the filters (newest first, paginated)."""
-    where: list[str] = []
-    params: list[Any] = []
+    q: str | None = None,
+    plugin_namespace: str | None = None,
+) -> tuple[str, list[Any]]:
+    """Build ``WHERE`` clause + params shared by ``list_audits`` / ``count_audits``."""
+    from eagle_rag.db.repositories.base import instance_namespace
+
+    ns = instance_namespace(plugin_namespace)
+    where: list[str] = ["plugin_namespace = %s"]
+    params: list[Any] = [ns]
     if status is not None:
         where.append("status = %s")
         params.append(status.value if isinstance(status, TaskState) else status)
@@ -329,11 +394,59 @@ def list_audits(
     if kb_name is not None:
         where.append("kb_name = %s")
         params.append(kb_name)
-    where_clause = (" WHERE " + " AND ".join(where)) if where else ""
+    if q:
+        pattern = f"%{q}%"
+        where.append("(job_id ILIKE %s OR document_id ILIKE %s OR COALESCE(name, '') ILIKE %s)")
+        params.extend([pattern, pattern, pattern])
+    return " WHERE " + " AND ".join(where), params
+
+
+def list_audits(
+    *,
+    status: TaskState | str | None = None,
+    pipeline: str | None = None,
+    document_id: str | None = None,
+    kb_name: str | None = None,
+    q: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    plugin_namespace: str | None = None,
+) -> list[dict[str, Any]]:
+    """List audit records matching the filters (newest first, paginated)."""
+    where_clause, params = _audit_filter_clause(
+        status=status,
+        pipeline=pipeline,
+        document_id=document_id,
+        kb_name=kb_name,
+        q=q,
+        plugin_namespace=plugin_namespace,
+    )
     sql = f"{_SELECT_SQL}{where_clause} ORDER BY created_at DESC LIMIT %s OFFSET %s"
     params.extend([limit, offset])
     rows = sync_fetchall(sql, tuple(params))
     return [_row_to_dict(r) for r in rows]
+
+
+def count_audits(
+    *,
+    status: TaskState | str | None = None,
+    pipeline: str | None = None,
+    document_id: str | None = None,
+    kb_name: str | None = None,
+    q: str | None = None,
+    plugin_namespace: str | None = None,
+) -> int:
+    """Count audit records matching the same filters as ``list_audits``."""
+    where_clause, params = _audit_filter_clause(
+        status=status,
+        pipeline=pipeline,
+        document_id=document_id,
+        kb_name=kb_name,
+        q=q,
+        plugin_namespace=plugin_namespace,
+    )
+    row = sync_fetchone(f"SELECT COUNT(*) FROM task_audit{where_clause}", tuple(params))
+    return int(row[0]) if row is not None else 0
 
 
 def delete_audit(job_id: str) -> int:

@@ -1,28 +1,33 @@
-# Eagle-RAG 容器编排基础文件（dev/test/prod 共用）。
+# Eagle-RAG base Compose file (shared by dev / test / prod).
 #
-# 前置：
-#   1. cp .env.example .env，并填入 VLM/LLM/Embedding API key 与数据库凭证。
-#   2. Knowhere 已拆分为独立 compose（docker/knowhere-self-hosted/compose.yaml），
-#      需先启动：cd docker/knowhere-self-hosted && docker compose up -d
-#      并创建共享网络：docker network create knowhere-net
+# Prerequisites:
+#   1. cp .env.example .env and fill VLM/LLM/Embedding API keys and DB credentials.
+#   2. Knowhere is a separate Compose stack (docker/knowhere-self-hosted/compose.yaml).
+#      Start it first: cd docker/knowhere-self-hosted && docker compose up -d
+#      Create the shared network: docker network create knowhere-net
 #
-# 用法：
+# Usage:
 #   dev  : docker compose --profile dev up -d
-#          （自动合并 docker-compose.override.yml：源码热重载 + 暴露基础设施端口）
+#          (auto-merges docker-compose.override.yml: source hot-reload + exposed infra ports)
 #   prod : COMPOSE_FILE=docker-compose.yml docker compose --profile prod up -d
-#          （环境变量锁定 compose 文件清单，排除 dev override 自动合并）
+#          (COMPOSE_FILE locks the file list and excludes the dev override)
 #   docs : docker compose --profile docs up -d docs
 #
-# 基础设施服务（etcd/minio/milvus/postgres/redis）未设 profile，随任意 profile 启动。
-# 应用服务（api/worker-*/frontend）属 [dev,test,prod]；docs 属 [docs,prod]。
-# Knowhere 文档解析服务不在本文件中，见 docker/knowhere-self-hosted/compose.yaml。
+# Infra services (etcd/minio/milvus/postgres/redis) have no profile and start with any profile.
+# App services (api/worker-*/frontend) use [dev,test,prod]; docs uses [docs,prod].
+# Knowhere document parsing is not defined here; see docker/knowhere-self-hosted/compose.yaml.
 #
-# 说明：eagle_rag/settings.yaml 已全面改用 ${VAR:-default} 占位（含 milvus.host /
-#   celery.broker_url / minio.endpoint / postgres.dsn / knowhere.base_url / kb_name），
-#   故 compose environment 与 .env 中的同名变量可直达应用。注意各占位默认值仍为
-#   localhost，容器内须显式注入服务名（如 KNOWHERE_BASE_URL=http://knowhere:5005、
-#   MILVUS_HOST=milvus 等），否则会回落到 localhost 而无法连通 compose 服务。
-#   VLM/LLM/Embedding 的 api_key/base_url 经 .env 注入即可生效。
+# Notes: eagle_rag/settings.yaml uses ${VAR:-default} placeholders (milvus.host,
+#   celery.broker_url, minio.endpoint, postgres.dsn, knowhere.base_url, kb_name, …),
+#   so Compose environment and .env vars reach the app. Placeholder defaults are still
+#   localhost — containers must inject service DNS names (e.g. KNOWHERE_BASE_URL=
+#   http://knowhere:5005, MILVUS_HOST=milvus) or connectivity fails. VLM/LLM/Embedding
+#   api_key/base_url can be supplied via .env alone.
+#
+# PluginAudit (multi-sink): api/workers get PLUGIN_AUDIT_* / CELERY_BROKER_URL /
+#   TELEMETRY_* via x-app-telemetry-env. Redis LIST recent window needs the redis
+#   service. AI JSONL is written under ./logs (mounted at /app/logs). Probe:
+#   GET /health/plugins → recent_decisions.
 
 name: eagle-rag
 
@@ -41,13 +46,29 @@ x-worker-build: &worker-build
     MODEL_REPO_ID: ${MODEL_REPO_ID:-Qwen/Qwen3-VL-Embedding-2B}
     MODEL_DOWNLOAD_SOURCE: ${MODEL_DOWNLOAD_SOURCE:-modelscope}
     HF_HUB_DOWNLOAD_MAX_WORKERS: ${HF_HUB_DOWNLOAD_MAX_WORKERS:-8}
+    # Biomed profile: set PREFETCH_BIOMED_MODELS=1 to pre-download PubMedBERT/MolFormer/
+    # MedImageInsight/UNI2 weights into the image (avoids runtime HF dependency).
+    # Set BIOMED_HTTP_PROXY if the build host needs a proxy to reach HF/ModelScope.
+    PREFETCH_BIOMED_MODELS: ${PREFETCH_BIOMED_MODELS:-0}
+    BIOMED_HTTP_PROXY: ${BIOMED_HTTP_PROXY:-}
+
+# Shared app env for API + workers: PluginAudit multi-sink (AI JSONL + Redis recent window)
+# needs broker Redis reachable and the knobs below. See eagle_rag/plugins/audit.py.
+x-app-telemetry-env: &app-telemetry-env
+  TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-true}
+  AI_TELEMETRY_LOG_FILE: ${AI_TELEMETRY_LOG_FILE:-logs/ai_telemetry.jsonl}
+  OP_LOG_FILE: ${OP_LOG_FILE:-logs/eagle_rag.log}
+  REDIS_LOG_CHANNEL: ${REDIS_LOG_CHANNEL:-logs}
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+  PLUGIN_AUDIT_ENABLED: ${PLUGIN_AUDIT_ENABLED:-true}
+  PLUGIN_AUDIT_REDIS_ENABLED: ${PLUGIN_AUDIT_REDIS_ENABLED:-true}
 
 networks:
   eagle-net:
     driver: bridge
-  # 与 docker/knowhere-self-hosted/compose.yaml 共享的外部网络。
-  # eagle-rag 容器据此以 DNS 名 knowhere 访问 Knowhere API :5005。
-  # Knowhere 已拆分为独立 compose，首次部署前需创建：docker network create knowhere-net
+  # External network shared with docker/knowhere-self-hosted/compose.yaml.
+  # eagle-rag containers reach Knowhere API :5005 via DNS name ``knowhere``.
+  # Create once before first deploy: docker network create knowhere-net
   knowhere-net:
     external: true
     name: knowhere-net
@@ -60,7 +81,7 @@ volumes:
   vol-postgres:
 
 services:
-  # ======================== 基础设施 ========================
+  # ======================== Infrastructure ========================
   etcd:
     image: quay.io/coreos/etcd:v3.5.5
     environment:
@@ -88,7 +109,7 @@ services:
     volumes:
       - vol-minio:/data
     healthcheck:
-      # minio 镜像内 /usr/bin/curl 可用（wget 在 RELEASE.2023-03-20 ubuntu-base 上反而缺失）。
+      # MinIO image ships /usr/bin/curl (wget is missing on this RELEASE.2023-03-20 base).
       test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
       interval: 30s
       timeout: 10s
@@ -146,22 +167,29 @@ services:
     logging: *default-logging
     networks: [eagle-net]
 
-  # ======================== Knowhere 文档语义解析服务（独立 compose） ========================
-  # Knowhere 已从本文件拆分至 docker/knowhere-self-hosted/compose.yaml，独立维护与部署。
-  # eagle-rag 容器经共享外部网络 knowhere-net 以 DNS 名 knowhere 访问 API :5005。
-  # 启动顺序：先启动 Knowhere（cd docker/knowhere-self-hosted && docker compose up -d），
-  #   再启动 eagle-rag。eagle-rag 已 fail-closed：Knowhere 未就绪时解析任务转 FAILED，不静默回退。
+  # ======================== Knowhere (separate Compose stack) ========================
+  # Knowhere lives in docker/knowhere-self-hosted/compose.yaml (independently maintained).
+  # eagle-rag reaches API :5005 on shared network knowhere-net via DNS name ``knowhere``.
+  # Start order: Knowhere first, then eagle-rag. eagle-rag is fail-closed: parse jobs
+  # become FAILED when Knowhere is down (no silent fallback).
 
-  # ======================== 后端 API ========================
+  # ======================== Backend API ========================
   api:
     build:
       context: .
       dockerfile: docker/Dockerfile.api
       args:
         GITHUB_PROXY: ${GITHUB_PROXY:-}
+        # Biomed profile: set PREFETCH_BIOMED_MODELS=1 to pre-download biomed encoders.
+        PREFETCH_BIOMED_MODELS: ${PREFETCH_BIOMED_MODELS:-0}
+        MODEL_DOWNLOAD_SOURCE: ${MODEL_DOWNLOAD_SOURCE:-modelscope}
+        HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+        HF_HUB_DOWNLOAD_MAX_WORKERS: ${HF_HUB_DOWNLOAD_MAX_WORKERS:-8}
+        BIOMED_HTTP_PROXY: ${BIOMED_HTTP_PROXY:-}
     image: eagle-rag-api:latest
     env_file: .env
     environment:
+      <<: *app-telemetry-env
       APP_ENV: ${APP_ENV:-dev}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       # Knowhere: mode=api uses self-hosted :5005 (knowhere-net); mode=parser uses in-process SDK.
@@ -176,8 +204,10 @@ services:
       HF_HOME: /app/data/huggingface
       HF_HUB_DOWNLOAD_TIMEOUT: ${HF_HUB_DOWNLOAD_TIMEOUT:-120}
     volumes:
-      # settings.yaml storage.data_dir=./data → 容器内 /app/data（WORKDIR /app）。
+      # settings.yaml storage.data_dir=./data → /app/data inside the container (WORKDIR /app).
       - ./data:/app/data
+      # PluginAudit AI JSONL + ops log (settings.yaml telemetry.ai_log_file / op_log_file).
+      - ./logs:/app/logs
     ports:
       - "8000:8000"
     depends_on:
@@ -189,9 +219,10 @@ services:
         condition: service_healthy
       milvus:
         condition: service_healthy
-      # Knowhere 不在本 compose 中（已拆分至 docker/knowhere-self-hosted/），
-      # 无法跨 compose depends_on；fail-closed 模式下 Knowhere 未就绪时解析任务转 FAILED。
+      # Knowhere is not in this Compose file (split to docker/knowhere-self-hosted/),
+      # so cross-compose depends_on is unavailable; fail-closed marks parse FAILED if down.
     healthcheck:
+      # /health = deps; PluginAudit recent window is under /health/plugins (not a liveness gate).
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
@@ -201,12 +232,13 @@ services:
     networks: [eagle-net, knowhere-net]
     profiles: [dev, test, prod]
 
-  # ======================== Celery Workers（共享镜像，按队列参数化） ========================
+  # ======================== Celery workers (shared image, per-queue params) ========================
   worker-router:
     build: *worker-build
     image: eagle-rag-worker:latest
     env_file: .env
     environment:
+      <<: *app-telemetry-env
       QUEUES: router_queue
       CONCURRENCY: "4"
       APP_ENV: ${APP_ENV:-dev}
@@ -219,13 +251,14 @@ services:
       KB_NAME: ${KB_NAME:-default}
     volumes:
       - ./data:/app/data
+      - ./logs:/app/logs
     depends_on:
       redis:
         condition: service_healthy
       milvus:
         condition: service_healthy
-    # 健康检查：celery inspect ping 限定本机 worker（-d celery@$(hostname)），避免跨 worker 干扰。
-    # start_period 60s 给足 LlamaIndex/Milvus 客户端预热时间。
+    # Healthcheck: celery inspect ping scoped to this worker (-d celery@$(hostname)).
+    # start_period 60s allows LlamaIndex/Milvus client warm-up.
     healthcheck:
       test: ["CMD-SHELL", "celery -A eagle_rag.tasks.celery_app inspect ping -d celery@$(hostname) -t 5 || exit 1"]
       interval: 30s
@@ -241,6 +274,7 @@ services:
     image: eagle-rag-worker:latest
     env_file: .env
     environment:
+      <<: *app-telemetry-env
       QUEUES: knowhere_queue
       CONCURRENCY: "8"
       APP_ENV: ${APP_ENV:-dev}
@@ -253,17 +287,19 @@ services:
       KB_NAME: ${KB_NAME:-default}
     volumes:
       - ./data:/app/data
+      - ./logs:/app/logs
     depends_on:
       redis:
         condition: service_healthy
       milvus:
         condition: service_healthy
-      # Knowhere 不在本 compose 中（mode=api 时需 knowhere-net 访问 :5005；mode=parser 可不依赖外部 Knowhere 服务）。
+      # Knowhere is not in this Compose file (mode=api needs knowhere-net :5005;
+      # mode=parser does not require the external Knowhere service).
     deploy:
       resources:
         limits:
           cpus: "2.0"
-    # 健康检查：celery inspect ping 限定本机 worker（-d celery@$(hostname)），避免跨 worker 干扰。
+    # Healthcheck: celery inspect ping scoped to this worker (-d celery@$(hostname)).
     healthcheck:
       test: ["CMD-SHELL", "celery -A eagle_rag.tasks.celery_app inspect ping -d celery@$(hostname) -t 5 || exit 1"]
       interval: 30s
@@ -279,6 +315,7 @@ services:
     image: eagle-rag-worker:latest
     env_file: .env
     environment:
+      <<: *app-telemetry-env
       QUEUES: pixelrag_queue
       CONCURRENCY: "1"
       APP_ENV: ${APP_ENV:-dev}
@@ -291,19 +328,20 @@ services:
       CHROME_PATH: /usr/local/bin/chrome
     volumes:
       - ./data:/app/data
+      - ./logs:/app/logs
     depends_on:
       redis:
         condition: service_healthy
       milvus:
         condition: service_healthy
-    # pixelrag 渲染内存密集：严格限内存防 OOM 影响其他服务。
-    # 说明：PixelRAG 已降格为库调用（pixelrag_render / pixelrag_embed），不再依赖 pixelrag-serve。
+    # PixelRAG rendering is memory-heavy: hard memory limit to avoid OOM affecting peers.
+    # PixelRAG is an in-process library (pixelrag_render / pixelrag_embed); no pixelrag-serve.
     deploy:
       resources:
         limits:
           memory: 4g
           cpus: "2.0"
-    # 健康检查：celery inspect ping 限定本机 worker（-d celery@$(hostname)），避免跨 worker 干扰。
+    # Healthcheck: celery inspect ping scoped to this worker (-d celery@$(hostname)).
     healthcheck:
       test: ["CMD-SHELL", "celery -A eagle_rag.tasks.celery_app inspect ping -d celery@$(hostname) -t 5 || exit 1"]
       interval: 30s
@@ -314,13 +352,13 @@ services:
     networks: [eagle-net]
     profiles: [dev, test, prod]
 
-  # ======================== 前端 ========================
+  # ======================== Frontend ========================
   frontend:
     build:
       context: .
       dockerfile: docker/Dockerfile.frontend
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
     image: eagle-rag-frontend:latest
     environment:
       HOSTNAME: 0.0.0.0
@@ -330,8 +368,8 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    # 健康检查：node:20-slim 无 wget/curl，用 node 内置 http 模块探测 3000。
-    # dev override 的 oven/bun 镜像经 bun 的 node 包装器同样支持 node -e + require('http')。
+    # Healthcheck: node:20-slim has no wget/curl; use Node's http module on :3000.
+    # Dev override oven/bun image supports the same via bun's node wrapper.
     healthcheck:
       test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))\""]
       interval: 30s
@@ -342,7 +380,7 @@ services:
     networks: [eagle-net]
     profiles: [dev, test, prod]
 
-  # ======================== 文档站 ========================
+  # ======================== Docs site ========================
   docs:
     build:
       context: .
@@ -350,7 +388,7 @@ services:
     image: eagle-rag-docs:latest
     ports:
       - "8001:8001"
-    # 健康检查：nginx:alpine 自带 wget，探测 8001。
+    # Healthcheck: nginx:alpine includes wget; probe :8001.
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8001/"]
       interval: 30s

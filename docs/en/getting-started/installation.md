@@ -57,11 +57,13 @@ Dependencies in `pyproject.toml`:
 | Command | Installs | When |
 | --- | --- | --- |
 | `uv sync` | FastAPI, Celery, LlamaIndex, Milvus client, DashScope, `pixelrag_render` / `pixelrag_embed`, `knowhere-python-sdk` | Always |
+| `uv sync --extra biomed` | `open-clip-torch` (BiomedCLIP radiology text↔image) | Biomed profile with native medical imaging |
 | `uv sync --group dev` | pytest, ruff, mypy | Tests and lint |
 | `uv sync --group docs` | MkDocs Material | Local doc site |
 
 ```bash
 uv sync                  # core (required)
+uv sync --extra biomed   # optional: BiomedCLIP via open_clip
 uv sync --group dev      # optional: tests/lint
 uv sync --group docs     # optional: docs
 ```
@@ -92,7 +94,9 @@ OpenAPI SDK under `frontend/lib/api/generated/` regenerates via `predev` hook (`
 task db:migrate    # uv run alembic upgrade head
 ```
 
-Schema defined in `eagle_rag/db/models/` — **no DDL in store modules**. Migrations in `alembic/versions/`.
+Schema defined in `eagle_rag/db/models/` — **no DDL in repositories**. Migrations in `alembic/versions/`.
+
+Recent plugin-namespace migrations: `0007_plugin_namespace`, `0008_namespace_unique_constraints` — required for `plugin_namespace` columns and namespace-scoped uniqueness.
 
 ---
 
@@ -106,7 +110,7 @@ Eagle-RAG uses **DeepSeek + Qwen only** — no OpenAI or Cohere adapters.
 | VLM (image reading) | Qwen-VL-Max | `VLM_API_KEY`, `VLM_BASE_URL`, `VLM_MODEL` | `EagleMultimodalQueryEngine` |
 | Text embedding (1536-d) | `text-embedding-v4` | `DASHSCOPE_API_KEY`, `TEXT_EMBEDDING_MODEL` | `upsert_text_nodes()` |
 | Text rerank | `qwen3-rerank` | `DASHSCOPE_API_KEY`, `RERANK_TEXT_MODEL` | Rerank step in generation |
-| Visual embedding (2048-d) | Qwen3-VL-Embedding-2B | Local via PixelRAG — no API key | `_Qwen3VLVisualEncoder` |
+| Visual embedding (2048-d) | Qwen3-VL-Embedding-2B / Bailian `qwen3-vl-embedding` | `VISUAL_EMBEDDING_PROVIDER=pixelrag` (local HF) or `dashscope` (`DASHSCOPE_API_KEY`) | `get_visual_encoder()` |
 
 `DASHSCOPE_API_KEY` is shared by embedding and rerank clients. Compatible-mode base URL: `https://dashscope.aliyuncs.com/compatible-mode/v1`.
 
@@ -156,8 +160,8 @@ sequenceDiagram
 In-process `pixelrag_render` + `pixelrag_embed`.
 
 - **`pixelrag-serve` and FAISS are not used** — visual vectors go to Milvus HNSW/DiskANN
-- Lazy import in `pixelrag_adapter.py` — fail-fast if missing
-- `embedding.visual.provider` must be `"pixelrag"` or `_ensure_loaded()` raises
+- Lazy import in `pixelrag_adapter.py` — fail-fast if render libs missing
+- Embed via `get_visual_encoder()`: `provider=pixelrag` (local HF) or `dashscope` (Bailian). Same provider for ingest+query; switch requires rebuilding `eagle_visual`
 
 !!! note "PixelRAG is a core dependency"
     On `linux/aarch64`, transitive `cef-capi-py` is skipped via uv overrides; functionality unaffected.
@@ -168,9 +172,9 @@ In-process `pixelrag_render` + `pixelrag_embed`.
 
 | Topic | Detail |
 | --- | --- |
-| Lazy visual encoder | `_Qwen3VLVisualEncoder` loads on first `embed_tiles` — API container starts without GPU; first pixelrag task pays model load |
+| Lazy visual encoder | `provider=pixelrag`: local HF loads on first `embed_*`. `provider=dashscope`: no local weights (API only). API container can start without GPU |
 | Knowhere poll window | SDK blocks up to `knowhere.poll_timeout` (default 1800s) inside worker — not API timeout |
-| Embedding provider lock | `embedding.visual.provider` must be `pixelrag` — mismatched third-party visual APIs change vector geometry and break Milvus index |
+| Embedding provider lock | Ingest and query must share `embedding.visual.provider` (`pixelrag` \| `dashscope`); switching backends requires rebuilding `eagle_visual` |
 | Chrome in worker image | HTML table render uses headless browser in `Dockerfile.worker` — required for Knowhere table chunks |
 
 ---
@@ -182,17 +186,20 @@ In-process `pixelrag_render` + `pixelrag_embed`.
 | Section | Key variables | Notes |
 | --- | --- | --- |
 | App | `APP_ENV`, `APP_HOST`, `APP_PORT`, `LOG_LEVEL` | |
-| KB | `KB_NAME` | Default tenant |
+| KB | `KB_NAME` | Default tenant inside the bound domain |
+| Profile | `EAGLE_RAG_PROFILE` | Optional — `core` (default), `biomed` (**experimental**), `lakehouse-bi` (**under development**); merges `profiles:` overlay |
 | Knowhere | `KNOWHERE_BASE_URL`, `KNOWHERE_API_KEY` | Parser service |
 | LLM | `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL` | DeepSeek |
 | VLM | `VLM_API_KEY`, `VLM_BASE_URL`, `VLM_MODEL` | Qwen-VL |
-| DashScope | `DASHSCOPE_API_KEY`, `TEXT_EMBEDDING_MODEL`, `RERANK_TEXT_MODEL` | Embed + rerank |
+| DashScope | `DASHSCOPE_API_KEY`, `TEXT_EMBEDDING_MODEL`, `RERANK_TEXT_MODEL` | Text embed + rerank (+ visual when `provider=dashscope`) |
+| Visual embed | `VISUAL_EMBEDDING_PROVIDER`, `VISUAL_EMBEDDING_MODEL` | `pixelrag` (default) or `dashscope`; optional `VISUAL_EMBEDDING_BATCH_SIZE` / `_TIMEOUT_S` / `_MAX_RETRIES` |
+| Plugins | `PLUGIN_NAMESPACE`, `PLUGIN_AUDIT_ENABLED`, `PLUGIN_AUDIT_REDIS_ENABLED` | Instance binding + PluginAudit sinks |
 | Milvus | `MILVUS_HOST`, `MILVUS_PORT`, `MILVUS_VISUAL_INDEX_TYPE` | `hnsw` or `diskann` |
 | Redis | `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND` | DB 0 / DB 1 |
 | MinIO | `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Object storage |
 | Postgres | `POSTGRES_DSN`, `POSTGRES_*` | Metadata |
 | Router | `ROUTER_MODE` | `auto` / `text` / `visual` / `hybrid` |
-| Frontend | `NEXT_PUBLIC_API_URL` | Browser → API URL |
+| Frontend | `NEXT_PUBLIC_API_BASE` | Browser → API URL |
 
 Override path for alternate config file:
 

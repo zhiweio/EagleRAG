@@ -43,8 +43,9 @@ export function MessageContent({
           "group-[.is-assistant]:rounded-tl-md group-[.is-assistant]:bg-secondary group-[.is-assistant]:text-foreground",
         ],
         variant === "flat" && [
-          "max-w-full",
-          "group-[.is-user]:max-w-[85%] group-[.is-user]:rounded-2xl group-[.is-user]:rounded-tr-md group-[.is-user]:bg-primary group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-primary-foreground",
+          "max-w-[85%]",
+          "group-[.is-assistant]:min-w-0 group-[.is-assistant]:flex-1 group-[.is-assistant]:max-w-[85%]",
+          "group-[.is-user]:rounded-2xl group-[.is-user]:rounded-tr-md group-[.is-user]:bg-primary group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-primary-foreground",
           "group-[.is-assistant]:text-foreground",
         ],
         className,

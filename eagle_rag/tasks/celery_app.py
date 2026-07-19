@@ -12,25 +12,31 @@ established only when the worker starts or a task is dispatched.
 from __future__ import annotations
 
 from celery import Celery
-from celery.signals import task_prerun, worker_process_init
+from celery.signals import task_prerun, worker_init, worker_process_init
 from kombu import Queue
 
 from eagle_rag.config import get_settings
 
-__all__ = ["app", "celery_app"]
+__all__ = ["app", "celery_app", "autodiscover_tasks"]
+
+_BASE_CELERY_MODULES = [
+    "eagle_rag.ingest.router",
+    "eagle_rag.ingest.knowhere_adapter",
+    "eagle_rag.ingest.pixelrag_adapter",
+    "eagle_rag.kb.lifecycle",
+]
+
+_IMPORTED_MODULES: set[str] = set()
 
 _cfg = get_settings().celery
 
+# ``include`` loads task modules after this module finishes initializing, avoiding
+# the circular import ``celery_app → task module → dead_letter → celery_app``.
 app = Celery(
     "eagle_rag",
     broker=_cfg.broker_url,
     backend=_cfg.result_backend,
-    include=[
-        "eagle_rag.ingest.router",
-        "eagle_rag.ingest.knowhere_adapter",
-        "eagle_rag.ingest.pixelrag_adapter",
-        "eagle_rag.kb.lifecycle",
-    ],
+    include=list(_BASE_CELERY_MODULES),
 )
 
 # Three pipeline queues: router (dispatch) / knowhere (structured parsing)
@@ -52,6 +58,8 @@ app.conf.task_routes = _cfg.task_routes
 app.conf.task_acks_late = True
 app.conf.worker_prefetch_multiplier = 1
 app.conf.task_reject_on_worker_lost = True
+# Celery 6.0+: explicit startup broker retry (replaces implicit broker_connection_retry).
+app.conf.broker_connection_retry_on_startup = True
 
 # Retry: default backoff interval and max retries (overridable via self.retry in-task).
 app.conf.task_default_retry_delay = _cfg.retry_backoff
@@ -79,7 +87,21 @@ app.conf.beat_schedule = {
 
 
 def autodiscover_tasks() -> None:
-    """No-op: task modules are explicitly registered via ``include=`` above."""
+    """Import Celery task modules from PluginManager (idempotent)."""
+    import importlib
+
+    try:
+        from eagle_rag.plugins import get_plugin_manager
+
+        modules = get_plugin_manager().collect_celery_modules()
+    except Exception:  # noqa: BLE001
+        modules = list(_BASE_CELERY_MODULES)
+
+    for module in modules:
+        if module in _IMPORTED_MODULES:
+            continue
+        importlib.import_module(module)
+        _IMPORTED_MODULES.add(module)
 
 
 # Telemetry: configure dual logger + tracing on worker subprocess startup; register
@@ -91,15 +113,54 @@ from eagle_rag.telemetry import (  # noqa: E402
 )
 
 
+def _ensure_app_on_sys_path() -> None:
+    """Guarantee repo root ``/app`` is importable for in-repo ``plugins.*`` modules."""
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]  # /app/eagle_rag/tasks -> /app
+    root_s = str(root)
+    if root_s not in sys.path:
+        sys.path.insert(0, root_s)
+
+
+@worker_init.connect
+def _on_worker_init(**kwargs) -> None:  # noqa: ANN001
+    """Import plugin Celery modules in the worker main process before consuming."""
+    import logging
+
+    _ensure_app_on_sys_path()
+    try:
+        from eagle_rag.plugins import get_plugin_manager
+
+        get_plugin_manager()
+        autodiscover_tasks()
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).exception("worker_init plugin bootstrap failed")
+
+
 @worker_process_init.connect
 def _init_worker(**kwargs) -> None:  # noqa: ANN001
     """Configure telemetry (dual logger + tracing) on worker subprocess startup."""
+    import logging
+
     from eagle_rag.config import get_settings
 
+    _ensure_app_on_sys_path()
     try:
         configure_telemetry(get_settings())
     except Exception:  # noqa: BLE001
-        pass
+        logging.getLogger(__name__).exception("worker_process_init telemetry failed")
+    try:
+        from eagle_rag.plugins import get_plugin_manager, reset_plugin_manager
+
+        # Prefork children must not reuse a parent-cached manager built before
+        # sys.path / profile env were fully settled.
+        reset_plugin_manager()
+        get_plugin_manager()
+        autodiscover_tasks()
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).exception("worker_process_init plugin bootstrap failed")
 
 
 @task_prerun.connect
@@ -122,7 +183,6 @@ def _ensure_telemetry_on_task(**kwargs) -> None:  # noqa: ANN001
 
 
 register_celery_signals(app)
-
 
 celery_app = app
 

@@ -57,7 +57,7 @@ sequenceDiagram
     Note over API: Returns job_id immediately
 ```
 
-Configuration singleton: `get_settings()` in `eagle_rag/config.py` — loaded once per process via `@lru_cache`.
+Configuration singleton: `get_settings()` in `eagle_rag/config.py` — loaded once per process via `@lru_cache`. Default deploy profile is **`core`** (`EAGLE_RAG_PROFILE=core` or unset); domain plugins activate via profile overlays — see [configuration](configuration.md#plugins).
 
 ---
 
@@ -124,7 +124,8 @@ After `task up`, open:
 
 | Variable | Purpose |
 | --- | --- |
-| `KB_NAME` | Default tenant (`default`) |
+| `KB_NAME` | Default KB inside the bound domain (`default`) |
+| `EAGLE_RAG_PROFILE` | Deploy domain overlay (`core` default) |
 | `LLM_API_KEY` | DeepSeek routing + text |
 | `VLM_API_KEY` | Qwen-VL generation |
 | `DASHSCOPE_API_KEY` | Text embedding + rerank |
@@ -165,7 +166,7 @@ curl -s http://localhost:8000/query -H 'Content-Type: application/json' \
 | `/health` shows milvus `down` | Milvus still starting (~60s) | Wait; `task ps` |
 | Query returns API error | Missing `LLM_API_KEY` / `VLM_API_KEY` | Edit `.env`; restart API |
 | Ingest task `FAILED` | Knowhere unreachable | `task knowhere:health` |
-| Frontend cannot reach API | Wrong `NEXT_PUBLIC_API_URL` | Set to `http://localhost:8000` |
+| Frontend cannot reach API | Wrong `NEXT_PUBLIC_API_BASE` | Set to `http://localhost:8000` |
 
 ---
 

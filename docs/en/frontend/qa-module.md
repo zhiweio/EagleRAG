@@ -139,6 +139,21 @@ On citation focus, if `document_id` present:
 
 This implements **bidirectional grounding** between generated text and parsed document skeleton — a best practice in auditable RAG (cf. "citeable chunks" in Gao et al., 2023 survey on RAG).
 
+### Four anchors (visual cards)
+
+`VisualSourceCard` surfaces the Core multimodal fusion anchors:
+
+| Field | Meaning |
+| --- | --- |
+| `chunk_type` | `tile` / `image` / `table` |
+| `parent_section` | Nearest text chunk `path` |
+| `content_summary` | Knowhere visual summary |
+| `source_chunk_id` | Knowhere chunk anchor |
+
+### Route `collection_plans`
+
+SSE `step` named `route` includes `collection_plans` (collection / encoder / top_k). `ThinkingTrace` renders them under the routing step for Core multi-collection hybrid debugging (**not** a domain-specific UI).
+
 ---
 
 ## Evidence rail (`SourcesPanel`)

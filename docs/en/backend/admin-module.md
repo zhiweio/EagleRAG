@@ -49,7 +49,7 @@ Every MCP tool invocation records:
 
 | Field | Content |
 |-------|---------|
-| `tool_name` | ingest/query/retrieve_text/retrieve_visual |
+| `tool_name` | `core_ingest` / `core_query` / `core_retrieve_text` / `core_retrieve_visual` (+ domain `{namespace}_*` when profile active) |
 | `arguments` | JSON args (query truncated) |
 | `result_summary` | Status, hit count, error type |
 | `caller` | `mcp` |

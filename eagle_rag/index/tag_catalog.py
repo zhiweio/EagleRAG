@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 from eagle_rag.db import async_fetch, get_sync_conn, sync_execute
+from eagle_rag.db.repositories.base import instance_namespace
 
 __all__ = [
     "upsert_document_keywords",
@@ -27,11 +28,16 @@ __all__ = [
 ]
 
 
-def delete_document_keywords(document_id: str) -> int:
+def delete_document_keywords(
+    document_id: str,
+    *,
+    plugin_namespace: str | None = None,
+) -> int:
     """Remove all keyword rows for a document (idempotent re-ingest)."""
+    ns = instance_namespace(plugin_namespace)
     return sync_execute(
-        "DELETE FROM document_keywords WHERE document_id = %s",
-        (document_id,),
+        "DELETE FROM document_keywords WHERE document_id = %s AND plugin_namespace = %s",
+        (document_id, ns),
     )
 
 
@@ -39,6 +45,8 @@ def upsert_document_keywords(
     document_id: str,
     kb_name: str,
     counts: dict[str, int],
+    *,
+    plugin_namespace: str | None = None,
 ) -> int:
     """Replace a document's keyword rows with ``{keyword: node_count}``.
 
@@ -48,19 +56,24 @@ def upsert_document_keywords(
     """
     from psycopg2.extras import execute_values
 
+    ns = instance_namespace(plugin_namespace)
     cleaned = {kw.strip(): int(n) for kw, n in counts.items() if kw and kw.strip() and n > 0}
     with get_sync_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM document_keywords WHERE document_id = %s", (document_id,))
+            cur.execute(
+                "DELETE FROM document_keywords WHERE document_id = %s AND plugin_namespace = %s",
+                (document_id, ns),
+            )
             if not cleaned:
                 return 0
             execute_values(
                 cur,
                 "INSERT INTO document_keywords "
-                "(document_id, keyword, kb_name, node_count) VALUES %s "
+                "(document_id, keyword, kb_name, node_count, plugin_namespace) VALUES %s "
                 "ON CONFLICT (document_id, keyword) DO UPDATE SET "
-                "kb_name = EXCLUDED.kb_name, node_count = EXCLUDED.node_count",
-                [(document_id, kw, kb_name, n) for kw, n in cleaned.items()],
+                "kb_name = EXCLUDED.kb_name, node_count = EXCLUDED.node_count, "
+                "plugin_namespace = EXCLUDED.plugin_namespace",
+                [(document_id, kw, kb_name, n, ns) for kw, n in cleaned.items()],
             )
             return len(cleaned)
 
@@ -70,6 +83,7 @@ async def list_tags(
     kb_names: list[str] | None = None,
     q: str | None = None,
     limit: int = 50,
+    plugin_namespace: str | None = None,
 ) -> list[dict[str, Any]]:
     """Aggregate the catalog into tag suggestions ordered by hit count.
 
@@ -79,9 +93,10 @@ async def list_tags(
     distinct documents. ``kb_names`` narrows to the given knowledge bases; ``q``
     is a case-insensitive substring match on the keyword.
     """
-    where: list[str] = []
-    params: list[Any] = []
-    idx = 1
+    ns = instance_namespace(plugin_namespace)
+    where: list[str] = ["plugin_namespace = $1"]
+    params: list[Any] = [ns]
+    idx = 2
     if kb_names:
         where.append(f"kb_name = ANY(${idx}::text[])")
         params.append(kb_names)
@@ -90,7 +105,7 @@ async def list_tags(
         where.append(f"keyword ILIKE ${idx}")
         params.append(f"%{q}%")
         idx += 1
-    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    clause = "WHERE " + " AND ".join(where)
     params.append(limit)
     rows = await async_fetch(
         f"""
@@ -114,6 +129,7 @@ def resolve_tags_to_document_ids(
     *,
     kb_names: list[str] | None = None,
     cap: int = 500,
+    plugin_namespace: str | None = None,
 ) -> list[str]:
     """Resolve selected tags to the set of documents that contain them.
 
@@ -123,8 +139,9 @@ def resolve_tags_to_document_ids(
     """
     if not tags:
         return []
-    where = ["keyword = ANY(%s)"]
-    params: list[Any] = [list(tags)]
+    ns = instance_namespace(plugin_namespace)
+    where = ["keyword = ANY(%s)", "plugin_namespace = %s"]
+    params: list[Any] = [list(tags), ns]
     if kb_names:
         where.append("kb_name = ANY(%s)")
         params.append(list(kb_names))

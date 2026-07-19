@@ -11,3 +11,5 @@ export { PageHeader } from "./PageHeader";
 export type { PageHeaderProps } from "./PageHeader";
 export { StatCard } from "./StatCard";
 export type { StatCardProps } from "./StatCard";
+export { TABLE_PAGE_SIZES, TablePagination } from "./TablePagination";
+export type { TablePaginationProps } from "./TablePagination";

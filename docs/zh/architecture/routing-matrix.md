@@ -243,17 +243,17 @@ content_type_rules:
 ## `source_type`（仅元数据）
 
 ```python
-# eagle_rag/ingest/router.py:281-305
+# eagle_rag/ingest/router.py — simplified
 def infer_source_type(filename, source_uri=None, source_type_hint=None) -> str:
-    if source_type_hint in {policy, financial, business, bidding, tax, other}:
-        return hint
-    for rule in get_settings().ingest.source_type.rules:
+    if source_type_hint:                      # free-form hint wins
+        return source_type_hint.strip().lower()
+    for rule in get_settings().ingest.source_type.rules:  # Core default: []
         if _has_keyword(text, rule.keywords):
             return rule.source_type
     return cfg.default  # "other"
 ```
 
-**不影响 `route()`。** 存于文档注册表与 Milvus 元数据，供查询过滤。
+**不影响 `route()`。** 存于文档注册表与 Milvus 元数据，供查询过滤。Core 默认 `rules: []`（无 finance/tax 硬编码）；行业关键词放在部署 profile / 领域配置。
 
 ---
 
@@ -321,6 +321,24 @@ flowchart LR
 | 启发式 | `router.heuristic.rules` 关键词规则 |
 
 含文档的附件偏向 `hybrid`。详见 [路由引擎](../backend/router-engine.md)。
+
+---
+
+## 插件覆盖（入库 + 查询）
+
+**入库格式 → 流水线不变** — `eagle_rag/ingest/router.py` 中 `route()` 仍按扩展名、PDF 探测与文件名前缀决定 Knowhere vs PixelRAG。插件不替换该矩阵。
+
+解析/分块之后，**插件微内核**扩展入库与查询：
+
+| 阶段 | Hook / 组件 | 角色 |
+| --- | --- | --- |
+| 入库分类 | `CLASSIFY_*` | 域块路由（如双编码器文本） |
+| 入库嵌入 / upsert | `EMBED_*`、`UPSERT_VECTORS` | 绑定 Milvus Database 内专用集合 |
+| 查询路由 | `QueryRouteClassifier` / `CLASSIFY_QUERY` | 增加专用集合 plan（Core 默认永不自动查询 — G4） |
+| 查询检索 | `RetrieverOrchestrator` | 多集合 ANN + RRF 合并 |
+| 上下文组装 | `QUERY_ASSEMBLE` | 为 Agent 组装结构化上下文包 |
+
+域 `source_type` 规则在 `settings.plugins.options[<namespace>]` — 不在 Core `ingest.source_type.rules`。参见 [插件架构](plugin-architecture.md) 与 [ADR-006](adr/006-ingest-query-routing-contract.md)。
 
 ---
 

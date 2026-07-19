@@ -19,7 +19,8 @@ from eagle_rag.api.app import app
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    with TestClient(app) as c:
+        yield c
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +145,10 @@ def test_post_query_with_existing_session(client: TestClient) -> None:
         patch("eagle_rag.api.query._get_engine", return_value=engine),
         patch(
             "eagle_rag.api.query.get_session",
+            AsyncMock(return_value=_session_row("s1", "t")),
+        ),
+        patch(
+            "eagle_rag.api.query.set_session_scope_filter",
             AsyncMock(return_value=_session_row("s1", "t")),
         ),
         patch(
@@ -591,9 +596,11 @@ def test_post_ingest_file_dedup_hit(client: TestClient) -> None:
 def test_post_ingest_url(client: TestClient) -> None:
     """POST /ingest with a form url returns the same response shape."""
     result = {"job_id": "j2", "status": "pending", "dedup_hit": False, "document_id": "d2"}
-    with patch(
-        "eagle_rag.api.ingest.ingest_url", MagicMock(return_value=result)
-    ) as mock_ingest_url:
+    with (
+        patch("eagle_rag.api.ingest.validate_url_format"),
+        patch("eagle_rag.api.ingest.assert_not_ssrf_target"),
+        patch("eagle_rag.api.ingest.ingest_url", MagicMock(return_value=result)) as mock_ingest_url,
+    ):
         response = client.post(
             "/ingest",
             data={"url": "https://example.com/page", "kb_name": "default"},
@@ -637,9 +644,12 @@ def _audit_row(job_id: str = "j1", status: str = "success", updated_at: str | No
 
 
 def test_list_tasks(client: TestClient) -> None:
-    """GET /tasks returns {items: TaskAuditOut[], limit, offset}."""
+    """GET /tasks returns {items: TaskAuditOut[], total, limit, offset}."""
     audits = [_audit_row("j1", "success"), _audit_row("j2", "pending", "t2")]
-    with patch("eagle_rag.api.ingest.task_state.list_audits", MagicMock(return_value=audits)):
+    with (
+        patch("eagle_rag.api.ingest.task_state.list_audits", MagicMock(return_value=audits)),
+        patch("eagle_rag.api.ingest.task_state.count_audits", MagicMock(return_value=2)),
+    ):
         response = client.get(
             "/tasks",
             params={
@@ -654,6 +664,7 @@ def test_list_tasks(client: TestClient) -> None:
     data = response.json()
     assert "items" in data
     assert len(data["items"]) == 2
+    assert data["total"] == 2
     assert data["items"][0]["job_id"] in {"j1", "j2"}
 
 

@@ -10,11 +10,13 @@ kb_name: ${KB_NAME:-default}
 milvus:
   host: ${MILVUS_HOST:-localhost}
   port: ${MILVUS_PORT:-19530}
+  db_name: ${MILVUS_DB_NAME:-default}
   text_collection: eagle_text
   visual_collection: eagle_visual
   dim_text: 1536
   dim_visual: 2048  # Qwen3-VL-Embedding-2B outputs 2048-dim
   visual_index_type: ${MILVUS_VISUAL_INDEX_TYPE:-hnsw}   # hnsw | diskann
+  auto_create_db: true
 
 # Knowhere parsing: mode=api (knowhere-python-sdk → self-hosted :5005) or mode=parser (knowhere-parse-sdk, in-process).
 # API mode: Knowhere is split into a standalone compose (docker/knowhere-self-hosted/); reach via knowhere-net DNS `knowhere`.
@@ -75,9 +77,16 @@ embedding:
     base_url: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
     dim: 1536
   visual:
-    provider: pixelrag
+    # pixelrag = local HF Qwen3-VL-Embedding; dashscope = Bailian qwen3-vl-embedding
+    provider: ${VISUAL_EMBEDDING_PROVIDER:-pixelrag}
     model: ${VISUAL_EMBEDDING_MODEL:-Qwen/Qwen3-VL-Embedding-2B}
+    api_key: ${DASHSCOPE_API_KEY:-}
+    # Native DashScope API base (not OpenAI-compatible). Empty = SDK default.
+    base_url: ${DASHSCOPE_API_BASE:-}
     dim: 2048
+    batch_size: ${VISUAL_EMBEDDING_BATCH_SIZE:-5}
+    timeout_s: ${VISUAL_EMBEDDING_TIMEOUT_S:-60}
+    max_retries: ${VISUAL_EMBEDDING_MAX_RETRIES:-3}
 
 rerank:
   text:
@@ -96,6 +105,18 @@ router:
   source_content_max_chars: ${ROUTER_SOURCE_CONTENT_MAX_CHARS:-4000}
   # Upper bound on section nodes persisted / served for a document's semantic tree.
   structure_max_nodes: ${ROUTER_STRUCTURE_MAX_NODES:-2000}
+  # Two-stage parent-document retrieval on eagle_text (G5).
+  parent_doc_retrieval: ${ROUTER_PARENT_DOC_RETRIEVAL:-true}
+  # RRF fusion constant for multi-collection merge (G8).
+  rrf_k: ${ROUTER_RRF_K:-60}
+  # ANN recall width before rerank; API responses keep ``final_top_k`` hits.
+  recall_top_k: ${ROUTER_RECALL_TOP_K:-30}
+  final_top_k: ${ROUTER_FINAL_TOP_K:-5}
+  # Dense weight in dense+sparse hybrid fusion (sparse weight = 1 - hybrid_alpha).
+  hybrid_alpha: ${ROUTER_HYBRID_ALPHA:-0.6}
+  hybrid_text_enabled: ${ROUTER_HYBRID_TEXT_ENABLED:-true}
+  # Optional explicit list; when empty, hybrid eligibility comes from encoder registry.
+  hybrid_text_collections: []
   llm:
     enabled: ${ROUTER_LLM_ENABLED:-true}   # When false, skip LLM intent classification and go straight to heuristics.
     prompt_template: |-
@@ -167,7 +188,9 @@ attachments:
     cache_enabled: ${ATTACHMENTS_PARSE_CACHE_ENABLED:-true}
     chunk_size: ${ATTACHMENTS_PARSE_CHUNK_SIZE:-2000}
 
-# Ingest routing config: extension / prefix / content_type rules plus source_type keywords (all configurable; defaults match the prior hardcoded values).
+# Ingest routing config: extension / prefix / content_type rules.
+# source_type is free-form metadata only (does not affect routing). Core ships empty
+# keyword rules — industry labels belong in deployment profiles / domain plugins.
 ingest:
   routing:
     prefix_force:                     # Filename prefix → forced pipeline.
@@ -185,17 +208,21 @@ ingest:
       - {match: spreadsheet, mode: contains, pipeline: pixelrag}
       - {match: excel, mode: contains, pipeline: pixelrag}
     default_pipeline: knowhere        # Fallback for unknown sources.
-  source_type:                        # source_type inference keywords (metadata tag only; does not affect routing).
-    rules:
-      - {keywords: [财报, 报表, 资产负债, 利润表, 现金流量, 审计报告, financial, balance, income, cashflow, table], source_type: financial}
-      - {keywords: [政策, 法规, 条例, 办法, 通知, 公告, policy, law, regulation, act], source_type: policy}
-      - {keywords: [招标, 中标, 投标, 采购, bidding, tender], source_type: bidding}
-      - {keywords: [税, 税务, 个税, 增值税, tax, vat], source_type: tax}
-      - {keywords: [工商, 企业信息, 营业执照, 公司简介, business, company], source_type: business}
+  source_type:
+    rules: []                         # Empty in Core; set per deployment / profile if needed.
     default: other
   url_prefetch:
-    timeout_sec: ${INGEST_URL_PREFETCH_TIMEOUT:-10}
+    dns_timeout_sec: ${INGEST_URL_DNS_TIMEOUT:-3}
+    timeout_sec: ${INGEST_URL_PREFETCH_TIMEOUT:-5}
     max_redirects: ${INGEST_URL_PREFETCH_MAX_REDIRECTS:-3}
+    pdf_download_timeout_sec: ${INGEST_URL_PDF_DOWNLOAD_TIMEOUT:-30}
+    verify_ssl: ${INGEST_URL_VERIFY_SSL:-true}
+    ssl_verify_fallback: ${INGEST_URL_SSL_VERIFY_FALLBACK:-true}
+  # Early reject before MinIO/Celery/MinerU (MinerU Precision Extract: 200 MiB / 200 pages).
+  limits:
+    enabled: ${INGEST_LIMITS_ENABLED:-true}
+    max_file_bytes: ${INGEST_MAX_FILE_BYTES:-209715200}
+    max_pdf_pages: ${INGEST_MAX_PDF_PAGES:-200}
 
 auth:
   enabled: ${AUTH_ENABLED:-false}
@@ -228,6 +255,132 @@ mcp:
   mtls:
     enabled: false
 
+# In-process plugin microkernel (M1+). Instance binds a single plugin_namespace via default_namespace.
+# Select a profile with EAGLE_RAG_PROFILE=core|biomed|lakehouse-bi (see profiles: below).
+plugins:
+  enabled:
+    - eagle_rag.plugins.core_defaults
+  default_namespace: ${PLUGIN_NAMESPACE:-core}
+  allow_namespace_override: false
+  query_assemble_enabled: true
+  # Per-plugin knobs keyed by namespace (not Core-typed fields).
+  options:
+    biomed:
+      default_dual_text_search: false
+      exploratory_search_collections: []
+      use_general_rerank: false
+      rerank_policy: domain
+      domain_rerank_encoder: medcpt-rerank
+      retrieval_scoring:
+        default:
+          w_ce: 0.50
+          w_entity: 0.25
+          w_sec: 0.15
+          w_xdrug_penalty: 2.0
+        regulatory:
+          w_ce: 0.30
+          w_entity: 0.20
+          w_sec: 0.35
+          w_xdrug_penalty: 2.5
+        drug_entity:
+          w_ce: 0.35
+          w_entity: 0.35
+          w_sec: 0.10
+          w_xdrug_penalty: 3.0
+        chemical:
+          w_ce: 0.25
+          w_entity: 0.40
+          w_sec: 0.10
+          w_xdrug_penalty: 3.0
+        combination:
+          w_ce: 0.35
+          w_entity: 0.35
+          w_sec: 0.10
+          w_xdrug_penalty: 2.5
+      medcpt_dual_search: false
+      collection_recall_top_k: 20
+      encoder_mode: ${EAGLE_BIOMED_ENCODER_MODE:-auto}
+      doc_semantic_router:
+        enabled: true
+        sketch_max_tokens: 2048
+        prototype_config: plugins/biomed/doc_profile_prototypes.yaml
+        fusion:
+          mode: weighted
+          weights: { prototype: 0.55, umls: 0.25, imrad: 0.15, entropy: 0.05 }
+        confidence_threshold: 0.0
+        llm_margin: 0.12
+        llm:
+          enabled: true
+          max_sketch_chars: 6000
+        ambiguous_default: biomedical
+
+# Optional deployment profiles (P2-4): bind namespace + Milvus DB + enabled plugins together.
+# Activate via EAGLE_RAG_PROFILE or YAML active_profile.
+# active_profile: core
+profiles:
+  core:
+    plugins:
+      enabled: [eagle_rag.plugins.core_defaults]
+      default_namespace: core
+    milvus:
+      db_name: default
+  biomed:
+    plugins:
+      enabled: [eagle_rag.plugins.core_defaults, plugins.biomed]
+      default_namespace: biomed
+      options:
+        biomed:
+          default_dual_text_search: false
+          use_general_rerank: false
+          rerank_policy: domain
+          domain_rerank_encoder: medcpt-rerank
+          retrieval_scoring:
+            default:
+              w_ce: 0.50
+              w_entity: 0.25
+              w_sec: 0.15
+              w_xdrug_penalty: 2.0
+            regulatory:
+              w_ce: 0.30
+              w_entity: 0.20
+              w_sec: 0.35
+              w_xdrug_penalty: 2.5
+            drug_entity:
+              w_ce: 0.35
+              w_entity: 0.35
+              w_sec: 0.10
+              w_xdrug_penalty: 3.0
+            chemical:
+              w_ce: 0.25
+              w_entity: 0.40
+              w_sec: 0.10
+              w_xdrug_penalty: 3.0
+            combination:
+              w_ce: 0.35
+              w_entity: 0.35
+              w_sec: 0.10
+              w_xdrug_penalty: 2.5
+          medcpt_dual_search: false
+          collection_recall_top_k: 20
+          encoder_mode: ${EAGLE_BIOMED_ENCODER_MODE:-auto}
+          doc_semantic_router:
+            enabled: true
+            llm:
+              enabled: true
+            ambiguous_default: biomedical
+    router:
+      hybrid_text_collections:
+        - eagle_text_biomed
+        - eagle_text_medcpt
+    milvus:
+      db_name: biomed
+  lakehouse-bi:
+    plugins:
+      enabled: [eagle_rag.plugins.core_defaults, plugins.lakehouse_bi]
+      default_namespace: lakehouse-bi
+    milvus:
+      db_name: lakehouse_bi
+
 # Telemetry and observability: structlog (AI event JSONL) + loguru (ops logs) + OpenTelemetry tracing.
 telemetry:
   enabled: ${TELEMETRY_ENABLED:-true}
@@ -247,3 +400,8 @@ telemetry:
   otlp_endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
   otlp_insecure: ${OTEL_EXPORTER_OTLP_INSECURE:-true}
   redis_log_channel: ${REDIS_LOG_CHANNEL:-logs}
+  # PluginAudit: AI JSONL (durable) + Redis recent window + memory fallback + Prometheus.
+  plugin_audit_enabled: ${PLUGIN_AUDIT_ENABLED:-true}
+  plugin_audit_ring_cap: 1000
+  plugin_audit_redis_enabled: ${PLUGIN_AUDIT_REDIS_ENABLED:-true}
+  plugin_audit_health_limit: 50

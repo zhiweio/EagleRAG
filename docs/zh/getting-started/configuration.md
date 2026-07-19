@@ -142,7 +142,31 @@ pixelrag:
   embed_instruction: "Represent the user's input."
 ```
 
-**`embed_instruction`：** Qwen3-VL-Embedding 查询与文档向量共用的编码指令。
+**`embed_instruction`：** Qwen3-VL-Embedding 查询与文档向量共用的编码指令。**`embed_device`** 仅在 `embedding.visual.provider=pixelrag` 时生效。
+
+### `embedding.visual`
+
+Core `eagle_visual` 后端经 `get_visual_encoder()`：
+
+```yaml
+embedding:
+  visual:
+    provider: ${VISUAL_EMBEDDING_PROVIDER:-pixelrag}   # pixelrag | dashscope
+    model: ${VISUAL_EMBEDDING_MODEL:-Qwen/Qwen3-VL-Embedding-2B}
+    api_key: ${DASHSCOPE_API_KEY:-}                    # dashscope 路径
+    base_url: ${DASHSCOPE_API_BASE:-}                  # 原生 DashScope API（非 OpenAI 兼容）
+    dim: 2048
+    batch_size: ${VISUAL_EMBEDDING_BATCH_SIZE:-5}
+    timeout_s: ${VISUAL_EMBEDDING_TIMEOUT_S:-60}
+    max_retries: ${VISUAL_EMBEDDING_MAX_RETRIES:-3}
+```
+
+| Provider | 后端 | 说明 |
+| --- | --- | --- |
+| `pixelrag` | `LocalQwen3VLEncoder` | 本地 HF 权重；使用 `pixelrag.embed_device` |
+| `dashscope` | `DashScopeQwen3VLEncoder` | 百炼 `qwen3-vl-embedding`；无本地权重 |
+
+ingest 与 query 须共享同一 provider；切换后端需重建 `eagle_visual`。
 
 ### `pdf_probe`
 
@@ -215,9 +239,59 @@ ingest:
     content_type_rules: [...]
     default_pipeline: knowhere
   source_type:
-    rules: [...]    # metadata only
+    rules: []       # Core default empty; industry keywords via profile / deploy YAML
     default: other
+  limits:
+    enabled: true
+    max_file_bytes: 209715200   # 200 MiB — MinerU Precision Extract 单文件上限
+    max_pdf_pages: 200          # MinerU Precision Extract 单 PDF 页数上限
 ```
+
+当 `ingest.limits.enabled` 为 true 时，`POST /ingest` 与 MCP `core_ingest` 会在写入 MinIO / 进入 Celery/MinerU 之前，对超限文件返回 HTTP 422（`file_too_large` / `pdf_too_many_pages`）。URL 摄入在 worker 下载文件后用同一套限制校验，超限直接失败且不重试。
+
+### `plugins`
+
+单域实例绑定 + 同仓插件加载：
+
+```yaml
+plugins:
+  enabled:
+    - eagle_rag.plugins.core_defaults
+  default_namespace: core          # = Milvus DB / PG namespace
+  allow_namespace_override: false  # prod: ignore request plugin_namespace
+  query_assemble_enabled: true
+  options:                         # per-namespace knobs (not Core-typed)
+    biomed:
+      default_dual_text_search: false
+      exploratory_search_collections: []
+      encoder_mode: ${EAGLE_BIOMED_ENCODER_MODE:-auto}  # auto | require_native | deterministic
+
+# EAGLE_RAG_PROFILE=biomed|lakehouse-bi|core
+profiles:
+  biomed:
+    plugins:
+      enabled: [eagle_rag.plugins.core_defaults, plugins.biomed]
+      default_namespace: biomed
+    router:
+      hybrid_text_collections:
+        - eagle_text_biomed
+        - eagle_text_medcpt
+    milvus:
+      db_name: biomed
+```
+
+Biomed 评测套件：[`eval/biomed/`](../../../eval/biomed/)。检索设计：[`eval/biomed/RETRIEVAL.md`](../../../eval/biomed/RETRIEVAL.md)。
+
+二开：复制 `plugins/_template/`，见 [编写行业插件](../guides/authoring-industry-plugin.md)。
+
+**成熟度：** `biomed` 为**实验性**；`lakehouse-bi` **仍在开发中**。生产默认仍为 `core`。
+
+**部署说明：**
+
+- API 与**所有** Celery worker 设置 `EAGLE_RAG_PROFILE` — profile 不一致会导致错误 Milvus Database 或缺失域 MCP 工具。
+- 活动 profile 中 `milvus.db_name` 须与 `plugins.default_namespace` 一致。
+- 垂直旋钮放在 `plugins.options.<namespace>` — 勿向 Core `Settings` 添加行业字段。
+- 部署后探测：`GET /health/plugins`（清单 + `celery_modules`）与 `GET /mcp/tools`（暴露的工具名）。
 
 ### `attachments`
 
@@ -258,10 +332,13 @@ telemetry:
   op_log_file: logs/eagle_rag.log
   tracing_enabled: false
   otlp_endpoint: ""
+  plugin_audit_enabled: ${PLUGIN_AUDIT_ENABLED:-true}
+  plugin_audit_ring_cap: 1000
+  plugin_audit_redis_enabled: ${PLUGIN_AUDIT_REDIS_ENABLED:-true}
+  plugin_audit_health_limit: 50
 ```
 
-`eagle_rag/api/app.py` 中的 `TelemetryMiddleware` —— OTel 启用时每请求 SERVER span。
-
+`eagle_rag/api/app.py` 中的 `TelemetryMiddleware` —— OTel 启用时每请求 SERVER span。PluginAudit sinks（AI JSONL + Redis 近期窗口 + 内存 ring + Prometheus）供给 `GET /health/plugins`（`recent_decisions` / `audit_stats`）。
 ---
 
 ## 路由配置（查询时）
@@ -276,7 +353,7 @@ telemetry:
 
     `text`、`visual` 或 `hybrid` 跳过 LLM 分类。适用于基准测试或受限 Agent。
 
-每请求覆盖：`POST /query` 或 MCP `query` 工具上的 `mode`。
+每请求覆盖：`POST /query` 或 MCP `core_query` 工具上的 `mode`。
 
 **Ingest 覆盖（不同旋钮）：** `settings.router.mode` 非 `auto` 时，`route()` 中 `ForcedModeSelector` 也会强制 ingest 流水线。
 
@@ -317,7 +394,7 @@ MILVUS_VISUAL_INDEX_TYPE=diskann task up:prod
 | 误配置 | 现象 | 修复 |
 | --- | --- | --- |
 | Compose 中 `MILVUS_HOST` 错误 | 所有查询返回空 | 用服务 DNS `milvus`，非 `localhost` |
-| `embedding.visual.provider` ≠ `pixelrag` | 视觉 ingest 在 `_ensure_loaded` 失败 | 保持 `provider: pixelrag` |
+| 未知 `embedding.visual.provider` | `get_visual_encoder()` 抛 `ValueError` | 使用 `pixelrag` 或 `dashscope`；ingest+query 须同 provider（切换需重建 `eagle_visual`） |
 | `pixelrag_queue` 并发 > 1 | OOM 杀死 worker | 在 `settings.yaml` 重置为 1 |
 | `poll_timeout` 过低 | 大 PDF 在 `RENDERING` 失败 | 增大 `knowhere.poll_timeout` |
 | 宿主机 dev 缺少 `KNOWHERE_BASE_URL` | ingest 上 `KnowhereError` | 指向运行中的 Knowhere |

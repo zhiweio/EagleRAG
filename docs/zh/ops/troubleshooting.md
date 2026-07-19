@@ -341,6 +341,41 @@ Taskfile 对 knowhere 任务执行 `unset POSTGRES_PASSWORD APP_ENV`。若在 `d
 
 ---
 
+## 插件与 profile 问题
+
+### 错误的 `EAGLE_RAG_PROFILE` 或命名空间不匹配
+
+| 症状 | 可能原因 |
+| --- | --- |
+| API 带 `plugin_namespace` detail 返回 HTTP **403** | 客户端 `plugin_namespace` ≠ `settings.plugins.default_namespace` |
+| `/mcp/tools` 缺少域 MCP 工具 | Profile 启用插件但 `default_namespace` 与工具命名空间不匹配（G3） |
+| Milvus 空但 Postgres 有文档 | API/worker `EAGLE_RAG_PROFILE` 不一致 — 写入另一 Database |
+| `GET /health/plugins` 的 `enabled_modules` 意外 | Worker 环境陈旧；插件模块导入路径错误 |
+
+**修复**
+
+```bash
+# API 与所有 worker 必须共享同一 profile
+docker compose exec api printenv EAGLE_RAG_PROFILE
+docker compose exec worker-router printenv EAGLE_RAG_PROFILE
+curl -s localhost:8000/health/plugins | jq '.default_namespace, .manifests[].namespace'
+curl -s localhost:8000/mcp/tools | jq '.tools[].name'
+```
+
+更改 `.env` 后重启所有应用容器（`get_settings()` 每进程缓存）。
+
+### 插件导入 / 清单错误
+
+| 症状 | 检查 |
+| --- | --- |
+| `enabled_modules` 短于 `settings.plugins.enabled` | `plugins/<name>/__init__.py` 导入错误 — 查 API 启动日志 |
+| `celery_modules` 与 API 不一致 | Worker 缺少 `EAGLE_RAG_PROFILE` 或 `./plugins` 挂载 |
+| 专用集合从未被查询 | Core G4 — 需要域 `QueryRouteClassifier` 或范围感知目录并集 |
+
+确保 dev override 在 api 与 worker 上挂载 `./plugins:/app/plugins:ro`（[docker](docker.md)）。
+
+---
+
 ## MCP 相关问题
 
 | 症状 | 指标 / 日志 | 修复 |
@@ -357,10 +392,10 @@ Prometheus 指标在 MCP 独立 `/metrics`（[`eagle_rag/metrics.py`](https://gi
 
 | 症状 | 原因 |
 | --- | --- |
-| 浏览器网络错误 | 前端构建中 `NEXT_PUBLIC_API_URL` 错误 |
+| 浏览器网络错误 | 前端构建中 `NEXT_PUBLIC_API_BASE` 错误 |
 | CORS（本地） | 浏览器无法到达 API 主机 |
 
-Dev Docker：`NEXT_PUBLIC_API_URL=http://localhost:8000`。Frontend `depends_on: api: service_healthy`。
+Dev Docker：`NEXT_PUBLIC_API_BASE=http://localhost:8000`。Frontend `depends_on: api: service_healthy`。
 
 ---
 

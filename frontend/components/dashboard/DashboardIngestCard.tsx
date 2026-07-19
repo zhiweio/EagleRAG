@@ -29,7 +29,7 @@ function IngestFileRow({ task }: { task: Task }) {
       )}
     >
       <div className="flex items-center gap-2">
-        <FileBadge name={name} size={14} />
+        <FileBadge name={name} sourceUri={task.source_uri} size={14} />
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium leading-snug text-foreground">
           {name}
         </span>

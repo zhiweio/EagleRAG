@@ -5,16 +5,17 @@ import { StatusPill } from "@/components/ingest/StatusPill";
 import {
   type TaskPhase,
   documentName,
-  normalizeStatus,
   pipelineKind,
   progressPercent,
   stateLabel,
+  taskPhase,
+  taskRowAction,
 } from "@/components/ingest/status";
-import { FileBadge } from "@/components/kb/kb-visuals";
-import { cn } from "@/components/ui";
+import { FileBadge, isHttpUri } from "@/components/kb/kb-visuals";
+import { TablePagination, cn } from "@/components/ui";
 import type { Task } from "@/lib/types";
 import { Button, Skeleton } from "@heroui/react";
-import { ChevronLeft, ChevronRight, FileImage, Inbox, RefreshCw, RotateCcw, X } from "lucide-react";
+import { FileImage, Inbox, RefreshCw, RotateCcw, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 
@@ -42,6 +43,7 @@ function TaskRow({
   onViewLogs,
   cancelLabel,
   retryLabel,
+  hideKbBadge,
 }: {
   task: Task;
   onRetry: (task: Task) => void;
@@ -49,9 +51,13 @@ function TaskRow({
   onViewLogs: (task: Task) => void;
   cancelLabel: string;
   retryLabel: string;
+  hideKbBadge?: boolean;
 }) {
-  const phase = normalizeStatus(task.status);
+  const phase = taskPhase(task);
+  const action = taskRowAction(task);
   const pct = progressPercent(task);
+  const displayName = documentName(task);
+  const isUrl = isHttpUri(task.source_uri) || isHttpUri(displayName);
   const isVisual = pipelineKind(task) === "pixelrag";
   const tint = ROW_TINT[phase];
   const note = task.error?.trim()
@@ -70,7 +76,6 @@ function TaskRow({
         tint ? { backgroundColor: tint.bg, boxShadow: `inset 3px 0 0 0 ${tint.border}` } : undefined
       }
     >
-      {/* Task ID */}
       <button
         type="button"
         onClick={() => onViewLogs(task)}
@@ -80,23 +85,23 @@ function TaskRow({
         {task.job_id.length > 12 ? `${task.job_id.slice(0, 12)}…` : task.job_id}
       </button>
 
-      {/* Document */}
       <div className="flex min-w-0 items-center gap-2.5">
         <FileBadge
-          name={documentName(task)}
+          name={displayName}
+          sourceUri={task.source_uri}
           size={36}
-          forceIcon={isVisual ? FileImage : undefined}
+          forceIcon={isVisual && !isUrl ? FileImage : undefined}
         />
         <div className="flex min-w-0 flex-col gap-0.5">
           <button
             type="button"
             onClick={() => onViewLogs(task)}
             className="truncate text-left text-sm font-semibold text-foreground hover:text-accent"
-            title={documentName(task)}
+            title={displayName}
           >
-            {documentName(task)}
+            {displayName}
           </button>
-          {task.kb_name ? (
+          {!hideKbBadge && task.kb_name ? (
             <span className="inline-flex w-fit items-center rounded bg-(--surface-muted) px-1.5 py-0.5 font-mono text-[10px] text-foreground-tertiary">
               kb_name: {task.kb_name}
             </span>
@@ -104,17 +109,14 @@ function TaskRow({
         </div>
       </div>
 
-      {/* Pipeline */}
       <div className="min-w-0">
         <PipelineBadge pipeline={task.pipeline} />
       </div>
 
-      {/* State */}
       <div>
         <StatusPill phase={phase} label={stateLabel(task)} />
       </div>
 
-      {/* Progress */}
       <div className="flex min-w-0 flex-col gap-1.5">
         <span
           className={cn(
@@ -133,9 +135,8 @@ function TaskRow({
         </span>
       </div>
 
-      {/* Actions */}
       <div className="flex items-center justify-end">
-        {phase === "pending" ? (
+        {action === "cancel" ? (
           <button
             type="button"
             onClick={() => onDelete(task)}
@@ -144,7 +145,7 @@ function TaskRow({
             <X className="h-3 w-3" aria-hidden />
             {cancelLabel}
           </button>
-        ) : phase === "failed" ? (
+        ) : action === "retry" ? (
           <button
             type="button"
             onClick={() => onRetry(task)}
@@ -161,101 +162,6 @@ function TaskRow({
   );
 }
 
-const PAGE_SIZES = [10, 20, 50];
-
-function Pagination({
-  total,
-  page,
-  pageSize,
-  onPage,
-  onPageSize,
-  totalLabel,
-  perPageLabel,
-}: {
-  total: number;
-  page: number;
-  pageSize: number;
-  onPage: (page: number) => void;
-  onPageSize: (size: number) => void;
-  totalLabel: string;
-  perPageLabel: string;
-}) {
-  const pageCount = Math.max(1, Math.ceil(total / pageSize));
-  const pages: (number | "…")[] = [];
-  for (let i = 1; i <= pageCount; i += 1) {
-    if (i === 1 || i === pageCount || Math.abs(i - page) <= 1) {
-      pages.push(i);
-    } else if (pages[pages.length - 1] !== "…") {
-      pages.push("…");
-    }
-  }
-
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3">
-      <span className="text-xs text-foreground-secondary">{totalLabel}</span>
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          disabled={page <= 1}
-          onClick={() => onPage(page - 1)}
-          aria-label="prev"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-foreground-secondary transition-colors hover:bg-(--surface-muted) disabled:opacity-40"
-        >
-          <ChevronLeft className="h-4 w-4" aria-hidden />
-        </button>
-        {pages.map((p, i) =>
-          p === "…" ? (
-            <span
-              // biome-ignore lint/suspicious/noArrayIndexKey: ellipsis placeholder
-              key={`ellipsis-${i}`}
-              className="px-1 text-xs text-foreground-tertiary"
-            >
-              …
-            </span>
-          ) : (
-            <button
-              key={p}
-              type="button"
-              onClick={() => onPage(p)}
-              className={cn(
-                "inline-flex h-7 min-w-7 items-center justify-center rounded-md px-1.5 text-xs font-medium transition-colors",
-                p === page
-                  ? "bg-accent text-accent-foreground"
-                  : "text-foreground-secondary hover:bg-(--surface-muted)",
-              )}
-            >
-              {p}
-            </button>
-          ),
-        )}
-        <button
-          type="button"
-          disabled={page >= pageCount}
-          onClick={() => onPage(page + 1)}
-          aria-label="next"
-          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-foreground-secondary transition-colors hover:bg-(--surface-muted) disabled:opacity-40"
-        >
-          <ChevronRight className="h-4 w-4" aria-hidden />
-        </button>
-      </div>
-      <label className="flex items-center gap-2 text-xs text-foreground-secondary">
-        {perPageLabel}
-        <select
-          value={pageSize}
-          onChange={(e) => onPageSize(Number(e.target.value))}
-          className="rounded-md border border-border bg-surface px-2 py-1 text-xs font-medium text-foreground outline-none"
-        >
-          {PAGE_SIZES.map((size) => (
-            <option key={size} value={size}>
-              {size}
-            </option>
-          ))}
-        </select>
-      </label>
-    </div>
-  );
-}
-
 interface TaskTableProps {
   tasks: Task[];
   loading: boolean;
@@ -264,6 +170,15 @@ interface TaskTableProps {
   onDelete: (task: Task) => void;
   onViewLogs: (task: Task) => void;
   onRetryLoad: () => void;
+  /** When set with page handlers, pagination is server-driven. */
+  total?: number;
+  page?: number;
+  pageSize?: number;
+  onPageChange?: (page: number) => void;
+  onPageSizeChange?: (size: number) => void;
+  /** Hide per-row kb_name chip (e.g. KB detail already scopes the list). */
+  hideKbBadge?: boolean;
+  emptyHint?: string;
 }
 
 export function TaskTable({
@@ -274,17 +189,29 @@ export function TaskTable({
   onDelete,
   onViewLogs,
   onRetryLoad,
+  total: totalProp,
+  page: pageProp,
+  pageSize: pageSizeProp,
+  onPageChange,
+  onPageSizeChange,
+  hideKbBadge,
+  emptyHint,
 }: TaskTableProps) {
   const t = useTranslations("ingest");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const serverPaged = onPageChange != null && onPageSizeChange != null;
+  const [localPage, setLocalPage] = useState(1);
+  const [localPageSize, setLocalPageSize] = useState(10);
 
-  const pageCount = Math.max(1, Math.ceil(tasks.length / pageSize));
+  const page = serverPaged ? (pageProp ?? 1) : localPage;
+  const pageSize = serverPaged ? (pageSizeProp ?? 10) : localPageSize;
+  const total = serverPaged ? (totalProp ?? tasks.length) : tasks.length;
+
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   useEffect(() => {
-    if (page > pageCount) setPage(1);
-  }, [page, pageCount]);
+    if (!serverPaged && localPage > pageCount) setLocalPage(1);
+  }, [serverPaged, localPage, pageCount]);
 
-  const paged = tasks.slice((page - 1) * pageSize, page * pageSize);
+  const paged = serverPaged ? tasks : tasks.slice((page - 1) * pageSize, page * pageSize);
 
   if (error && !loading) {
     return (
@@ -300,7 +227,6 @@ export function TaskTable({
 
   return (
     <div className="flex flex-col">
-      {/* Header */}
       <div
         className={cn(
           "grid gap-3 border-b border-border px-4 py-2.5 text-[11px] font-medium text-foreground-tertiary",
@@ -315,7 +241,6 @@ export function TaskTable({
         <span className="text-right">{t("table.actions")}</span>
       </div>
 
-      {/* Body */}
       {loading ? (
         <div className="flex flex-col">
           {["sk-0", "sk-1", "sk-2", "sk-3", "sk-4"].map((key) => (
@@ -329,11 +254,11 @@ export function TaskTable({
             </div>
           ))}
         </div>
-      ) : tasks.length === 0 ? (
+      ) : total === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 py-14 text-center">
           <Inbox className="h-8 w-8 text-foreground-tertiary" aria-hidden />
           <p className="text-sm font-medium text-foreground">{t("table.empty")}</p>
-          <p className="text-xs text-foreground-secondary">{t("table.emptyHint")}</p>
+          <p className="text-xs text-foreground-secondary">{emptyHint ?? t("table.emptyHint")}</p>
         </div>
       ) : (
         <div className="flex flex-col">
@@ -346,23 +271,30 @@ export function TaskTable({
               onViewLogs={onViewLogs}
               cancelLabel={t("table.cancel")}
               retryLabel={t("table.retry")}
+              hideKbBadge={hideKbBadge}
             />
           ))}
         </div>
       )}
 
-      {/* Footer */}
-      {!loading && tasks.length > 0 ? (
-        <Pagination
-          total={tasks.length}
+      {!loading && total > 0 ? (
+        <TablePagination
+          total={total}
           page={page}
           pageSize={pageSize}
-          onPage={setPage}
-          onPageSize={(size) => {
-            setPageSize(size);
-            setPage(1);
+          onPage={(next) => {
+            if (serverPaged) onPageChange?.(next);
+            else setLocalPage(next);
           }}
-          totalLabel={t("pagination.total", { count: tasks.length })}
+          onPageSize={(size) => {
+            if (serverPaged) {
+              onPageSizeChange?.(size);
+              return;
+            }
+            setLocalPageSize(size);
+            setLocalPage(1);
+          }}
+          totalLabel={t("pagination.total", { count: total })}
           perPageLabel={t("pagination.perPage")}
         />
       ) : null}

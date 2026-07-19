@@ -23,4 +23,11 @@ if [ "$need_install" = 1 ]; then
   echo "$LOCK_SUM" > "$MARKER"
 fi
 
+# Host-mounted ./frontend may contain a leftover `next build` output. Mixing that
+# with `next dev` (Turbopack) makes every locale route 404 until .next is wiped.
+if [ -f .next/BUILD_ID ]; then
+  echo "[frontend] Removing stale production .next before next dev..."
+  rm -rf .next
+fi
+
 exec bun run dev -H 0.0.0.0

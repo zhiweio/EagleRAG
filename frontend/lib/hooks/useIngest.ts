@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api/client";
 import {
   deleteTaskTasksJobIdDelete,
   getTaskLogsTasksJobIdLogsGet,
@@ -21,6 +22,7 @@ import type {
  *
  * Queries: useTasks / useTask / useTaskLogs
  * Mutations: useIngestFile / useIngestUrl / useRetryTask / useDeleteTask
+ * Preflight: useValidateIngestFile / useValidateIngestUrl
  *
  * queryKey is organised by domain + params to ensure cache is correctly isolated
  * when filters such as kb_name change; mutations invalidate the corresponding
@@ -58,7 +60,13 @@ export type UrlErrorCode =
   | "url_target_forbidden"
   | "url_unreachable"
   | "url_timeout"
-  | "url_bad_status";
+  | "url_bad_status"
+  | "url_ssl_error";
+
+/**
+ * Structured size/page limit codes from `eagle_rag/ingest/limits.py`.
+ */
+export type IngestLimitErrorCode = "file_too_large" | "pdf_too_many_pages" | "pdf_unreadable";
 
 /**
  * Structured URL ingest error parsed from a 422 response body.
@@ -68,6 +76,37 @@ export interface UrlIngestError {
   code: UrlErrorCode | string;
   reason: string;
   suggestion?: string;
+}
+
+/**
+ * Structured ingest limit error from a 422 response body.
+ * Mirrors `IngestLimitErrorDetail` on the backend.
+ */
+export interface IngestLimitError {
+  code: IngestLimitErrorCode | string;
+  reason: string;
+  suggestion?: string;
+}
+
+/**
+ * Parse a structured `{code, reason, suggestion?}` detail from a 422 body.
+ */
+function parseStructuredDetail(err: unknown): {
+  code: string;
+  reason: string;
+  suggestion?: string;
+} | null {
+  if (!err || typeof err !== "object") return null;
+  const obj = err as Record<string, unknown>;
+  const detail = obj.detail;
+  if (!detail || typeof detail !== "object") return null;
+  const d = detail as Record<string, unknown>;
+  if (typeof d.code !== "string" || typeof d.reason !== "string") return null;
+  return {
+    code: d.code,
+    reason: d.reason,
+    suggestion: typeof d.suggestion === "string" ? d.suggestion : undefined,
+  };
 }
 
 /**
@@ -81,17 +120,89 @@ export interface UrlIngestError {
  * `errorMessage`.
  */
 export function parseUrlIngestError(err: unknown): UrlIngestError | null {
-  if (!err || typeof err !== "object") return null;
-  const obj = err as Record<string, unknown>;
-  const detail = obj.detail;
-  if (!detail || typeof detail !== "object") return null;
-  const d = detail as Record<string, unknown>;
-  if (typeof d.code !== "string" || typeof d.reason !== "string") return null;
-  return {
-    code: d.code,
-    reason: d.reason,
-    suggestion: typeof d.suggestion === "string" ? d.suggestion : undefined,
-  };
+  const detail = parseStructuredDetail(err);
+  if (!detail) return null;
+  if (!detail.code.startsWith("url_") && detail.code !== "invalid_url_format") {
+    return null;
+  }
+  return detail;
+}
+
+/**
+ * Parse a structured ingest limit error (size / PDF pages) from a 422 body.
+ */
+export function parseIngestLimitError(err: unknown): IngestLimitError | null {
+  const detail = parseStructuredDetail(err);
+  if (!detail) return null;
+  if (
+    detail.code !== "file_too_large" &&
+    detail.code !== "pdf_too_many_pages" &&
+    detail.code !== "pdf_unreadable"
+  ) {
+    return null;
+  }
+  return detail;
+}
+
+/** Parse URL validate errors (URL codes or shared MinerU limit codes). */
+export function parseUrlValidateError(err: unknown): UrlIngestError | null {
+  return parseUrlIngestError(err) ?? parseIngestLimitError(err);
+}
+
+export type ResourceKind = "html" | "pdf" | "image" | "other";
+
+export interface FileValidateResponse {
+  ok: boolean;
+  filename: string;
+  size_bytes: number;
+  resource_kind: ResourceKind | string;
+  page_count?: number | null;
+  content_type?: string | null;
+}
+
+export interface UrlValidateResponse {
+  ok: boolean;
+  status_code: number;
+  content_type?: string | null;
+  final_url?: string | null;
+  resource_kind: ResourceKind | string;
+  size_bytes?: number | null;
+  page_count?: number | null;
+  suggested_pipeline?: string | null;
+  ssl_insecure?: boolean;
+}
+
+async function postFormValidate<T>(path: string, form: FormData, signal?: AbortSignal): Promise<T> {
+  const resp = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    body: form,
+    signal,
+  });
+  const body: unknown = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    throw body;
+  }
+  return body as T;
+}
+
+/** Standalone URL preflight (AbortSignal-friendly; used by UrlInputZone debounce). */
+export async function validateIngestUrl(
+  url: string,
+  signal?: AbortSignal,
+): Promise<UrlValidateResponse> {
+  const form = new FormData();
+  form.append("url", url);
+  return postFormValidate<UrlValidateResponse>("/ingest/validate/url", form, signal);
+}
+
+/** Standalone file preflight. */
+export async function validateIngestFile(
+  file: File,
+  signal?: AbortSignal,
+): Promise<FileValidateResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  return postFormValidate<FileValidateResponse>("/ingest/validate/file", form, signal);
 }
 
 export function useTasks(
@@ -157,20 +268,38 @@ export function useIngestFile() {
 export function useIngestUrl() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (vars: { url: string; source_type_hint?: string; kb_name?: string }) => {
-      const result = await postIngestIngestPost({
-        body: {
-          url: vars.url,
-          source_type_hint: vars.source_type_hint,
-          kb_name: vars.kb_name,
-        },
-      });
-      if (result.error) throw result.error;
-      return result.data as unknown as IngestResponse;
+    mutationFn: async (vars: {
+      url: string;
+      filename?: string;
+      source_type_hint?: string;
+      kb_name?: string;
+    }) => {
+      // FormData path so optional `filename` (routing prefix) is accepted before
+      // the OpenAPI client is regenerated with the new field.
+      const form = new FormData();
+      form.append("url", vars.url);
+      if (vars.filename) form.append("filename", vars.filename);
+      if (vars.source_type_hint) form.append("source_type_hint", vars.source_type_hint);
+      if (vars.kb_name) form.append("kb_name", vars.kb_name);
+      return postFormValidate<IngestResponse>("/ingest", form);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tasks"] });
     },
+  });
+}
+
+export function useValidateIngestFile() {
+  return useMutation({
+    mutationFn: async (vars: { file: File; signal?: AbortSignal }) =>
+      validateIngestFile(vars.file, vars.signal),
+  });
+}
+
+export function useValidateIngestUrl() {
+  return useMutation({
+    mutationFn: async (vars: { url: string; signal?: AbortSignal }) =>
+      validateIngestUrl(vars.url, vars.signal),
   });
 }
 

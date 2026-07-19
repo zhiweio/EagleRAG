@@ -87,7 +87,7 @@ Mutations: ingest file/url, retry — invalidate `["tasks"]`.
 
 ### Cache isolation
 
-Keys include `kb_name` / filter params where relevant — switching KB on ingest does not bleed cached task lists from another tenant filter.
+Keys include `kb_name` / filter params where relevant — switching KB on ingest does not bleed cached task lists from another knowledge-base filter.
 
 ---
 

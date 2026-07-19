@@ -61,7 +61,8 @@ def _parse_cfg() -> Any:
 
 
 def _sidecar_path(storage_path: str) -> Path:
-    return Path(f"{storage_path}.parsed.json")
+    ns = get_settings().plugins.default_namespace
+    return Path(f"{storage_path}.{ns}.parsed.json")
 
 
 def _load_cache(storage_path: str) -> dict[str, Any] | None:

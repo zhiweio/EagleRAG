@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
@@ -13,6 +14,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from eagle_rag.api.schemas.common import DeletedResponse
 from eagle_rag.api.schemas.ingest import (
+    FileValidateResponse,
     IngestQueueMetricsResponse,
     IngestResponse,
     QueueMetricItem,
@@ -20,16 +22,17 @@ from eagle_rag.api.schemas.ingest import (
     TaskListResponse,
     TaskLogsResponse,
     TaskRetryResponse,
+    UrlValidateResponse,
 )
 from eagle_rag.config import get_settings
-from eagle_rag.db import sync_execute
 from eagle_rag.index import registry
+from eagle_rag.ingest.limits import IngestLimitError, validate_file_preflight
 from eagle_rag.ingest.runner import ingest, ingest_url
 from eagle_rag.ingest.url_validator import (
     UrlValidationError,
     assert_not_ssrf_target,
-    prefetch_url,
     validate_url_format,
+    validate_url_preflight,
 )
 from eagle_rag.tasks import state as task_state
 from eagle_rag.tasks.celery_app import app as celery_app
@@ -46,6 +49,7 @@ _PIPELINE_QUEUE: dict[str, tuple[str, str]] = {
     "router": ("eagle_rag.ingest.router.ingest_router", "router_queue"),
     "knowhere": ("eagle_rag.tasks.knowhere_parse", "knowhere_queue"),
     "pixelrag": ("eagle_rag.tasks.pixelrag_build", "pixelrag_queue"),
+    "knowhere_visual": ("eagle_rag.tasks.knowhere_visual_chunks", "pixelrag_queue"),
 }
 
 _SSE_POLL_INTERVAL = 1.5
@@ -62,14 +66,94 @@ def _serialize(audit: dict[str, Any]) -> str:
     return json.dumps(audit, default=str, ensure_ascii=False)
 
 
+def _url_gate(url: str) -> None:
+    """Lightweight enqueue gate: format + bounded SSRF (no prefetch)."""
+    cfg = get_settings().ingest.url_prefetch
+    validate_url_format(url)
+    assert_not_ssrf_target(url, dns_timeout_sec=cfg.dns_timeout_sec)
+
+
+def _run_url_preflight(url: str) -> UrlValidateResponse:
+    """Sync helper for ``POST /ingest/validate/url``."""
+    cfg = get_settings().ingest.url_prefetch
+    result = validate_url_preflight(
+        url,
+        dns_timeout_sec=cfg.dns_timeout_sec,
+        timeout_sec=cfg.timeout_sec,
+        max_redirects=cfg.max_redirects,
+        pdf_download_timeout_sec=cfg.pdf_download_timeout_sec,
+        verify_ssl=cfg.verify_ssl,
+        ssl_verify_fallback=cfg.ssl_verify_fallback,
+    )
+    return UrlValidateResponse(
+        ok=True,
+        status_code=result.status_code,
+        content_type=result.content_type,
+        final_url=result.final_url,
+        resource_kind=result.resource_kind,
+        size_bytes=result.size_bytes,
+        page_count=result.page_count,
+        suggested_pipeline=result.suggested_pipeline,
+        ssl_insecure=result.ssl_insecure,
+    )
+
+
+def _run_file_preflight(data: bytes, filename: str | None) -> FileValidateResponse:
+    """Sync helper for ``POST /ingest/validate/file``."""
+    import tempfile
+
+    suffix = Path(filename or "upload.bin").suffix or ".bin"
+    with tempfile.NamedTemporaryFile(prefix="eagle-validate-", suffix=suffix, delete=False) as tmp:
+        tmp.write(data)
+        tmp_path = Path(tmp.name)
+    try:
+        result = validate_file_preflight(tmp_path, filename or tmp_path.name)
+        return FileValidateResponse(
+            ok=True,
+            filename=result.filename,
+            size_bytes=result.size_bytes,
+            resource_kind=result.resource_kind,
+            page_count=result.page_count,
+            content_type=result.content_type,
+        )
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+@router.post("/ingest/validate/file", response_model=FileValidateResponse)
+async def validate_ingest_file_endpoint(
+    file: UploadFile = File(...),
+) -> FileValidateResponse:
+    """Validate a staged file against MinerU size/page limits (no enqueue)."""
+    data = await file.read()
+    try:
+        return await _run_sync(_run_file_preflight, data, file.filename)
+    except IngestLimitError as exc:
+        raise HTTPException(status_code=422, detail=exc.to_detail()) from exc
+
+
+@router.post("/ingest/validate/url", response_model=UrlValidateResponse)
+async def validate_ingest_url_endpoint(
+    url: str = Form(...),
+) -> UrlValidateResponse:
+    """Validate a URL: format, SSRF, reachability, and kind-aware PDF limits."""
+    try:
+        return await _run_sync(_run_url_preflight, url)
+    except UrlValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.to_detail()) from exc
+    except IngestLimitError as exc:
+        raise HTTPException(status_code=422, detail=exc.to_detail()) from exc
+
+
 @router.post("/ingest", response_model=IngestResponse)
 async def post_ingest(
     file: UploadFile | None = File(None),
     url: str | None = Form(None),
     source_type_hint: str | None = Form(None),
     kb_name: str | None = Form(None),
+    filename: str | None = Form(None),
 ) -> IngestResponse | JSONResponse:
-    """Unified ingest entry: multipart file or URL."""
+    """Unified ingest entry: multipart file or URL (enqueue after client validate)."""
     if file is None and not url:
         raise HTTPException(status_code=422, detail="Either file or url is required")
 
@@ -84,21 +168,21 @@ async def post_ingest(
                 kb_name=kb_name,
             )
         else:
-            # URL prefetch: validate format, guard SSRF, check reachability before dispatching.
+            # Enqueue gate only: format + SSRF. Reachability/PDF limits belong to
+            # POST /ingest/validate/url so the submit button stays snappy.
             try:
-                validate_url_format(url)
-                assert_not_ssrf_target(url)
-                cfg = get_settings()
-                prefetch_url(
-                    url,
-                    timeout=cfg.ingest.url_prefetch.timeout_sec,
-                    max_redirects=cfg.ingest.url_prefetch.max_redirects,
-                )
+                await _run_sync(_url_gate, url)
             except UrlValidationError as exc:
                 raise HTTPException(status_code=422, detail=exc.to_detail()) from exc
             result = await _run_sync(
-                ingest_url, url, source_type_hint=source_type_hint, kb_name=kb_name
+                ingest_url,
+                url,
+                filename=filename,
+                source_type_hint=source_type_hint,
+                kb_name=kb_name,
             )
+    except IngestLimitError as exc:
+        raise HTTPException(status_code=422, detail=exc.to_detail()) from exc
     except ValueError as exc:
         if "knowledge base not registered" in str(exc).lower():
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -160,40 +244,36 @@ async def ingest_queue_metrics() -> IngestQueueMetricsResponse:
 async def list_tasks(
     pipeline: str | None = Query(None),
     status: str | None = Query(None),
-    q: str | None = Query(None, description="Fuzzy match on job_id or document_id"),
+    q: str | None = Query(None, description="Fuzzy match on job_id, document_id, or document name"),
     kb_name: str | None = Query(None, description="Filter by knowledge base (multi-tenant)"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ) -> TaskListResponse:
-    """List task audit records."""
+    """List task audit records with server-side pagination."""
+    filters = {
+        "status": status,
+        "pipeline": pipeline,
+        "kb_name": kb_name,
+        "q": q,
+    }
     try:
-        items = await _run_sync(
-            task_state.list_audits,
-            status=status,
-            pipeline=pipeline,
-            kb_name=kb_name,
-            limit=limit,
-            offset=offset,
+        items, total = await asyncio.gather(
+            _run_sync(task_state.list_audits, **filters, limit=limit, offset=offset),
+            _run_sync(task_state.count_audits, **filters),
         )
     except Exception:  # noqa: BLE001
         logger.exception("list_audits failed; database may be unavailable")
         return TaskListResponse(
             items=[],
+            total=0,
             limit=limit,
             offset=offset,
             error="database unavailable",
         )
 
-    if q:
-        ql = q.lower()
-        items = [
-            it
-            for it in items
-            if ql in (it.get("job_id") or "").lower() or ql in (it.get("document_id") or "").lower()
-        ]
-
     return TaskListResponse(
         items=[TaskAuditOut.from_store(it) for it in items],
+        total=total,
         limit=limit,
         offset=offset,
     )
@@ -290,6 +370,34 @@ async def get_task_logs(job_id: str) -> TaskLogsResponse:
     return TaskLogsResponse(job_id=job_id, logs=audit.get("logs") or [])
 
 
+def _visual_chunks_from_minio(document_id: str) -> list[dict[str, Any]]:
+    """Rebuild ``knowhere_visual_chunks`` descriptors from MinIO object keys."""
+    from eagle_rag.config import get_settings
+    from eagle_rag.storage.minio_client import get_minio_client
+
+    bucket = get_settings().minio.bucket
+    prefix = f"{document_id}/visual_chunks/"
+    client = get_minio_client()
+    chunks: list[dict[str, Any]] = []
+    for obj in client.list_objects(bucket, prefix=prefix, recursive=True):
+        key = obj.object_name
+        if not key or key.endswith("/"):
+            continue
+        stem = Path(key).stem
+        suffix = Path(key).suffix.lower()
+        chunks.append(
+            {
+                "chunk_id": stem,
+                "type": "table" if suffix == ".html" else "image",
+                "object_key": key,
+                "summary": "",
+                "parent_section": "",
+                "file_path": key,
+            }
+        )
+    return chunks
+
+
 @router.post("/tasks/{job_id}/retry", response_model=TaskRetryResponse)
 async def retry_task(job_id: str) -> TaskRetryResponse | JSONResponse:
     """Re-dispatch a task to its Celery queue.
@@ -299,6 +407,10 @@ async def retry_task(job_id: str) -> TaskRetryResponse | JSONResponse:
     object key or HTTP URL). ``local_path`` is intentionally left None — the
     original temp file lived in the API container's filesystem and is not
     available to workers.
+
+    For ``knowhere_visual`` sub-tasks, rebuilds the ``chunks`` payload from
+    MinIO ``{document_id}/visual_chunks/`` (the original Celery kwargs are not
+    persisted in ``task_audit``).
     """
     try:
         audit = await _run_sync(task_state.get_audit, job_id)
@@ -322,6 +434,7 @@ async def retry_task(job_id: str) -> TaskRetryResponse | JSONResponse:
     object_key: str | None = None
     source_uri: str | None = None
     source_type_hint: str | None = None
+    doc: dict[str, Any] | None = None
     if document_id:
         doc = await _run_sync(registry.get_document_sync, document_id)
         if doc is not None:
@@ -335,32 +448,86 @@ async def retry_task(job_id: str) -> TaskRetryResponse | JSONResponse:
                 # (see runner.py: source_uri=source_uri or object_key).
                 object_key = stored_uri
 
-    # Reset the audit state to PENDING *before* dispatching, so the worker
-    # sees a legal pending→rendering transition when it starts. Doing this
-    # after send_task races the worker (it may read the old failed status).
+    current_status = str(audit.get("status") or TaskState.PENDING.value).lower()
+    doc_pipeline = ""
+    if doc is not None:
+        doc_pipeline = str(doc.get("pipeline") or "").lower()
+
+    # Router audits stay in RENDERING after dispatch; manual retry must re-run
+    # the downstream pipeline (knowhere/pixelrag), not router again — otherwise
+    # router races an in-flight downstream task (indexing -> rendering).
+    if pipeline_key == "router" and doc_pipeline:
+        if "knowhere" in doc_pipeline:
+            pipeline_key = "knowhere"
+        elif "pixelrag" in doc_pipeline:
+            pipeline_key = "pixelrag"
+        task_name, queue = _PIPELINE_QUEUE.get(pipeline_key, _PIPELINE_QUEUE["router"])
+
+    if task_state.downstream_owns_lifecycle(current_status):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"task is still active in state {current_status!r}; "
+                "wait for completion or failure before retrying"
+            ),
+        )
+
+    # Reset via the state machine (not raw SQL) so interrupted embedding/indexing
+    # audits bridge through RETRYING instead of illegal pending resets.
     try:
         await _run_sync(
-            sync_execute,
-            "UPDATE task_audit SET status = %s, progress = 0, "
-            "error = NULL, updated_at = NOW() WHERE job_id = %s",
-            (TaskState.PENDING.value, job_id),
+            task_state.prepare_rerun,
+            job_id,
+            log_entry="Manual retry requested",
         )
     except Exception:  # noqa: BLE001
-        logger.warning("Failed to reset audit status to PENDING (non-fatal)")
+        logger.warning("prepare_rerun failed during manual retry (non-fatal)")
+
+    if pipeline_key == "knowhere_visual":
+        if not document_id:
+            raise HTTPException(status_code=422, detail="visual retry requires document_id")
+        chunks = await _run_sync(_visual_chunks_from_minio, document_id)
+        if not chunks:
+            raise HTTPException(
+                status_code=422,
+                detail=f"no visual chunks in MinIO for document_id={document_id}",
+            )
+        parent_job_id = job_id.removesuffix(":visual") if job_id.endswith(":visual") else job_id
+        kwargs: dict[str, Any] = {
+            "job_id": job_id,
+            "parent_job_id": parent_job_id,
+            "document_id": document_id,
+            "kb_name": kb_name,
+            "source_type": source_type_hint or "other",
+            "chunks": chunks,
+        }
+    elif pipeline_key in ("knowhere", "pixelrag"):
+        kwargs = {
+            "job_id": job_id,
+            "document_id": document_id,
+            "name": name,
+            "object_key": object_key,
+            "local_path": None,
+            "source_uri": source_uri,
+            "source_type": source_type_hint or "other",
+            "kb_name": kb_name,
+        }
+    else:
+        kwargs = {
+            "job_id": job_id,
+            "document_id": document_id,
+            "name": name,
+            "object_key": object_key,
+            "local_path": None,
+            "source_uri": source_uri,
+            "source_type_hint": source_type_hint,
+            "kb_name": kb_name,
+        }
 
     try:
         celery_app.send_task(
             task_name,
-            kwargs={
-                "job_id": job_id,
-                "document_id": document_id,
-                "name": name,
-                "object_key": object_key,
-                "local_path": None,
-                "source_uri": source_uri,
-                "source_type_hint": source_type_hint,
-                "kb_name": kb_name,
-            },
+            kwargs=kwargs,
             queue=queue,
             routing_key=queue,
         )

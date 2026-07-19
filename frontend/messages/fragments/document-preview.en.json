@@ -10,6 +10,9 @@
     "meta": "Metadata",
     "error": "Preview unavailable",
     "loading": "Loading preview…",
-    "unsupported": "No inline preview for this format"
+    "unsupported": "No inline preview for this format",
+    "modePreview": "Preview",
+    "modeMarkdown": "Markdown",
+    "frameBlocked": "This page cannot be shown inline. Open it in a new tab instead."
   }
 }

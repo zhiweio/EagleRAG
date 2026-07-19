@@ -4,7 +4,7 @@ Operations probes and dashboards for the `/health` console page. Two routers in 
 
 | Router | Prefix | Tag |
 |--------|--------|-----|
-| `router` | `/health`, `/mcp/tools` | `health` |
+| `router` | `/health`, `/health/plugins`, `/mcp/tools` | `health` |
 | `admin_router` | `/admin` | `admin` |
 
 Probe timeout: **3 s** per dependency (`_PROBE_TIMEOUT`). All probes are read-only.
@@ -19,12 +19,12 @@ Probe timeout: **3 s** per dependency (`_PROBE_TIMEOUT`). All probes are read-on
 
 | Name | Check |
 |------|-------|
-| `postgresql` | Async DB ping |
+| `postgres` | Async DB ping (`SELECT 1`) |
 | `redis` | Broker connectivity |
-| `milvus` | List collections (`eagle_text`, `eagle_visual`) |
+| `milvus` | List collections in the instance-bound Database (`eagle_text`, `eagle_visual`, …) |
 | `minio` | Bucket head |
-| `knowhere` | HTTP GET `settings.knowhere.base_url` |
-| `pixelrag` | Import `pixelrag_render` / `pixelrag_embed` (library, not serve) |
+| `knowhere` | `mode=api`: HTTP GET `settings.knowhere.base_url`. `mode=parser`: in-process `KnowhereParser` + writable `tmp_path` |
+| `pixelrag` | Render libs importable; when `embedding.visual.provider=dashscope`, also requires `DASHSCOPE_API_KEY` (detail includes `visual=dashscope\|pixelrag`) |
 | `vlm` | Qwen-VL reachability |
 | `celery` | Inspect active workers |
 
@@ -42,9 +42,63 @@ Each dependency returns `DependencyStatus`:
 
 `uptime` uses in-process monotonic tracking (`_UPTIME_SINCE`) — resets on API restart.
 
+Milvus probes use `settings.milvus.db_name` (from `EAGLE_RAG_PROFILE` / `plugins.default_namespace`) — not a global default database.
+
 ### Summary block
 
 `DependencySummary`: counts of `up` / `down` / `unknown`, overall `status`, `version` (`eagle_rag.__version__`).
+
+---
+
+## `GET /health/plugins`
+
+`PluginsHealthResponse` — loaded plugin manifests, Celery module list, and recent PluginAudit decisions (worker consistency + routing telemetry probe).
+
+```json
+{
+  "default_namespace": "core",
+  "enabled_modules": ["eagle_rag.plugins.core_defaults"],
+  "manifests": [
+    {
+      "namespace": "core",
+      "version": "1.0.0",
+      "milvus_db_name": "core",
+      "provides_pipelines": ["knowhere", "pixelrag"],
+      "provides_specialized_collections": [],
+      "provides_mcp_tools": ["core_ingest", "core_query", "core_retrieve_text", "core_retrieve_visual"]
+    }
+  ],
+  "celery_modules": ["eagle_rag.plugins.core_defaults", "..."],
+  "recent_decisions": [
+    {
+      "event": "plugin_audit_decision",
+      "ts": "2026-07-18T04:00:00Z",
+      "category": "retrieve_plan",
+      "plugin_namespace": "core",
+      "reason": "plan_failed"
+    }
+  ],
+  "audit_stats": {
+    "buffer_size": 1000,
+    "source": "redis",
+    "enabled": true,
+    "redis_enabled": true
+  }
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `default_namespace` | Instance-bound domain (`settings.plugins.default_namespace`) |
+| `enabled_modules` | Python module paths from `settings.plugins.enabled` |
+| `manifests` | Per-plugin `PluginManifest` summary |
+| `celery_modules` | Modules workers should import for task registration parity |
+| `recent_decisions` | Newest-last PluginAudit events (Redis recent window, else memory; limited by `telemetry.plugin_audit_health_limit`) |
+| `audit_stats` | Ring capacity and whether the last read used `redis` or `memory` |
+
+Example audit categories: `classify_chunk`, `route_query`, `retrieve_plan`, `scope_routing_error`, `hook_failure`. Env knobs: `PLUGIN_AUDIT_ENABLED`, `PLUGIN_AUDIT_REDIS_ENABLED` (YAML: `telemetry.plugin_audit_*`).
+
+Use after changing `EAGLE_RAG_PROFILE`, adding in-repo plugins, or debugging namespace / MCP tool exposure mismatches.
 
 ---
 
@@ -56,7 +110,7 @@ Each dependency returns `DependencyStatus`:
 {
   "tools": [
     {
-      "name": "ingest",
+      "name": "core_ingest",
       "description": "…",
       "parameters": { "type": "object", "properties": { … } }
     }

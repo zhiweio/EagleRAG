@@ -122,7 +122,7 @@ bun run format
 
 技术栈：Next.js 16、React 19、HeroUI v3、Tailwind v4、`next-intl`（zh/en），**仅浅色主题**。
 
-`NEXT_PUBLIC_API_URL` 须指向浏览器可访问的 API 源。
+`NEXT_PUBLIC_API_BASE` 须指向浏览器可访问的 API 源。
 
 ## MCP 工具
 

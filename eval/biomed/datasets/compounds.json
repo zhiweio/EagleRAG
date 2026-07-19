@@ -1,0 +1,61 @@
+{
+  "theme": "hutchmed_oncology_innovative_drugs",
+  "compounds": [
+    {
+      "name": "fruquintinib",
+      "aliases": ["HMPL-013", "ELUNATE", "FRUZAQLA"],
+      "target": "VEGFR-1/2/3",
+      "smiles": "CCc1nc2c(C)cc(-c3nc(N)nc(N4CCOCC4)n3)cc2n1CC",
+      "indication_focus": "mCRC; RCC combinations"
+    },
+    {
+      "name": "savolitinib",
+      "aliases": ["HMPL-504", "AZD6094", "ORPATHYS", "volitinib"],
+      "target": "MET",
+      "smiles": "COc1cc2nccc(Oc3ccc(NC(=O)C4(C(=O)Nc5ccc(F)cc5)CC4)cc3F)c2cc1OC",
+      "indication_focus": "MET-driven NSCLC; combo with osimertinib"
+    },
+    {
+      "name": "surufatinib",
+      "aliases": ["HMPL-012", "sulfatinib", "SULANDA"],
+      "target": "VEGFR/FGFR/CSF-1R",
+      "smiles": "COc1cc2nccc(Oc3ccc(NC(=O)Nc4cc(C(F)(F)F)ccc4Cl)c(F)c3)c2cc1OCCCN1CCOCC1",
+      "indication_focus": "NET; PDAC combinations"
+    },
+    {
+      "name": "sunitinib",
+      "aliases": ["Sutent", "SU11248"],
+      "target": "multi-TKI VEGFR/KIT/PDGFR",
+      "smiles": "CCN(CC)CCNC(=O)c1c(C)[nH]c(C=C2C(=O)Nc3ccc(F)cc32)c1C",
+      "indication_focus": "RCC; GIST; pNET competitor"
+    },
+    {
+      "name": "cabozantinib",
+      "aliases": ["Cabometyx", "XL184"],
+      "target": "VEGFR/MET/AXL",
+      "smiles": "COc1cc2nccc(Oc3ccc(NC(=O)C4(C(=O)Nc5ccc(F)cc5)CC4)cc3F)c2cc1OC",
+      "indication_focus": "RCC; competitor landscape"
+    },
+    {
+      "name": "lenvatinib",
+      "aliases": ["Lenvima", "E7080"],
+      "target": "VEGFR/FGFR",
+      "smiles": "COc1cc2nccc(Oc3ccc(NC(=O)NC4CC4)c(Cl)c3)c2cc1C(=O)N",
+      "indication_focus": "RCC; thyroid; competitor"
+    },
+    {
+      "name": "regorafenib",
+      "aliases": ["Stivarga"],
+      "target": "multi-kinase VEGFR",
+      "smiles": "CNC(=O)c1cc(Oc2ccc(NC(=O)Nc3ccc(Cl)c(C(F)(F)F)c3)cc2F)ccn1",
+      "indication_focus": "mCRC competitor to fruquintinib"
+    },
+    {
+      "name": "osimertinib",
+      "aliases": ["Tagrisso", "AZD9291"],
+      "target": "EGFR",
+      "smiles": "COc1cc(N(C)CCN(C)C)c(Nc2nccc(-c3cn(C)c4ccccc34)n2)cc1NC(=O)C=C",
+      "indication_focus": "EGFR-mut NSCLC; combo partner for savolitinib"
+    }
+  ]
+}

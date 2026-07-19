@@ -21,11 +21,16 @@
       "docsCount": "{count} 文档",
       "updatedAgo": "更新于 {time}",
       "dropTitle": "拖拽批量上传 · 或点击浏览",
-      "dropHint": "支持 PDF · Word · Excel/CSV · 图片 · URL · 单文件最大 50MB",
+      "dropHint": "支持 PDF · Word · Excel/CSV · 图片 · URL · 单文件最大 200MB / PDF 最多 200 页（MinerU 限制）",
       "submit": "提交到队列",
       "submitting": "提交中…",
-      "systemDefault": "系统默认命名空间",
-      "filesSelected": "已选 {count} 个文件"
+      "systemDefault": "系统默认知识库",
+      "filesSelected": "已选 {count} 个文件",
+      "error": {
+        "file_too_large": "文件超过最大限制 {maxMb}MB（MinerU Precision Extract 上限）。请缩小或拆分后重试。",
+        "pdf_too_many_pages": "该 PDF 共 {pages} 页，上限为 {max} 页（MinerU Precision Extract 限制）。请拆分后重新上传。",
+        "pdf_unreadable": "无法读取该 PDF 的页数，请重新导出或修复文件后再试。"
+      }
     },
     "url": {
       "tab": {
@@ -35,14 +40,25 @@
       "title": "提交 URL",
       "placeholder": "粘贴公网可访问的 URL（https://…）— 网页、PDF、图片",
       "submit": "提交 URL",
-      "submitting": "校验中…",
+      "submitting": "提交中…",
+      "checking": "正在检查可达性…",
+      "checkingPdf": "正在校验 PDF 限制…",
+      "kbRequired": "请先选择目标知识库再提交。",
       "invalidFormat": "请输入以 http:// 或 https:// 开头的有效 URL",
+      "preview": {
+        "ok": "可达 · HTTP {status}",
+        "pdf": "PDF · {pages} 页 · HTTP {status}",
+        "image": "图片 · HTTP {status}",
+        "sslInsecure": "证书链不完整 — 已放宽 TLS 校验后抓取"
+      },
       "error": {
         "invalid_url_format": "URL 格式无效，仅支持 http:// 与 https:// 协议。",
         "url_target_forbidden": "该 URL 指向私有或受限地址，服务器无法抓取。",
         "url_unreachable": "服务器无法访问该 URL，请确认链接为公网可访问。",
         "url_timeout": "该 URL 响应超时，请稍后重试或更换链接。",
         "url_bad_status": "该 URL 返回了错误状态码。",
+        "url_ssl_error": "该 URL 的 TLS 证书校验失败。",
+        "client_timeout": "校验超时，请检查链接或稍后重试。",
         "fallback": "URL 提交失败，请核对链接后重试。"
       }
     },
@@ -144,6 +160,7 @@
     "toast": {
       "created": "已成功创建 {count} 个摄入任务，正分配至 Celery 队列。",
       "createdHint": "队列位置 {range} · 预计 2 分钟内开始 GPU 渲染",
+      "queued": "URL 已加入索引队列",
       "success": "摄入成功",
       "failed": "摄入失败",
       "documentId": "文档 ID",

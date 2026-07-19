@@ -18,8 +18,16 @@ import {
 import { useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
 
-/** Per-tool accent color for visual differentiation. */
+/** Per-tool accent color for visual differentiation (core_* MCP names + short aliases). */
 const TOOL_ACCENT: Record<string, { dot: string; text: string; ring: string }> = {
+  core_ingest: { dot: "bg-success", text: "text-success", ring: "hover:border-success/30" },
+  core_query: { dot: "bg-accent", text: "text-accent", ring: "hover:border-accent/30" },
+  core_retrieve_text: { dot: "bg-warning", text: "text-warning", ring: "hover:border-warning/30" },
+  core_retrieve_visual: {
+    dot: "bg-success",
+    text: "text-success",
+    ring: "hover:border-success/30",
+  },
   ingest: { dot: "bg-success", text: "text-success", ring: "hover:border-success/30" },
   query: { dot: "bg-accent", text: "text-accent", ring: "hover:border-accent/30" },
   retrieve_text: { dot: "bg-warning", text: "text-warning", ring: "hover:border-warning/30" },
@@ -27,8 +35,10 @@ const TOOL_ACCENT: Record<string, { dot: string; text: string; ring: string }> =
 };
 
 function toolAccent(name: string) {
+  const stripped = name.replace(/^core_/, "");
   return (
-    TOOL_ACCENT[name] ?? {
+    TOOL_ACCENT[name] ??
+    TOOL_ACCENT[stripped] ?? {
       dot: "bg-foreground-tertiary",
       text: "text-foreground-secondary",
       ring: "hover:border-field-border-focus",

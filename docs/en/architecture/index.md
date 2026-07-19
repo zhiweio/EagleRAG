@@ -22,18 +22,22 @@ A single text embedding pipeline loses visual detail; a pure image pipeline lose
 
 ### Design thesis
 
-Eagle-RAG's architecture answers three questions:
+Eagle-RAG's architecture answers four questions:
 
 1. **Which parser?** → Route by format + content form ([routing matrix](routing-matrix.md))
 2. **How to fuse text and visuals?** → Semantic-tree anchored fusion ([multimodal fusion](multimodal-fusion.md))
-3. **How to isolate tenants?** → `kb_name` scalar filters end-to-end ([multi-tenancy](multi-tenancy.md))
+3. **How to isolate tenants?** → Two layers: `plugin_namespace` (Milvus Database + PG) and `kb_name` scalar filters inside that domain ([multi-tenancy](multi-tenancy.md))
+4. **How to extend vertical domains?** → Microkernel + in-repo plugins + MCP ([plugin architecture](plugin-architecture.md), [ADR-008](adr/008-rag-only-plugin-platform.md))
+
+!!! important "Pure RAG red line"
+    Eagle-RAG is a **RAG data layer** (ingest / retrieve / assemble-context), not a business Agent application platform. The built-in frontend showcases **Core** knowhere + pixelrag only; domain plugins are **backend + MCP only**. See [Authoring an industry plugin](../guides/authoring-industry-plugin.md).
 
 ---
 
 ## Design goals
 
 1. :octicons-file-binary-24: **Multimodal by construction** — separate pipelines, embeddings, and Milvus collections that converge in one generation engine.
-2. :octicons-organization-24: **Multi-tenant by default** — `kb_name` enforced at every layer, not bolted on.
+2. :octicons-organization-24: **Multi-tenant by default** — `plugin_namespace` (domain) + `kb_name` (KB) enforced at every layer, not bolted on.
 3. :octicons-shield-check-24: **Gracefully degradable** — probed dependencies; one outage degrades a feature, not the whole system.
 4. :octicons-pulse-24: **Observable** — health probes, SSE logs, queue metrics, admin dashboards built in.
 
@@ -51,6 +55,13 @@ flowchart TB
         MCP["mcp_server.py"]
     end
 
+    subgraph Plugins["eagle_rag/plugins/"]
+        PM["PluginManager"]
+        HB["HookBus"]
+        IO["IngestOrchestrator"]
+        RO["RetrieverOrchestrator"]
+    end
+
     subgraph Ingest["eagle_rag/ingest/"]
         ROUTER["router.py route()"]
         KH_ADP["knowhere_adapter.py"]
@@ -66,26 +77,41 @@ flowchart TB
     end
 
     subgraph Index["eagle_rag/index/"]
+        POOL["milvus_pool.py"]
         TXT["milvus_text_store.py"]
         VIS["milvus_visual_store.py"]
         TAGS["tag_catalog.py"]
     end
 
+    subgraph PG["eagle_rag/db/repositories/"]
+        REPO["namespace-scoped repos"]
+    end
+
+    API --> PM
+    MCP --> PM
+    PM --> HB
+    HB --> IO & RO
     INGEST_R --> RUNNER --> ROUTER
+    RUNNER --> IO
     ROUTER --> KH_ADP & PR_ADP
     KH_ADP --> TXT & VIS
     PR_ADP --> VIS
-    QUERY_R --> RE --> KGR & PVR
+    QUERY_R --> RE
+    RE --> RO
+    RO --> KGR & PVR
     RE --> ME
     KGR --> TXT
     PVR --> VIS
+    TXT & VIS --> POOL
+    RUNNER --> REPO
+    QUERY_R --> REPO
 ```
 
 ### Cross-cutting principles
 
 | Principle | Implementation | Doc |
 | --- | --- | --- |
-| Lazy initialization | `get_settings()`, Milvus clients, `_Qwen3VLVisualEncoder` | [System design](system-design.md) |
+| Lazy initialization | `get_settings()`, Milvus clients, `get_visual_encoder()` | [System design](system-design.md) |
 | Graceful degradation | Retriever `try/except` → `[]`; non-blocking visual dispatch | [Reliability](reliability.md) |
 | Sync + async DB | `*_sync` / async store pairs | [System design](system-design.md) |
 | Adapter pattern | `knowhere_adapter`, `pixelrag_adapter` → LlamaIndex nodes | [System design](system-design.md) |
@@ -99,9 +125,12 @@ flowchart TB
 | Principles and containers | [System design](system-design.md) | Lazy init, C4, model stack |
 | Ingest and query sequences | [Data flow](data-flow.md) | End-to-end sequence diagrams |
 | Document → pipeline selection | [Routing matrix](routing-matrix.md) | `route()` line-by-line |
-| `kb_name` isolation | [Multi-tenancy](multi-tenancy.md) | Dedup, scope filter |
+| Domain + KB isolation | [Multi-tenancy](multi-tenancy.md) | `plugin_namespace`, `kb_name`, dedup, scope filter |
 | Text + visual fusion | [Multimodal fusion](multimodal-fusion.md) | ANN, anchor fields, code path |
 | Retries and degradation | [Reliability](reliability.md) | Celery, dead letter, state machine |
+| Microkernel + plugins | [Plugin architecture](plugin-architecture.md) | Manager, hooks, ingest/query, isolation, MCP |
+| RAG-only lock | [ADR-008](adr/008-rag-only-plugin-platform.md) | Hot paths, options, frontend scope |
+| Authoring industry plugins | [Authoring guide](../guides/authoring-industry-plugin.md) | Template, contracts, bans |
 
 ---
 
@@ -117,13 +146,13 @@ flowchart TB
     end
     Principles --> INGEST["Ingest pipeline"]
     Principles --> QUERY["Query pipeline"]
-    INGEST --> MILVUS[("Milvus<br/>eagle_text + eagle_visual")]
+    INGEST --> MILVUS[("Milvus DB per domain<br/>eagle_text + eagle_visual + specialized")]
     QUERY --> MILVUS
     INGEST --> PG[("PostgreSQL")]
     QUERY --> PG
 ```
 
-**Stack summary**: FastAPI API · Celery workers (3 queues) · Knowhere HTTP parser · PixelRAG in-process library · Milvus dual collection · PostgreSQL metadata · MinIO objects · Redis broker · Next.js frontend · MCP at `/mcp`.
+**Stack summary**: FastAPI API · Celery workers (3 queues) · Plugin microkernel (`eagle_rag/plugins`) · Knowhere HTTP parser · PixelRAG in-process library · Milvus Database per `plugin_namespace` · PostgreSQL repositories · MinIO objects · Redis broker · Next.js frontend (Core only) · MCP at `/mcp`.
 
 ---
 
@@ -136,7 +165,7 @@ flowchart TB
 | Graph expansion noise | `connect_to` follow in `knowhere_graph_retriever.py` | Each ANN hit may pull linked table/footnote nodes — improves table QA, adds tokens |
 | PDF probe false negatives | `probe_pdf_form` thresholds | Sparse OCR PDFs can look “text” to pypdf; tune per-KB `pdf_text_page_ratio` |
 | Scope union cardinality | `_resolve_scope_filter` + `max_scope_documents` | Large tag unions inflate Milvus `document_id in [...]` — cap prevents expr blow-up |
-| Tenant filter correctness | Every query path must push `kb_name` | Shared collections are safe only when filters are tested on all entry points (REST, MCP, search) |
+| Tenant filter correctness | Every query path must push `kb_name` + trust `plugin_namespace` | KB scalar filters on shared collections are safe only when domain binding and filters are tested on all entry points (REST, MCP, search) |
 
 See [system design](system-design.md) for lazy-init cold-start latency and [reliability](reliability.md) for degradation when Milvus or Knowhere is partial.
 
@@ -151,6 +180,10 @@ Architecture-relevant settings (full list: [configuration](../getting-started/co
 | `kb_name` | Default tenant partition |
 | `milvus.visual_index_type` | HNSW vs DiskANN for visual ANN |
 | `ingest.routing` | Ingest pipeline selector chain |
+| `ingest.source_type.rules` | Core default `[]`; industry labels via profile / deploy YAML |
+| `plugins.enabled` / `default_namespace` | In-repo plugins and single-domain binding |
+| `plugins.options.<ns>` | Vertical knobs (not Core-typed fields) |
+| `EAGLE_RAG_PROFILE` | Merges `profiles:` overlays |
 | `router.mode` | Query-time retriever selection |
 | `celery.queues` | Worker pool topology |
 | `pdf_probe` | Scanned vs text PDF classification |

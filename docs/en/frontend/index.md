@@ -4,6 +4,21 @@ The Eagle-RAG frontend is a **Next.js 16** operator console for a multimodal ret
 
 This page is the entry point for frontend documentation.
 
+> **Scope lock (ADR-008)**: the built-in UI showcases **Core only** (knowhere semantic structure + pixelrag visual hybrid retrieval). Domain plugins (biomed, lakehouse-bi, …) have **no frontend** in this repo — Agents consume them via MCP/API. Frontend backlog excludes: biomed entity panels, lakehouse semantic browsers, industry collection switchers, domain MCP playgrounds.
+
+### Showcase focus
+
+| Capability | UI surface |
+| --- | --- |
+| KB selection & ingest | `/kb`, `/ingest` |
+| Hybrid retrieval (text / visual / hybrid) | `/qa` Composer modes |
+| Four-anchor provenance | `VisualSourceCard` (`chunk_type` / `parent_section` / `content_summary` / `source_chunk_id`) |
+| Document structure + visual hits | `DocumentStructureTree`, Sources rail |
+| Route / `collection_plans` readability | `ThinkingTrace` route step |
+| Core health (knowhere / pixelrag / MCP) | `/health` (no vertical features) |
+
+See [ADR-008](../architecture/adr/008-rag-only-plugin-platform.md).
+
 ---
 
 ## Console map
@@ -12,7 +27,7 @@ This page is the entry point for frontend documentation.
 |------|-------|----------|
 | **Q&A** | `/qa` | Stream answers, inspect citations, scope-filtered retrieval |
 | **Ingest** | `/ingest` | Upload files/URLs, monitor Celery tasks |
-| **Knowledge bases** | `/kb`, `/kb/[kbName]` | Tenant namespaces, Milvus stats, purge/rebuild |
+| **Knowledge bases** | `/kb`, `/kb/[kbName]` | KBs (`kb_name`) inside the deploy domain, Milvus stats, purge/rebuild |
 | **Health** | `/health` | Dependency probes, admin dashboards, live logs |
 
 ```mermaid
@@ -92,7 +107,7 @@ All routes under `app/[locale]/`. No `getServerSideProps`.
 | [App structure](app-structure.md) | Routes, layout, providers, sidebar |
 | [Q&A module](qa-module.md) | Chat, SSE, citations, evidence rail |
 | [Ingest module](ingest-module.md) | Upload, task table, queue metrics |
-| [KB module](kb-module.md) | Tenant cards, detail KPIs |
+| [KB module](kb-module.md) | Knowledge-base cards, detail KPIs |
 | [Health module](health-module.md) | Probes, admin drawers |
 | [API client](api-client.md) | Generated SDK, SSE helpers |
 | [State management](state-management.md) | Zustand + Query keys |

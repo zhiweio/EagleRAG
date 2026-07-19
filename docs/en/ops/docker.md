@@ -88,7 +88,11 @@ Workers share `x-worker-build` context `.` and `docker/Dockerfile.worker`. Envir
 | `worker-knowhere` | `knowhere_queue` | `8` | `cpus: 2.0` |
 | `worker-pixelrag` | `pixelrag_queue` | `1` | `memory: 4g`, `cpus: 2.0` |
 
-`worker-pixelrag` mounts `./data:/app/data` for uploads and local artefacts. The Qwen3-VL-Embedding-2B weights are **baked into the worker image** at `/opt/huggingface/model` during `docker build` in an isolated `model-prefetch` stage (unaffected by `eagle_rag` code changes). BuildKit cache mount `eagle-rag-visual-model-cache` keeps the ~4 GB download on disk across rebuilds when that stage reruns. Default `MODEL_DOWNLOAD_SOURCE=modelscope` (stable in China); set `huggingface` or `auto` to use `HF_ENDPOINT` (e.g. hf-mirror.com) with ModelScope fallback. Runtime `VISUAL_EMBEDDING_MODEL=/opt/huggingface/model` — no Hub download on container start.
+`worker-pixelrag` mounts `./data:/app/data` for uploads and local artefacts.
+
+**Local visual embed (`VISUAL_EMBEDDING_PROVIDER=pixelrag`, default):** Qwen3-VL-Embedding-2B weights are **baked into the worker image** at `/opt/huggingface/model` during `docker build` in an isolated `model-prefetch` stage (unaffected by `eagle_rag` code changes). BuildKit cache mount `eagle-rag-visual-model-cache` keeps the ~4 GB download on disk across rebuilds when that stage reruns. Default `MODEL_DOWNLOAD_SOURCE=modelscope` (stable in China); set `huggingface` or `auto` to use `HF_ENDPOINT` (e.g. hf-mirror.com) with ModelScope fallback. Runtime `VISUAL_EMBEDDING_MODEL=/opt/huggingface/model` — no Hub download on container start.
+
+**Bailian visual embed (`VISUAL_EMBEDDING_PROVIDER=dashscope`):** set `VISUAL_EMBEDDING_MODEL=qwen3-vl-embedding` and `DASHSCOPE_API_KEY`. The worker still needs `pixelrag_render` (Chrome) for tiling, but **does not load local HF weights** — you can skip `model-prefetch` / omit the baked `/opt/huggingface/model` for a slimmer image. Keep `dim: 2048` and rebuild `eagle_visual` when cutting over from local HF.
 
 ## Healthcheck dependency chain {#healthcheck-dependency-chain}
 
@@ -143,8 +147,8 @@ The API healthcheck calls [`eagle_rag/api/health.py`](https://github.com/fintax-
 | Probe | Pass criteria |
 | --- | --- |
 | `milvus` | `MilvusClient.list_collections()` succeeds |
-| `knowhere` | HTTP GET `settings.knowhere.base_url` returns any response |
-| `pixelrag` | `pixelrag_render` / `pixelrag_embed` importable, else `unknown` |
+| `knowhere` | `mode=api`: HTTP GET `settings.knowhere.base_url`. `mode=parser`: in-process parser + writable tmp |
+| `pixelrag` | Render libs importable; `provider=dashscope` also requires `DASHSCOPE_API_KEY` (detail includes `visual=…`) |
 | `vlm` | `GET {base_url}/models` with Bearer token → 200 |
 | `redis` | `PING` on broker URL |
 | `minio` | `list_buckets()` |
@@ -158,12 +162,12 @@ Aggregate rule: any probe `down` → `status: degraded`; `unknown` (optional pix
 PixelRAG is no longer a standalone serve process. `worker-pixelrag` loads heavy in-process dependencies:
 
 1. **`pixelrag_render`** — Chrome/CDP or Playwright HTML/PDF rasterisation; large page tiles (default tile height 8192 px).
-2. **`pixelrag_embed`** + **`_Qwen3VLVisualEncoder` singleton** — Qwen3-VL-Embedding-2B via `transformers` + `torch`; 2048-d vectors written to Milvus `eagle_visual`.
+2. **Visual encode** — either local HF via `LocalQwen3VLEncoder` (`provider=pixelrag`: `transformers` + `torch`) or Bailian via `DashScopeQwen3VLEncoder` (`provider=dashscope`: API only, much lower RSS). Vectors (2048-d) are written to Milvus `eagle_visual`.
 
 Running more than one concurrent task per container causes:
 
-- **Memory pressure** — multiple Chrome instances + GPU/CPU tensor allocations; compose sets `deploy.resources.limits.memory: 4g`.
-- **Encoder singleton contention** — the visual encoder is a process-wide singleton; parallel embed jobs fight for the same device.
+- **Memory pressure** — multiple Chrome instances (+ GPU/CPU tensors when `provider=pixelrag`); compose sets `deploy.resources.limits.memory: 4g`.
+- **Encoder / device contention** — local encoder is process-wide; parallel embed jobs fight for the same device (DashScope shifts pressure to API rate limits).
 - **Milvus write bursts** — visual inserts are large; serialising smooths segment flush behaviour.
 
 `settings.yaml` documents the intent explicitly:
@@ -194,6 +198,8 @@ When `docker-compose.override.yml` merges (default `docker compose up`):
 | --- | --- |
 | API `command: uvicorn ... --reload --reload-dir eagle_rag` | Hot reload; **do not** watch `./data` (HF cache writes restart SSE) |
 | Bind-mount `./eagle_rag:/app/eagle_rag:ro` on api + workers | Live code without image rebuild |
+| Bind-mount `./plugins:/app/plugins:ro` on api + workers | In-repo domain plugins (hot reload with `--reload-dir plugins`) |
+| `EAGLE_RAG_PROFILE: ${EAGLE_RAG_PROFILE:-core}` on api + workers | Single-domain binding per [ADR-007](../architecture/adr/007-plugin-implementation-status.md) |
 | `worker-knowhere` / `worker-pixelrag` `deploy: !reset null` | Remove prod CPU/memory limits for local debugging |
 | Frontend → `oven/bun:1.2.18` + `bunx next dev` | Skip production image build |
 | Expose postgres/redis/minio/milvus ports | Host-side debugging |
@@ -210,6 +216,7 @@ Compose `env_file: .env` plus explicit `environment:` blocks override `settings.
 
 ```yaml
 KNOWHERE_BASE_URL: ${KNOWHERE_BASE_URL:-http://knowhere:5005}
+EAGLE_RAG_PROFILE: ${EAGLE_RAG_PROFILE:-core}
 HF_HOME: /opt/huggingface          # worker-pixelrag (baked in image)
 CHROME_PATH: /usr/local/bin/chrome   # worker-pixelrag only
 ```

@@ -51,7 +51,7 @@ MCP tools call the **service layer directly** (no HTTP self-call). REST routes i
 | **knowledge_bases** | `/knowledge_bases` | [Knowledge bases](knowledge-bases.md) |
 | **attachments** | `/attachments` | [Attachments](attachments.md) |
 | **notifications** | `/notifications` | [Notifications](notifications.md) |
-| **health** | `/health`, `/mcp/tools` | [Health & admin](health-admin.md) |
+| **health** | `/health`, `/health/plugins`, `/mcp/tools` | [Health & admin](health-admin.md) |
 | **admin** | `/admin/*` | [Health & admin](health-admin.md) |
 
 Infrastructure routes (not always listed in tag summaries):
@@ -100,20 +100,27 @@ ISO 8601 strings in UTC via `iso_datetime()` helper (`eagle_rag/api/schemas/_hel
 
 ---
 
-## Multi-tenancy (`kb_name`)
+## Multi-tenancy (`plugin_namespace` + `kb_name`)
 
-Most write and query endpoints accept optional **`kb_name`** — a knowledge-base identifier (`finance`, `pharma`, `default`, …).
+Eagle-RAG uses **two isolation layers**:
+
+| Layer | Identifier | Set by |
+|-------|------------|--------|
+| Domain | `plugin_namespace` | Deploy config — `settings.plugins.default_namespace` or `EAGLE_RAG_PROFILE` |
+| Knowledge base | `kb_name` | Request / `KB_NAME` default |
+
+Most write and query endpoints accept optional **`kb_name`**. Domain is implicit from the process unless a mismatched `plugin_namespace` is sent (→ **403**).
 
 Propagation chain:
 
 | Layer | Usage |
 |-------|-------|
-| PostgreSQL | `documents.kb_name`, `sessions.kb_name`, `task_audit.kb_name` |
-| Milvus | Scalar filter `kb_name == 'pharma'` |
-| Celery | Task kwargs `kb_name=…` |
-| Dedup PK | `(sha256, kb_name)` — same bytes may exist in multiple KBs |
+| PostgreSQL | Repositories inject `plugin_namespace`; rows include `kb_name` |
+| Milvus | Client pool `db_name=` per domain; scalar filter `kb_name == 'pharma'` inside that Database |
+| Celery | Task kwargs `kb_name=…` (namespace from settings) |
+| Dedup PK | `(sha256, kb_name, plugin_namespace)` |
 
-See [Multi-tenancy](../architecture/multi-tenancy.md).
+Plugin binding probe: `GET /health/plugins`. See [Multi-tenancy](../architecture/multi-tenancy.md) and [Plugin architecture](../architecture/plugin-architecture.md).
 
 ---
 
@@ -204,6 +211,8 @@ Server host, port, model keys, Milvus URI, Celery broker, and MCP transport load
 
 - [ ] `alembic upgrade head` (or `task db:migrate`) before first request
 - [ ] Register at least one knowledge base (`POST /knowledge_bases`)
+- [ ] Set `EAGLE_RAG_PROFILE` (or `plugins.default_namespace`) for single-domain binding if not using default `core`
+- [ ] Verify `GET /health/plugins` shows expected manifests and MCP tools
 - [ ] Start Celery workers for `router_queue`, `knowhere_queue`, `pixelrag_queue`
 - [ ] Point clients at `http://<host>:8000` (or reverse proxy + `NEXT_PUBLIC_API_BASE`)
 - [ ] Use `/query/stream` for interactive UX; `/search` for retrieval benchmarks

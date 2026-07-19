@@ -1,9 +1,10 @@
 "use client";
 
 import { TaskLogsModal } from "@/components/ingest/TaskLogsModal";
+import { TaskTable } from "@/components/ingest/TaskTable";
 import { Link, useRouter } from "@/i18n/routing";
 import { useDeleteDocument, useDocuments } from "@/lib/hooks/useDocuments";
-import { useRetryTask, useTasks } from "@/lib/hooks/useIngest";
+import { errorMessage, useDeleteTask, useRetryTask, useTasks } from "@/lib/hooks/useIngest";
 import {
   useDeleteKB,
   useKBCollections,
@@ -13,36 +14,35 @@ import {
   useRebuildKB,
 } from "@/lib/hooks/useKB";
 import { prefetchPreviewResource } from "@/lib/hooks/usePreviewResource";
-import { formatRelative } from "@/lib/kb/types";
 import { useKBStore } from "@/lib/stores/kbStore";
 import { usePreviewStore } from "@/lib/stores/previewStore";
 import type { Document, Task } from "@/lib/types";
-import { Table } from "@heroui/react";
+import { Button, Card } from "@heroui/react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  AlertOctagon,
+  AlertTriangle,
   Database,
-  Eye,
   FileText,
   Image as ImageIcon,
-  Inbox,
   RefreshCw,
   Search,
   Settings2,
   Share2,
   Trash2,
-  Upload,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { DocumentDeleteModal } from "./DocumentDeleteModal";
 import { EditKBDrawer } from "./EditKBDrawer";
+import { KBDocumentsTable } from "./KBDocumentsTable";
 import { KBToastProvider, useKBToast } from "./KBToast";
 import { KpiCard, type KpiDef } from "./KpiCard";
 import { MilvusCollectionCard } from "./MilvusCollectionCard";
 import { PurgeConfirmModal } from "./PurgeConfirmModal";
 import { RebuildConfirmModal } from "./RebuildConfirmModal";
 import { FormatDonut, VolumeBars, chartPanelMinHeight } from "./kb-charts";
-import { DocStatusDot, FileBadge, KBBadge, PIPELINE_STYLES, STATUS_STYLES } from "./kb-visuals";
+import { KBBadge, STATUS_STYLES } from "./kb-visuals";
 
 type TabKey = "documents" | "logs" | "maintenance";
 
@@ -89,17 +89,43 @@ function KBDetailInner({ kbName }: { kbName: string }) {
   const [purgeError, setPurgeError] = useState<Error | null>(null);
   const [logsTask, setLogsTask] = useState<Task | null>(null);
   const [docToDelete, setDocToDelete] = useState<Document | null>(null);
+  const [docPage, setDocPage] = useState(1);
+  const [docPageSize, setDocPageSize] = useState(10);
+  const [logPage, setLogPage] = useState(1);
+  const [logPageSize, setLogPageSize] = useState(10);
 
   const { data: kb, isLoading } = useKnowledgeBase(kbName);
   const { data: segments = [] } = useKBFormatDistribution(kbName);
   const { data: volume } = useKBIngestionVolume(kbName);
   const { data: collections = [] } = useKBCollections(kbName);
-  const { data: docList } = useDocuments({ kb_name: kbName, limit: 100 });
-  const { data: taskList } = useTasks({ kb_name: kbName, limit: 50 });
+
+  const docParams = useMemo(
+    () => ({
+      kb_name: kbName,
+      limit: docPageSize,
+      offset: (docPage - 1) * docPageSize,
+    }),
+    [kbName, docPage, docPageSize],
+  );
+  const taskParams = useMemo(
+    () => ({
+      kb_name: kbName,
+      limit: logPageSize,
+      offset: (logPage - 1) * logPageSize,
+    }),
+    [kbName, logPage, logPageSize],
+  );
+
+  const docsQuery = useDocuments(docParams);
+  const tasksQuery = useTasks(taskParams, {
+    enabled: tab === "logs",
+    refetchInterval: tab === "logs" ? 5000 : false,
+  });
   const rebuild = useRebuildKB();
   const deleteKB = useDeleteKB();
   const deleteDoc = useDeleteDocument();
   const retryTask = useRetryTask();
+  const deleteTask = useDeleteTask();
 
   if (isLoading) {
     return <p className="py-20 text-center text-sm text-foreground-tertiary">{t("loading")}</p>;
@@ -122,8 +148,10 @@ function KBDetailInner({ kbName }: { kbName: string }) {
   }
 
   const points = volume?.points ?? [];
-  const documents = docList?.items ?? [];
-  const tasks = taskList?.items ?? [];
+  const documents = docsQuery.data?.items ?? [];
+  const docTotal = docsQuery.data?.total ?? documents.length;
+  const tasks = tasksQuery.data?.items ?? [];
+  const taskTotal = tasksQuery.data?.total ?? tasks.length;
 
   const runRebuild = () => {
     setRebuildOpen(true);
@@ -227,7 +255,6 @@ function KBDetailInner({ kbName }: { kbName: string }) {
     return { label, value: Number(p.value) };
   });
   const chartPanelClass = `h-full ${chartPanelMinHeight(chartSegments.length)}`;
-  const totalChunks = documents.reduce((sum, d) => sum + (d.chunk_count ?? 0), 0);
   const storageCards = collections.map((c) => {
     const isVisual = c.name === "eagle_visual";
     return {
@@ -417,220 +444,130 @@ function KBDetailInner({ kbName }: { kbName: string }) {
         </div>
 
         {tab === "documents" ? (
-          documents.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-14 text-center">
-              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-background-secondary text-foreground-tertiary">
-                <Inbox className="h-6 w-6" aria-hidden />
-              </span>
-              <p className="max-w-sm text-sm text-foreground-tertiary">{t("table.empty")}</p>
-              <button
-                type="button"
-                onClick={goToIngest}
-                className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition-colors hover:bg-accent-hover"
-              >
-                <Upload className="h-4 w-4" aria-hidden />
-                {t("table.upload")}
-              </button>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center justify-between px-1">
-                <span className="text-xs font-medium text-foreground-tertiary">
-                  {t("table.count", { count: documents.length })}
-                </span>
-                <div className="flex items-center gap-3">
-                  <span className="flex items-center gap-1.5 text-[11px] text-foreground-tertiary">
-                    <FileText className="h-3 w-3" aria-hidden />
-                    <span className="font-mono tabular-nums">{totalChunks.toLocaleString()}</span>
-                    {t("table.chunks")}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={goToIngest}
-                    className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-(--surface-muted)"
-                  >
-                    <Upload className="h-3.5 w-3.5" aria-hidden />
-                    {t("table.upload")}
-                  </button>
-                </div>
-              </div>
-              <ul className="flex flex-col gap-2">
-                {documents.map((doc, i) => {
-                  const pipelineKey = (doc.pipeline?.split(",")[0] ?? "knowhere") as
-                    | "knowhere"
-                    | "pixelrag";
-                  const ps = PIPELINE_STYLES[pipelineKey] ?? PIPELINE_STYLES.knowhere;
-                  return (
-                    <li
-                      key={doc.document_id}
-                      id={doc.document_id}
-                      className="kb-row-in group relative flex items-center gap-4 overflow-hidden rounded-xl border border-border bg-surface px-4 py-3 transition-all duration-200 hover:border-accent/30 hover:shadow-[0_3px_12px_-4px_rgba(0,0,0,0.10)]"
-                      style={{ animationDelay: `${Math.min(i, 12) * 35}ms` }}
-                    >
-                      <span
-                        className="pointer-events-none absolute inset-y-0 left-0 w-[3px] origin-top scale-y-0 bg-accent transition-transform duration-200 group-hover:scale-y-100"
-                        aria-hidden
-                      />
-                      <FileBadge name={doc.name} />
-                      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <span className="truncate font-medium text-foreground" title={doc.name}>
-                          {doc.name}
-                        </span>
-                        <span
-                          className="truncate font-mono text-[11px] text-foreground-tertiary"
-                          title={doc.document_id}
-                        >
-                          {doc.document_id}
-                        </span>
-                      </div>
-                      <div className="hidden items-center gap-5 sm:flex">
-                        <span
-                          className="rounded-full px-2.5 py-1 font-mono text-[11px] font-medium"
-                          style={{ backgroundColor: ps.soft, color: ps.color }}
-                        >
-                          {ps.label}
-                        </span>
-                        <div className="flex w-16 flex-col items-end">
-                          <span className="font-mono text-sm font-semibold tabular-nums text-foreground">
-                            {doc.chunk_count == null ? "—" : doc.chunk_count.toLocaleString()}
-                          </span>
-                          <span className="text-[10px] text-foreground-tertiary">
-                            {t("table.chunks")}
-                          </span>
-                        </div>
-                        <DocStatusDot status={doc.status} />
-                        <span className="w-20 text-right text-xs text-foreground-tertiary">
-                          {doc.updated_at
-                            ? formatRelative(
-                                Date.now() - new Date(String(doc.updated_at)).getTime(),
-                                locale,
-                              )
-                            : "—"}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        aria-label={t("table.preview")}
-                        onClick={() => {
-                          const target = {
-                            kind: "file" as const,
-                            documentId: doc.document_id,
-                            title: doc.name,
-                            sourceType: doc.source_type ?? null,
-                          };
-                          prefetchPreviewResource(queryClient, target);
-                          openPreview(target, queryClient);
-                        }}
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-foreground-tertiary opacity-0 transition-all hover:bg-accent/10 hover:text-accent group-hover:opacity-100"
-                      >
-                        <Eye className="h-4 w-4" aria-hidden />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={t("table.delete")}
-                        onClick={() => setDocToDelete(doc)}
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-foreground-tertiary opacity-0 transition-all hover:bg-danger/10 hover:text-danger group-hover:opacity-100"
-                      >
-                        <Trash2 className="h-4 w-4" aria-hidden />
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )
+          <div className="-mx-5 -mb-5 mt-1 overflow-x-auto border-t border-border">
+            <KBDocumentsTable
+              documents={documents}
+              total={docTotal}
+              loading={docsQuery.isLoading}
+              page={docPage}
+              pageSize={docPageSize}
+              onPageChange={setDocPage}
+              onPageSizeChange={(size) => {
+                setDocPageSize(size);
+                setDocPage(1);
+              }}
+              onUpload={goToIngest}
+              onDelete={setDocToDelete}
+              onPreview={(doc) => {
+                const target = {
+                  kind: "file" as const,
+                  documentId: doc.document_id,
+                  title: doc.name,
+                  sourceType: doc.source_type ?? null,
+                  sourceUri: doc.source_uri ?? null,
+                };
+                prefetchPreviewResource(queryClient, target);
+                openPreview(target, queryClient);
+              }}
+            />
+          </div>
         ) : null}
 
         {tab === "logs" ? (
-          tasks.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-14 text-center">
-              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-background-secondary text-foreground-tertiary">
-                <Inbox className="h-6 w-6" aria-hidden />
-              </span>
-              <p className="max-w-sm text-sm text-foreground-tertiary">{t("logsEmpty")}</p>
-            </div>
-          ) : (
-            <Table.Root aria-label={t("tabs.logs")}>
-              <Table.ScrollContainer>
-                <Table.Content>
-                  <Table.Header>
-                    <Table.Column id="job" isRowHeader>
-                      {t("logsJob")}
-                    </Table.Column>
-                    <Table.Column id="status">{t("logsStatus")}</Table.Column>
-                    <Table.Column id="pipeline">{t("logsPipeline")}</Table.Column>
-                    <Table.Column id="document">{t("logsDocument")}</Table.Column>
-                    <Table.Column id="updated">{t("logsUpdated")}</Table.Column>
-                    <Table.Column id="action">{t("logsView")}</Table.Column>
-                  </Table.Header>
-                  <Table.Body>
-                    {tasks.map((task) => (
-                      <Table.Row key={task.job_id} id={task.job_id}>
-                        <Table.Cell>
-                          <span className="font-mono text-xs">{task.job_id}</span>
-                        </Table.Cell>
-                        <Table.Cell>{task.status}</Table.Cell>
-                        <Table.Cell>{task.pipeline}</Table.Cell>
-                        <Table.Cell>
-                          <span className="font-mono text-xs text-foreground-secondary">
-                            {task.document_id ?? "—"}
-                          </span>
-                        </Table.Cell>
-                        <Table.Cell>
-                          <span className="text-foreground-tertiary">
-                            {task.updated_at
-                              ? formatRelative(
-                                  Date.now() - new Date(String(task.updated_at)).getTime(),
-                                  locale,
-                                )
-                              : "—"}
-                          </span>
-                        </Table.Cell>
-                        <Table.Cell>
-                          <button
-                            type="button"
-                            className="text-sm font-medium text-accent hover:underline"
-                            onClick={() => setLogsTask(task)}
-                          >
-                            {t("logsView")}
-                          </button>
-                        </Table.Cell>
-                      </Table.Row>
-                    ))}
-                  </Table.Body>
-                </Table.Content>
-              </Table.ScrollContainer>
-            </Table.Root>
-          )
+          <div className="-mx-5 -mb-5 mt-1 overflow-x-auto border-t border-border">
+            <TaskTable
+              tasks={tasks}
+              loading={tasksQuery.isLoading}
+              error={tasksQuery.error ? errorMessage(tasksQuery.error) : null}
+              total={taskTotal}
+              page={logPage}
+              pageSize={logPageSize}
+              onPageChange={setLogPage}
+              onPageSizeChange={(size) => {
+                setLogPageSize(size);
+                setLogPage(1);
+              }}
+              hideKbBadge
+              emptyHint={t("logsEmpty")}
+              onRetryLoad={() => void tasksQuery.refetch()}
+              onViewLogs={setLogsTask}
+              onRetry={(task) => void retryTask.mutateAsync(task.job_id)}
+              onDelete={(task) => void deleteTask.mutateAsync(task.job_id)}
+            />
+          </div>
         ) : null}
 
         {tab === "maintenance" ? (
-          <div className="flex flex-col gap-4 rounded-xl border border-danger/30 bg-danger/5 p-5">
-            <div className="flex flex-col gap-2.5">
-              <h3 className="text-sm font-semibold text-danger">{t("maintenance.title")}</h3>
-              <p className="text-sm leading-relaxed text-foreground-secondary">
+          <div className="flex flex-col gap-5 pt-1">
+            <div className="flex flex-col gap-1">
+              <h3 className="text-sm font-semibold text-foreground">{t("maintenance.title")}</h3>
+              <p className="max-w-2xl text-sm leading-relaxed text-foreground-secondary">
                 {t("maintenance.desc")}
               </p>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2.5 border-t border-danger/20 pt-4">
-              <button
-                type="button"
-                disabled={rebuild.isPending}
-                onClick={runRebuild}
-                className="flex items-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-background-secondary disabled:opacity-60"
-              >
-                <RefreshCw className="h-4 w-4" aria-hidden />
-                {t("maintenance.rebuild")}
-              </button>
-              <button
-                type="button"
-                disabled={deleteKB.isPending}
-                onClick={runPurge}
-                className="flex items-center gap-2 rounded-lg border border-danger/40 bg-surface px-4 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/10 disabled:opacity-60"
-              >
-                <Trash2 className="h-4 w-4" aria-hidden />
-                {t("maintenance.purge")}
-              </button>
+
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <Card className="h-full shadow-sm">
+                <Card.Header className="flex flex-row items-start gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100">
+                    <AlertTriangle className="h-5 w-5 text-amber-600" aria-hidden />
+                  </span>
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <Card.Title className="text-[15px]">{t("maintenance.rebuild")}</Card.Title>
+                    <Card.Description className="text-sm leading-relaxed">
+                      {t("maintenance.rebuildDesc")}
+                    </Card.Description>
+                  </div>
+                </Card.Header>
+                <Card.Content>
+                  <div className="flex items-start gap-2 rounded-xl bg-amber-50 px-3.5 py-3">
+                    <RefreshCw className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden />
+                    <p className="text-xs leading-relaxed text-amber-800">
+                      {t("maintenance.rebuildHint")}
+                    </p>
+                  </div>
+                </Card.Content>
+                <Card.Footer className="flex justify-end">
+                  <Button variant="secondary" isDisabled={rebuild.isPending} onPress={runRebuild}>
+                    <RefreshCw
+                      className={`h-4 w-4 ${rebuild.isPending ? "animate-spin" : ""}`}
+                      aria-hidden
+                    />
+                    {t("maintenance.rebuild")}
+                  </Button>
+                </Card.Footer>
+              </Card>
+
+              <Card className="h-full shadow-sm">
+                <Card.Header className="flex flex-row items-start gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-100">
+                    <AlertOctagon className="h-5 w-5 text-red-600" aria-hidden />
+                  </span>
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <Card.Title className="text-[15px]">{t("maintenance.purge")}</Card.Title>
+                    <Card.Description className="text-sm leading-relaxed">
+                      {t("maintenance.purgeDesc")}
+                    </Card.Description>
+                  </div>
+                </Card.Header>
+                <Card.Content>
+                  <div className="flex items-start gap-2 rounded-xl bg-red-50 px-3.5 py-3">
+                    <AlertTriangle
+                      className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-600"
+                      aria-hidden
+                    />
+                    <p className="text-xs leading-relaxed text-red-800">
+                      {t("maintenance.purgeHint")}
+                    </p>
+                  </div>
+                </Card.Content>
+                <Card.Footer className="flex justify-end">
+                  <Button variant="danger" isDisabled={deleteKB.isPending} onPress={runPurge}>
+                    <Trash2 className="h-4 w-4" aria-hidden />
+                    {t("maintenance.purge")}
+                  </Button>
+                </Card.Footer>
+              </Card>
             </div>
           </div>
         ) : null}

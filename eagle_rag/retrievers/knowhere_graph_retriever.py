@@ -42,6 +42,7 @@ from llama_index.core.vector_stores import (
 )
 from opentelemetry.trace import StatusCode
 
+from eagle_rag.config import get_settings
 from eagle_rag.index.milvus_text_store import get_text_index
 from eagle_rag.telemetry import get_ai_logger, get_logger, trace_span, truncate
 
@@ -81,6 +82,8 @@ class KnowhereGraphRetriever(BaseRetriever):
         document_ids: list[str] | None = None,
         source_type: str | None = None,
         year: int | None = None,
+        plugin_namespace: str | None = None,
+        parent_doc_retrieval: bool | None = None,
     ) -> None:
         super().__init__()
         self.top_k = top_k
@@ -100,8 +103,19 @@ class KnowhereGraphRetriever(BaseRetriever):
         self.document_ids = document_ids or []
         self.source_type = source_type
         self.year = year
+        # Plugin namespace -> Milvus Database binding (G17). None falls back to the
+        # instance default inside ``get_text_index``; a non-core namespace binds the
+        # text index to that namespace's Milvus Database so retrieval never crosses
+        # domains.
+        self.plugin_namespace = plugin_namespace
+        self.parent_doc_retrieval = parent_doc_retrieval
 
-    def _build_filters(self) -> MetadataFilters | None:
+    def _build_filters(
+        self,
+        *,
+        type_filter: str | None = None,
+        path_prefix: str | None = None,
+    ) -> MetadataFilters | None:
         """Assemble Milvus scalar filters (union scope AND facet filters)."""
         filter_list: list[MetadataFilter | MetadataFilters] = []
         if self.kb_names or self.document_ids:
@@ -137,25 +151,100 @@ class KnowhereGraphRetriever(BaseRetriever):
             filter_list.append(
                 MetadataFilter(key="year", value=self.year, operator=FilterOperator.EQ)
             )
+        if type_filter is not None:
+            filter_list.append(
+                MetadataFilter(key="type", value=type_filter, operator=FilterOperator.EQ)
+            )
+        if path_prefix is not None:
+            filter_list.append(
+                MetadataFilter(
+                    key="path",
+                    value=path_prefix,
+                    operator=FilterOperator.TEXT_MATCH,
+                )
+            )
         if not filter_list:
             return None
         return MetadataFilters(filters=filter_list, condition=FilterCondition.AND)
+
+    def _retrieve_nodes(
+        self,
+        text_index: Any,
+        query_str: str,
+        *,
+        filters: MetadataFilters | None,
+        top_k: int,
+    ) -> list[NodeWithScore]:
+        if filters is not None:
+            retriever = text_index.as_retriever(similarity_top_k=top_k, filters=filters)
+        else:
+            retriever = text_index.as_retriever(similarity_top_k=top_k)
+        return list(retriever.retrieve(query_str))
+
+    def _parent_doc_retrieve(
+        self,
+        text_index: Any,
+        query_str: str,
+    ) -> list[NodeWithScore]:
+        """Two-stage recall: section_summary then path-prefix drill-down (G5)."""
+        section_top_k = self.similarity_top_k
+        drill_top_k = self.similarity_top_k
+
+        section_filters = self._build_filters(type_filter="section_summary")
+        section_nodes = self._retrieve_nodes(
+            text_index,
+            query_str,
+            filters=section_filters,
+            top_k=section_top_k,
+        )
+
+        drill_nodes: list[NodeWithScore] = []
+        seen_paths: set[str] = set()
+        for nws in section_nodes:
+            sec_path = (nws.node.metadata or {}).get("path") or ""
+            if not sec_path or sec_path in seen_paths:
+                continue
+            seen_paths.add(sec_path)
+            drill_filters = self._build_filters(path_prefix=sec_path)
+            drill_nodes.extend(
+                self._retrieve_nodes(
+                    text_index,
+                    query_str,
+                    filters=drill_filters,
+                    top_k=drill_top_k,
+                )
+            )
+
+        merged: list[NodeWithScore] = []
+        seen_ids: set[str] = set()
+        for nws in section_nodes + drill_nodes:
+            node_id = nws.node.node_id
+            if node_id and node_id in seen_ids:
+                continue
+            if node_id:
+                seen_ids.add(node_id)
+            merged.append(nws)
+        return merged
 
     def _retrieve(self, query_bundle: QueryBundle) -> list[NodeWithScore]:
         query_str = query_bundle.query_str
         t0 = time.monotonic()
         with trace_span("retrieve.text") as span:
             try:
-                text_index = get_text_index()
-                filters = self._build_filters()
-                if filters is not None:
-                    retriever = text_index.as_retriever(
-                        similarity_top_k=self.similarity_top_k,
-                        filters=filters,
-                    )
+                text_index = get_text_index(plugin_namespace=self.plugin_namespace)
+                use_parent_doc = get_settings().router.parent_doc_retrieval
+                if self.parent_doc_retrieval is not None:
+                    use_parent_doc = bool(self.parent_doc_retrieval)
+                if use_parent_doc:
+                    raw_nodes = self._parent_doc_retrieve(text_index, query_str)
                 else:
-                    retriever = text_index.as_retriever(similarity_top_k=self.similarity_top_k)
-                raw_nodes: list[NodeWithScore] = retriever.retrieve(query_str)
+                    filters = self._build_filters()
+                    raw_nodes = self._retrieve_nodes(
+                        text_index,
+                        query_str,
+                        filters=filters,
+                        top_k=self.similarity_top_k,
+                    )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Knowhere text retrieval failed; returning empty list: %s", exc)
                 if span:

@@ -37,7 +37,7 @@ async def list_tags_api(
     if kb_name:
         names.append(kb_name)
     try:
-        rows = await list_tags(kb_names=names or None, q=q, limit=limit)
+        rows = await list_tags(kb_names=names or None, q=q, limit=limit, plugin_namespace=None)
     except Exception:  # noqa: BLE001
         logger.exception("list_tags failed; database may be unavailable")
         return TagListResponse(items=[], total=0)

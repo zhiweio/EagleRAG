@@ -94,9 +94,9 @@
       "title": "知识库",
       "manage": "管理",
       "totalDocs": "文档总数",
-      "activeTenants": "KB 实例",
+      "activeTenants": "知识库实例",
       "storageAlerts": "存储告警",
-      "colTenant": "租户名称",
+      "colTenant": "知识库",
       "colStorage": "存储",
       "colDocuments": "文档数",
       "colStatus": "状态",
@@ -104,7 +104,7 @@
       "statusSyncing": "同步中",
       "statusDegraded": "异常",
       "empty": "暂无知识库",
-      "alertHint": "{count} 个租户需要关注"
+      "alertHint": "{count} 个知识库需要关注"
     },
     "healthCard": {
       "title": "服务健康",

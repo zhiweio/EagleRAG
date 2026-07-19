@@ -1,14 +1,14 @@
 "use client";
 
 import { cn } from "@/components/ui";
-import { Image, ScanText, SlidersHorizontal } from "lucide-react";
+import { Image, ScanSearch, ScanText } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 export type RoutingMode = "auto" | "knowhere" | "pixelrag";
 
 const MODES: { key: RoutingMode; icon: LucideIcon }[] = [
-  { key: "auto", icon: SlidersHorizontal },
+  { key: "auto", icon: ScanSearch },
   { key: "knowhere", icon: ScanText },
   { key: "pixelrag", icon: Image },
 ];

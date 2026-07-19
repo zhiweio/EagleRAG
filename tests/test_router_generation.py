@@ -305,8 +305,8 @@ def test_router_kb_name_passthrough():
         mock_kr.return_value = MagicMock()
         mock_pr.return_value = MagicMock()
         EagleRouterQueryEngine(kb_name="pharma")
-        mock_kr.assert_called_once_with(top_k=5, kb_name="pharma")
-        mock_pr.assert_called_once_with(top_k=5, kb_name="pharma")
+        mock_kr.assert_called_once_with(top_k=30, kb_name="pharma", plugin_namespace="core")
+        mock_pr.assert_called_once_with(top_k=5, kb_name="pharma", plugin_namespace="core")
 
 
 # ---------------------------------------------------------------------------
@@ -417,7 +417,9 @@ def test_search_classifies_image_nodes_as_visual(tmp_png):
     assert result["sources"]["image"][0]["type"] == "image"
     assert result["sources"]["image"][0]["image_id"] == "img-a"
     assert result["sources"]["image"][0]["image_path"] == tmp_png
-    assert result["steps"][1] == {"name": "recall", "text_count": 0, "visual_count": 2}
+    assert result["steps"][1]["name"] == "recall"
+    assert result["steps"][1]["text_count"] == 0
+    assert result["steps"][1]["visual_count"] == 2
 
 
 def test_search_stream_yields_step_sources_done(tmp_png):

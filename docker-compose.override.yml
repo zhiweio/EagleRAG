@@ -1,13 +1,14 @@
-# Eagle-RAG dev profile 覆盖（docker compose 在未显式指定 -f 时自动合并本文件）。
-# 仅用于本地开发：源码热重载、暴露基础设施端口、放宽资源限制。
+# Eagle-RAG dev-profile override (auto-merged by docker compose when -f is not set).
+# Local development only: source hot-reload, exposed infra ports, relaxed resource limits.
 #
-# ⚠️ prod 部署必须排除本文件，否则 dev 挂载与 --reload 会泄漏到生产：
+# WARNING: Production deploys must exclude this file or dev mounts / --reload leak into prod:
 #    COMPOSE_FILE=docker-compose.yml docker compose --profile prod up -d
-# （COMPOSE_FILE 环境变量锁定 compose 文件清单，阻止 override 自动合并。）
+# (COMPOSE_FILE locks the Compose file list and blocks automatic override merge.)
 
 services:
   api:
-    # 热重载：仅监听 eagle_rag 源码；勿监视 ./data（HuggingFace 缓存写入会触发 reload 并中断 SSE）。
+    # Hot-reload: watch eagle_rag + plugins; do not watch ./data (HF cache writes trigger reload).
+    # ./logs is mounted in the base Compose file (PluginAudit AI JSONL); host can jq the file.
     command:
       [
         "uvicorn",
@@ -19,41 +20,75 @@ services:
         "--reload",
         "--reload-dir",
         "eagle_rag",
+        "--reload-dir",
+        "plugins",
       ]
+    environment:
+      # Deployment profile: core | biomed | lakehouse-bi (see settings.yaml profiles)
+      EAGLE_RAG_PROFILE: ${EAGLE_RAG_PROFILE:-core}
+      EAGLE_BIOMED_ENCODER_MODE: ${EAGLE_BIOMED_ENCODER_MODE:-deterministic}
+      EAGLE_BIOMED_ALLOW_DETERMINISTIC: ${EAGLE_BIOMED_ALLOW_DETERMINISTIC:-1}
+      # PluginAudit: keep Redis recent window on in local multi-container (api + workers).
+      PLUGIN_AUDIT_ENABLED: ${PLUGIN_AUDIT_ENABLED:-true}
+      PLUGIN_AUDIT_REDIS_ENABLED: ${PLUGIN_AUDIT_REDIS_ENABLED:-true}
     volumes:
       - ./eagle_rag:/app/eagle_rag:ro
+      - ./plugins:/app/plugins:ro
 
-  # Worker dev：仅挂载源码便于查看版本一致性，不再做热重载。
-  # 之前用 watchfiles 包装 celery 实现 .py 变更自动重启，但 yaml 的 `>` 折叠会
-  # 把 $${VAR} 仍传到 sh 单层解析 → Celery 拿到字面量 '${CONCURRENCY}' →
-  # "Invalid value for '-c': '${CONCURRENCY}' is not a valid integer"。
-  # 改动 celery/任务代码后请用 `docker compose restart worker-*` 手动重启。
+  # Worker dev: mount source for version parity only (no hot-reload).
+  # After Celery/task code changes, restart with `docker compose restart worker-*`.
   worker-router:
+    environment:
+      EAGLE_RAG_PROFILE: ${EAGLE_RAG_PROFILE:-core}
+      EAGLE_BIOMED_ENCODER_MODE: ${EAGLE_BIOMED_ENCODER_MODE:-deterministic}
+      EAGLE_BIOMED_ALLOW_DETERMINISTIC: ${EAGLE_BIOMED_ALLOW_DETERMINISTIC:-1}
+      PLUGIN_AUDIT_ENABLED: ${PLUGIN_AUDIT_ENABLED:-true}
+      PLUGIN_AUDIT_REDIS_ENABLED: ${PLUGIN_AUDIT_REDIS_ENABLED:-true}
     volumes:
       - ./eagle_rag:/app/eagle_rag:ro
+      - ./plugins:/app/plugins:ro
 
   worker-knowhere:
+    environment:
+      EAGLE_RAG_PROFILE: ${EAGLE_RAG_PROFILE:-core}
+      EAGLE_BIOMED_ENCODER_MODE: ${EAGLE_BIOMED_ENCODER_MODE:-deterministic}
+      EAGLE_BIOMED_ALLOW_DETERMINISTIC: ${EAGLE_BIOMED_ALLOW_DETERMINISTIC:-1}
+      PLUGIN_AUDIT_ENABLED: ${PLUGIN_AUDIT_ENABLED:-true}
+      PLUGIN_AUDIT_REDIS_ENABLED: ${PLUGIN_AUDIT_REDIS_ENABLED:-true}
     volumes:
       - ./eagle_rag:/app/eagle_rag:ro
+      - ./plugins:/app/plugins:ro
     deploy: !reset null
 
   worker-pixelrag:
+    environment:
+      EAGLE_RAG_PROFILE: ${EAGLE_RAG_PROFILE:-core}
+      EAGLE_BIOMED_ENCODER_MODE: ${EAGLE_BIOMED_ENCODER_MODE:-deterministic}
+      EAGLE_BIOMED_ALLOW_DETERMINISTIC: ${EAGLE_BIOMED_ALLOW_DETERMINISTIC:-1}
+      PLUGIN_AUDIT_ENABLED: ${PLUGIN_AUDIT_ENABLED:-true}
+      PLUGIN_AUDIT_REDIS_ENABLED: ${PLUGIN_AUDIT_REDIS_ENABLED:-true}
     volumes:
       - ./eagle_rag:/app/eagle_rag:ro
+      - ./plugins:/app/plugins:ro
     deploy: !reset null
 
   frontend:
-    # dev 模式：直接用 Bun 镜像跑 next dev，跳过多阶段构建。
+    # Dev mode: run next dev on the Bun image; skip the multi-stage production build.
     image: oven/bun:1.2.18
     build: !reset null
     working_dir: /app
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+      # Required at next-dev runtime so client bundles see a non-empty public API URL.
+      NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
     volumes:
       - ./frontend:/app
       - /app/node_modules
-    # 每次启动检测 bun.lock / 关键依赖；匿名 node_modules 卷过期时自动 bun install。
+    # On each start, check bun.lock / package deps; re-run bun install if the anonymous volume is stale.
     command: ["sh", "./scripts/docker-dev.sh"]
 
-  # 暴露基础设施端口供宿主调试。
+  # Expose infrastructure ports for host-side debugging.
   postgres:
     ports:
       - "5432:5432"
@@ -72,5 +107,5 @@ services:
       - "19530:19530"
       - "9091:9091"
 
-  # Knowhere 已拆分为独立 compose（docker/knowhere-self-hosted/），
-  # 其端口暴露在该 compose 中配置，不再由 eagle-rag override 管理。
+  # Knowhere is a separate Compose stack (docker/knowhere-self-hosted/);
+  # its host port bindings are configured there, not in this override.

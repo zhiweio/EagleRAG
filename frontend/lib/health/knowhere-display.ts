@@ -8,11 +8,8 @@ export function resolveKnowhereMode(mode?: string | null): KnowhereMode {
 
 type ChipT = (key: string, values?: Record<string, string | number>) => string;
 
-/** Map ``kb_name`` to a partition tag; unknown names use the generic ``kb`` tag. */
-export function kbPartitionTagKey(kbName: string): "patent" | "finance" | "kb" {
-  const normalized = kbName.trim().toLowerCase();
-  if (normalized === "finance" || normalized.includes("finance")) return "finance";
-  if (normalized === "patent" || normalized.includes("patent")) return "patent";
+/** Map ``kb_name`` to a partition tag. Core UI uses a single generic ``kb`` tag. */
+export function kbPartitionTagKey(_kbName: string): "kb" {
   return "kb";
 }
 

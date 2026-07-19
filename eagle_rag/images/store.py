@@ -22,6 +22,7 @@ from eagle_rag.db import (
     sync_execute,
     sync_fetchone,
 )
+from eagle_rag.db.repositories.base import instance_namespace
 
 __all__ = [
     "ensure_image_dir",
@@ -61,6 +62,7 @@ def store_tile(
     width: int | None = None,
     height: int | None = None,
     object_key: str | None = None,
+    plugin_namespace: str | None = None,
 ) -> dict[str, Any]:
     """Store a Tile PNG and register its metadata.
 
@@ -77,11 +79,12 @@ def store_tile(
     local_path: str | None = None
     url: str | None = None
 
+    ns = instance_namespace(plugin_namespace)
     # Prefer MinIO: an explicit object_key forces MinIO; otherwise attempt upload.
     try:
         from eagle_rag.storage.minio_client import ensure_bucket, get_object_url, upload_bytes
 
-        key = object_key or f"{document_id}/{image_id}.png"
+        key = object_key or f"{ns}/{document_id}/{image_id}.png"
         ensure_bucket()
         upload_bytes(key, data, content_type="image/png")
         obj_key = key
@@ -92,7 +95,7 @@ def store_tile(
     except Exception:
         # MinIO unavailable -> fall back to local storage; clear object_key.
         obj_key = None
-        doc_dir = Path(get_settings().storage.image_store) / document_id
+        doc_dir = Path(get_settings().storage.image_store) / ns / document_id
         doc_dir.mkdir(parents=True, exist_ok=True)
         local_file = doc_dir / f"{image_id}.png"
         local_file.write_bytes(data)
@@ -102,8 +105,9 @@ def store_tile(
     kb = _resolve_kb(kb_name)
     sync_execute(
         "INSERT INTO images "
-        "(image_id, document_id, page, position, object_key, local_path, width, height, kb_name) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
+        "(image_id, document_id, page, position, object_key, local_path, "
+        "width, height, kb_name, plugin_namespace) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
         "ON CONFLICT (image_id) DO UPDATE SET "
         "page = EXCLUDED.page, "
         "position = EXCLUDED.position, "
@@ -111,8 +115,9 @@ def store_tile(
         "local_path = EXCLUDED.local_path, "
         "width = EXCLUDED.width, "
         "height = EXCLUDED.height, "
-        "kb_name = EXCLUDED.kb_name",
-        (image_id, document_id, page, position, obj_key, local_path, width, height, kb),
+        "kb_name = EXCLUDED.kb_name, "
+        "plugin_namespace = EXCLUDED.plugin_namespace",
+        (image_id, document_id, page, position, obj_key, local_path, width, height, kb, ns),
     )
     return {
         "image_id": image_id,
@@ -148,39 +153,61 @@ def _image_from_row(row: Any) -> dict[str, Any]:
     }
 
 
-async def get_image_meta(image_id: str) -> dict[str, Any] | None:
+async def get_image_meta(
+    image_id: str,
+    *,
+    plugin_namespace: str | None = None,
+) -> dict[str, Any] | None:
     """Fetch image metadata by ``image_id``; return ``None`` if not found."""
-    row = await async_fetchrow(f"SELECT {_IMAGE_COLUMNS} FROM images WHERE image_id = $1", image_id)
+    ns = instance_namespace(plugin_namespace)
+    row = await async_fetchrow(
+        f"SELECT {_IMAGE_COLUMNS} FROM images WHERE image_id = $1 AND plugin_namespace = $2",
+        image_id,
+        ns,
+    )
     return _image_from_row(row) if row is not None else None
 
 
 async def list_images_by_document(
-    document_id: str, *, page: int | None = None
+    document_id: str,
+    *,
+    page: int | None = None,
+    plugin_namespace: str | None = None,
 ) -> list[dict[str, Any]]:
     """List image metadata by ``document_id``, optionally filtered by ``page``.
 
     Results are ordered by page then image_id.
     """
+    ns = instance_namespace(plugin_namespace)
     if page is None:
         rows = await async_fetch(
             f"SELECT {_IMAGE_COLUMNS} FROM images WHERE document_id = $1 "
-            f"ORDER BY page NULLS LAST, image_id",
+            f"AND plugin_namespace = $2 ORDER BY page NULLS LAST, image_id",
             document_id,
+            ns,
         )
     else:
         rows = await async_fetch(
             f"SELECT {_IMAGE_COLUMNS} FROM images WHERE document_id = $1 AND page = $2 "
-            f"ORDER BY image_id",
+            f"AND plugin_namespace = $3 ORDER BY image_id",
             document_id,
             page,
+            ns,
         )
     return [_image_from_row(r) for r in rows]
 
 
-async def get_image_url(image_id: str) -> str | None:
+async def get_image_url(
+    image_id: str,
+    *,
+    plugin_namespace: str | None = None,
+) -> str | None:
     """Return a presigned URL (MinIO) or local path; ``None`` if not found."""
+    ns = instance_namespace(plugin_namespace)
     row = await async_fetchrow(
-        "SELECT object_key, local_path FROM images WHERE image_id = $1", image_id
+        "SELECT object_key, local_path FROM images WHERE image_id = $1 AND plugin_namespace = $2",
+        image_id,
+        ns,
     )
     if row is None:
         return None
@@ -201,10 +228,12 @@ async def get_image_url(image_id: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def get_image_bytes(image_id: str) -> bytes:
+def get_image_bytes(image_id: str, *, plugin_namespace: str | None = None) -> bytes:
     """Read raw image bytes: prefer MinIO download, fall back to local file."""
+    ns = instance_namespace(plugin_namespace)
     row = sync_fetchone(
-        "SELECT object_key, local_path FROM images WHERE image_id = %s", (image_id,)
+        "SELECT object_key, local_path FROM images WHERE image_id = %s AND plugin_namespace = %s",
+        (image_id, ns),
     )
     if row is None:
         raise KeyError(f"image not found: {image_id}")

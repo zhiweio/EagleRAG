@@ -1,10 +1,21 @@
 "use client";
 
 import type { RoutingMode } from "@/components/ingest/RoutingModeCards";
-import { errorMessage, useIngestFile } from "@/lib/hooks/useIngest";
+import {
+  errorMessage,
+  parseIngestLimitError,
+  useIngestFile,
+  useValidateIngestFile,
+} from "@/lib/hooks/useIngest";
+import {
+  INGEST_MAX_FILE_BYTES,
+  INGEST_MAX_PDF_PAGES,
+  type IngestLimitViolation,
+  checkIngestFileLimits,
+} from "@/lib/ingest/limits";
 import type { IngestResponse } from "@/lib/types";
 import { Button } from "@heroui/react";
-import { Snowflake, UploadCloud, X } from "lucide-react";
+import { ScanSearch, UploadCloud, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useRef, useState } from "react";
 
@@ -26,9 +37,7 @@ function applyRoutingPrefix(file: File, mode: RoutingMode): File {
 
 /**
  * UploadZone — "Upload & Routing Strategy" card body:
- * drag/browse to stage files → submit to the queue. KB selection and routing
- * strategy are rendered by IngestClient (shared with UrlInputZone); the
- * `mode` prop drives the filename routing prefix on submit.
+ * drag/browse to stage files → server validate → submit to the queue.
  */
 export function UploadZone({ onIngested, onError, onBatch, kbName, mode }: UploadZoneProps) {
   const t = useTranslations("ingest");
@@ -37,6 +46,7 @@ export function UploadZone({ onIngested, onError, onBatch, kbName, mode }: Uploa
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const ingestFile = useIngestFile();
+  const validateFile = useValidateIngestFile();
 
   function addFiles(files: File[]) {
     if (files.length === 0) return;
@@ -58,14 +68,47 @@ export function UploadZone({ onIngested, onError, onBatch, kbName, mode }: Uploa
     event.target.value = "";
   }
 
+  function formatLimitMessage(violation: IngestLimitViolation): string {
+    if (violation.code === "file_too_large") {
+      return t("upload.error.file_too_large", {
+        maxMb: Math.round(INGEST_MAX_FILE_BYTES / (1024 * 1024)),
+      });
+    }
+    if (violation.code === "pdf_too_many_pages") {
+      return t("upload.error.pdf_too_many_pages", {
+        pages: violation.pages ?? 0,
+        max: INGEST_MAX_PDF_PAGES,
+      });
+    }
+    return t("upload.error.pdf_unreadable");
+  }
+
   async function handleSubmit() {
-    if (staged.length === 0 || busy) return;
+    if (staged.length === 0 || busy || !kbName) return;
     setBusy(true);
     const files = staged;
     let ok = 0;
     await Promise.allSettled(
       files.map(async (file) => {
         try {
+          // Instant client hint, then authoritative server validate.
+          const localViolation = await checkIngestFileLimits(file);
+          if (localViolation) {
+            onError(file.name, formatLimitMessage(localViolation));
+            return;
+          }
+          try {
+            await validateFile.mutateAsync({ file });
+          } catch (err) {
+            const limitErr = parseIngestLimitError(err);
+            if (limitErr) {
+              const suggestion = limitErr.suggestion ? ` ${limitErr.suggestion}` : "";
+              onError(file.name, `${limitErr.reason}${suggestion}`);
+              return;
+            }
+            onError(file.name, errorMessage(err));
+            return;
+          }
           const resp = await ingestFile.mutateAsync({
             file: applyRoutingPrefix(file, mode),
             kb_name: kbName || undefined,
@@ -73,6 +116,12 @@ export function UploadZone({ onIngested, onError, onBatch, kbName, mode }: Uploa
           ok += 1;
           onIngested(resp, file.name);
         } catch (err) {
+          const limitErr = parseIngestLimitError(err);
+          if (limitErr) {
+            const suggestion = limitErr.suggestion ? ` ${limitErr.suggestion}` : "";
+            onError(file.name, `${limitErr.reason}${suggestion}`);
+            return;
+          }
           onError(file.name, errorMessage(err));
         }
       }),
@@ -84,12 +133,11 @@ export function UploadZone({ onIngested, onError, onBatch, kbName, mode }: Uploa
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Card header */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <h2 className="text-sm font-semibold text-foreground">{t("upload.title")}</h2>
           <span className="inline-flex items-center gap-1 rounded-full bg-success-soft px-2 py-0.5 text-[11px] font-semibold text-success">
-            <Snowflake className="h-3 w-3" aria-hidden />
+            <ScanSearch className="h-3 w-3" aria-hidden />
             {t("upload.autoDetect")}
           </span>
         </div>
@@ -98,7 +146,6 @@ export function UploadZone({ onIngested, onError, onBatch, kbName, mode }: Uploa
         </span>
       </div>
 
-      {/* Drop zone */}
       <div
         onDragOver={(e) => {
           e.preventDefault();
@@ -135,7 +182,6 @@ export function UploadZone({ onIngested, onError, onBatch, kbName, mode }: Uploa
         />
       </div>
 
-      {/* Staged files */}
       {staged.length > 0 ? (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-[11px] font-medium text-foreground-tertiary">
@@ -160,15 +206,14 @@ export function UploadZone({ onIngested, onError, onBatch, kbName, mode }: Uploa
         </div>
       ) : null}
 
-      {/* Submit */}
       <Button
         variant="primary"
         size="lg"
         className="w-full font-semibold shadow-[0_4px_16px_-4px_var(--accent)]"
-        isDisabled={staged.length === 0 || busy}
+        isDisabled={staged.length === 0 || busy || !kbName}
         onPress={() => void handleSubmit()}
       >
-        <Snowflake className="h-4 w-4" aria-hidden />
+        <ScanSearch className="h-4 w-4" aria-hidden />
         {busy ? t("upload.submitting") : t("upload.submit")}
       </Button>
     </div>
