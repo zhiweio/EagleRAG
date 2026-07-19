@@ -426,6 +426,9 @@ Default compose profile is `core` (production-safe). Enabling biomed (**experime
 | Medical imaging | Label `medimageinsight` → **BiomedCLIP via `open_clip`** (prefer `uv sync --extra biomed`); pathology → `uni2` (UNI 2) — **never** fall back to Qwen3-VL |
 | CHUNK enrich | IMRaD/patent section tags only (`biomed_section` / `biomed_doc_type`); preserves Knowhere `path` / body / `chunk_id` |
 | Query routing | Rules + curated UMLS subset (`routing_rules.yaml` / `umls.py`); optional `EAGLE_BIOMED_UMLS_MRCONSO_PATH` merges ENG preferred aliases |
+| Hybrid retrieval | Dense PubMedBERT ANN + in-process sparse lexical fusion (`eagle_rag/retrievers/hybrid_text_retriever.py`); `settings.router.recall_top_k` (default 30) → domain rerank → `final_top_k` (5) |
+| Rerank | PubMedBERT cosine per collection (`RERANK` hook); `use_general_rerank: false` skips post-RRF `qwen3-rerank` |
+| Entity routing | Drug-name UMLS hits also query `eagle_chemical`; `primary_drugs` Milvus scalar (optional backfill via `task biomed:reindex-sparse`) |
 | MCP | Entity query + compound retrieve (MolFormer ANN on `eagle_chemical`) |
 | Encoder modes | `auto` / `require_native` / `deterministic` (CI); override checkpoints via `EAGLE_BIOMED_*_MODEL` |
 

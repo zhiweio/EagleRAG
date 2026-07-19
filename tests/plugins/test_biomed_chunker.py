@@ -114,13 +114,12 @@ def test_biomed_chunk_transform_preserves_knowhere_structure() -> None:
 
 
 def test_imrad_section_reaches_text_classifier() -> None:
-    """CHUNK annotation must flow into ClassificationContext.extra for CLASSIFY."""
+    """TDR text_profile must route keywordless chunks to eagle_text_biomed."""
     from eagle_rag.plugins.classifier import ClassificationContext
     from plugins.biomed.classifiers import BiomedTextClassifier
 
     words = " ".join(["protocol"] * 45)
     text = f"We sequenced the cohort. {words}"
-    # No biomed keyword / SMILES — only IMRaD section should fire.
     ctx = ClassificationContext(
         content=text,
         modality="text",
@@ -128,12 +127,17 @@ def test_imrad_section_reaches_text_classifier() -> None:
         kb_name="kb",
         plugin_namespace="biomed",
         parent_section="doc/3 Methods",
-        extra={"section": "methods", "doc_type": "research"},
+        extra={
+            "section": "methods",
+            "doc_type": "research",
+            "text_profile": "biomedical",
+            "text_profile_rule": "tier1_fusion_biomedical",
+        },
     )
     decision = BiomedTextClassifier().classify(ctx)
     assert decision is not None
     assert decision.target_collection == "eagle_text_biomed"
-    assert decision.metadata.get("rule") == "imrad_methods_results"
+    assert decision.metadata.get("text_profile") == "biomedical"
 
 
 def test_ingest_helpers_forwards_biomed_section_to_classifier(

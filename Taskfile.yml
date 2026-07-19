@@ -303,6 +303,26 @@ tasks:
     cmds:
       - uv run python eval/biomed/scripts/run_eval_smoke.py {{.EVAL_ARGS}}
 
+  biomed:eval:aligned:
+    desc: Biomed aligned regression eval (Hit@K gate 0.65)
+    cmds:
+      - uv run python eval/biomed/scripts/run_eval_smoke.py --queries eval/biomed/datasets/eval_queries.aligned.jsonl --hit-threshold 0.65 {{.EVAL_ARGS}}
+
+  biomed:eval:oracle:
+    desc: Oracle corpus filename coverage for aligned gold set
+    cmds:
+      - uv run python eval/biomed/scripts/run_oracle_eval.py {{.ORACLE_ARGS}}
+
+  biomed:reindex-sparse:
+    desc: Backfill biomed primary_drugs metadata for hybrid retrieval
+    cmds:
+      - |
+        MILVUS_HOST=localhost \
+        POSTGRES_DSN=postgresql://eagle:eagle@localhost:5432/eagle_rag \
+        EAGLE_RAG_PROFILE=biomed \
+        PLUGIN_NAMESPACE=biomed \
+        uv run python eval/biomed/scripts/reindex_sparse.py {{.REINDEX_ARGS}}
+
   # ======================== Knowhere (self-hosted stack, KNOWHERE_MODE=api only) ========================
   # api mode: Knowhere document parser runs in docker/knowhere-self-hosted/compose.yaml;
   # eagle-rag reaches it via knowhere-net DNS name knowhere on :5005.

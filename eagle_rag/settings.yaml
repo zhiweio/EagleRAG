@@ -109,6 +109,12 @@ router:
   parent_doc_retrieval: ${ROUTER_PARENT_DOC_RETRIEVAL:-true}
   # RRF fusion constant for multi-collection merge (G8).
   rrf_k: ${ROUTER_RRF_K:-60}
+  # ANN recall width before rerank; API responses keep ``final_top_k`` hits.
+  recall_top_k: ${ROUTER_RECALL_TOP_K:-30}
+  final_top_k: ${ROUTER_FINAL_TOP_K:-5}
+  # Dense weight in dense+sparse hybrid fusion (sparse weight = 1 - hybrid_alpha).
+  hybrid_alpha: ${ROUTER_HYBRID_ALPHA:-0.6}
+  hybrid_text_enabled: ${ROUTER_HYBRID_TEXT_ENABLED:-true}
   llm:
     enabled: ${ROUTER_LLM_ENABLED:-true}   # When false, skip LLM intent classification and go straight to heuristics.
     prompt_template: |-
@@ -260,7 +266,22 @@ plugins:
     biomed:
       default_dual_text_search: false
       exploratory_search_collections: []
+      use_general_rerank: false
+      collection_recall_top_k: 20
       encoder_mode: ${EAGLE_BIOMED_ENCODER_MODE:-auto}
+      doc_semantic_router:
+        enabled: true
+        sketch_max_tokens: 2048
+        prototype_config: plugins/biomed/doc_profile_prototypes.yaml
+        fusion:
+          mode: weighted
+          weights: { prototype: 0.55, umls: 0.25, imrad: 0.15, entropy: 0.05 }
+        confidence_threshold: 0.0
+        llm_margin: 0.12
+        llm:
+          enabled: true
+          max_sketch_chars: 6000
+        ambiguous_default: biomedical
 
 # Optional deployment profiles (P2-4): bind namespace + Milvus DB + enabled plugins together.
 # Activate via EAGLE_RAG_PROFILE or YAML active_profile.
@@ -278,8 +299,15 @@ profiles:
       default_namespace: biomed
       options:
         biomed:
-          default_dual_text_search: true
+          default_dual_text_search: false
+          use_general_rerank: false
+          collection_recall_top_k: 20
           encoder_mode: ${EAGLE_BIOMED_ENCODER_MODE:-auto}
+          doc_semantic_router:
+            enabled: true
+            llm:
+              enabled: true
+            ambiguous_default: biomedical
     milvus:
       db_name: biomed
   lakehouse-bi:

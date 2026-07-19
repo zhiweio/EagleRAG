@@ -32,6 +32,7 @@ from eagle_rag.db import (
     async_fetch,
     async_fetchrow,
     sync_execute,
+    sync_fetchall,
     sync_fetchone,
 )
 from eagle_rag.db.repositories.base import instance_namespace
@@ -43,6 +44,8 @@ __all__ = [
     "update_extra",
     "get_document_sync",
     "get_document",
+    "lookup_documents_sync",
+    "lookup_document_ids_by_name_terms",
     "list_documents",
     "count_documents",
     "delete_document",
@@ -170,6 +173,56 @@ def get_document_sync(
         (document_id, ns),
     )
     return _row_to_dict(row)
+
+
+def lookup_documents_sync(
+    document_ids: list[str],
+    *,
+    plugin_namespace: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Batch-fetch document registry rows keyed by ``document_id``."""
+    ids = list(dict.fromkeys(doc_id for doc_id in document_ids if doc_id))
+    if not ids:
+        return {}
+    ns = _resolve_ns(plugin_namespace)
+    placeholders = ", ".join("%s" for _ in ids)
+    rows = sync_fetchall(
+        f"""SELECT document_id, name, source_type, source_uri, pipeline, status,
+                   sha256, chunk_count, extra, created_at, updated_at, kb_name
+            FROM documents
+            WHERE plugin_namespace=%s AND document_id IN ({placeholders})""",
+        (ns, *ids),
+    )
+    out: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        doc = _row_to_dict(row)
+        if doc and doc.get("document_id"):
+            out[str(doc["document_id"])] = doc
+    return out
+
+
+def lookup_document_ids_by_name_terms(
+    terms: list[str],
+    *,
+    kb_name: str | None = None,
+    plugin_namespace: str | None = None,
+    limit: int = 24,
+) -> list[str]:
+    """Return document_ids whose registry ``name`` contains any of ``terms``."""
+    needles = [t.strip().lower() for t in terms if t and t.strip()]
+    if not needles:
+        return []
+    ns = _resolve_ns(plugin_namespace)
+    kb = _resolve_kb(kb_name)
+    clauses = " OR ".join("name ILIKE %s" for _ in needles)
+    params: list[Any] = [ns, kb, *[f"%{term}%" for term in needles]]
+    rows = sync_fetchall(
+        f"""SELECT document_id FROM documents
+            WHERE plugin_namespace=%s AND kb_name=%s AND ({clauses})
+            LIMIT {int(limit)}""",
+        tuple(params),
+    )
+    return [str(row[0]) for row in rows if row and row[0]]
 
 
 # ---------------------------------------------------------------------------

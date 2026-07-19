@@ -20,6 +20,7 @@ DATASETS = ROOT / "eval" / "biomed" / "datasets"
 RESULTS = ROOT / "eval" / "biomed" / "results"
 
 sys.path.insert(0, str(SCRIPTS))
+from corpus_index import resolve_search_mode  # noqa: E402
 from metrics import (  # noqa: E402
     mean,
     non_llm_context_recall,
@@ -54,33 +55,34 @@ def _load_queries(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _extract_texts(search: dict[str, Any]) -> tuple[list[str], list[str]]:
-    """Return (doc_name_like, chunk_texts) from SearchResponse."""
-    names: list[str] = []
-    texts: list[str] = []
+def _chunk_evidence(ch: dict[str, Any]) -> str:
+    """Single ranked evidence blob: filename + path + body (for substring / term metrics)."""
+    parts = [
+        ch.get("file_name"),
+        ch.get("document_name"),
+        ch.get("name"),
+        ch.get("path"),
+        ch.get("document_id"),
+        ch.get("content"),
+        ch.get("text"),
+        ch.get("content_summary"),
+    ]
+    return " ".join(str(p) for p in parts if p)
+
+
+def _extract_chunks(search: dict[str, Any]) -> list[str]:
+    """Return ranked per-chunk evidence strings from SearchResponse."""
+    blobs: list[str] = []
     sources = search.get("sources") or {}
-    chunks = []
+    chunks: list[Any] = []
     if isinstance(sources, dict):
         chunks = list(sources.get("text") or []) + list(sources.get("visual") or [])
     elif isinstance(sources, list):
         chunks = sources
     for ch in chunks:
-        if not isinstance(ch, dict):
-            continue
-        name = (
-            ch.get("document_name")
-            or ch.get("name")
-            or ch.get("path")
-            or ch.get("document_id")
-            or ""
-        )
-        content = ch.get("content") or ch.get("text") or ch.get("content_summary") or ""
-        names.append(str(name))
-        texts.append(str(content))
-        # Also keep document_id for id-style matching
-        if ch.get("document_id"):
-            names.append(str(ch["document_id"]))
-    return names, texts
+        if isinstance(ch, dict):
+            blobs.append(_chunk_evidence(ch))
+    return blobs
 
 
 def main() -> int:
@@ -98,6 +100,12 @@ def main() -> int:
     ap.add_argument("--term-threshold", type=float, default=None)
     ap.add_argument("--fail-under-threshold", action="store_true", default=True)
     ap.add_argument("--no-fail", action="store_true", help="Always exit 0; still write report")
+    ap.add_argument(
+        "--respect-route-hint",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use hybrid search when route_hint requests eagle_chemical (default: true)",
+    )
     args = ap.parse_args()
 
     # Deterministic/hash encoders (offline CI) cannot meet native-embedding gates.
@@ -136,10 +144,11 @@ def main() -> int:
         k = int(row.get("k") or 5)
         needles = list(row.get("expected_doc_name_substrings") or [])
         terms = list(row.get("must_include_terms") or [])
+        mode = resolve_search_mode(row, respect_route_hint=args.respect_route_hint)
         try:
             search = _req(
                 f"{base}/search",
-                {"query": q, "kb_name": args.kb_name, "mode": "text"},
+                {"query": q, "kb_name": args.kb_name, "mode": mode},
             )
         except Exception as exc:  # noqa: BLE001
             print("search failed", row.get("id"), exc)
@@ -150,26 +159,30 @@ def main() -> int:
             details.append({"id": row.get("id"), "error": str(exc)})
             continue
 
-        names, texts = _extract_texts(search)
-        # Treat substring hit as Hit@K; recall approximates fraction of needles hit in top-k
-        h = substring_hit(needles, names + texts, k) if needles else substring_hit(terms, texts, k)
-        # Pseudo-recall: how many expected substrings appear anywhere in top-k evidence
+        chunks = _extract_chunks(search)
+        top_chunks = chunks[:k]
+        # Hit@K: any expected doc-name substring appears in a top-k chunk blob.
+        h = (
+            substring_hit(needles, top_chunks, k)
+            if needles
+            else substring_hit(terms, top_chunks, k)
+        )
+        # Recall@K: fraction of expected substrings found across top-k chunk blobs.
         if needles:
-            top_blob = " ".join((names + texts)[: max(k * 2, k)])
-            r = sum(1 for n in needles if n.lower() in top_blob.lower()) / len(needles)
+            top_blob = " ".join(top_chunks).lower()
+            r = sum(1 for n in needles if n.lower() in top_blob) / len(needles)
         else:
             r = h
-        # MRR over first matching needle position among ranked name list
-        ranked = names or texts
+        # MRR over first matching chunk rank.
         rr = 0.0
         targets = [n.lower() for n in (needles or terms)]
-        for i, item in enumerate(ranked, start=1):
-            low = item.lower()
+        for i, blob in enumerate(top_chunks, start=1):
+            low = blob.lower()
             if any(t in low for t in targets if t):
                 rr = 1.0 / i
                 break
-        tc = term_coverage(terms, texts or names)
-        ctx = non_llm_context_recall(texts[:k], [q] + terms)
+        tc = term_coverage(terms, top_chunks)
+        ctx = non_llm_context_recall(top_chunks, [q] + terms)
 
         hit_scores.append(h)
         recall_scores.append(r)
@@ -182,12 +195,13 @@ def main() -> int:
                 "id": row.get("id"),
                 "workflow": row.get("workflow"),
                 "query": q,
+                "search_mode": mode,
                 "hit": h,
                 "recall": r,
                 "mrr": rr,
                 "term_coverage": tc,
                 "context_recall": ctx,
-                "n_sources": len(texts),
+                "n_sources": len(chunks),
             }
         )
         time.sleep(0.05)

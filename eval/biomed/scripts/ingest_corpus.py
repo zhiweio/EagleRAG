@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import time
 import urllib.error
@@ -40,7 +41,11 @@ def main() -> int:
     ap.add_argument("--kb-name", default="hutchmed")
     ap.add_argument("--limit", type=int, default=0, help="0 = all files")
     ap.add_argument("--concurrency-gap", type=float, default=0.5)
-    ap.add_argument("--include-fixtures", action="store_true", default=True)
+    ap.add_argument(
+        "--include-fixtures",
+        action="store_true",
+        help="Also ingest eval/biomed/fixtures (default: corpus only)",
+    )
     args = ap.parse_args()
 
     files: list[Path] = []
@@ -58,8 +63,15 @@ def main() -> int:
         return 1
 
     base = args.base_url.rstrip("/")
-    ok = 0
+    ok = skipped = 0
+    seen_sha: set[str] = set()
     for i, path in enumerate(files, start=1):
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if digest in seen_sha:
+            print(f"[{i}/{len(files)}] SKIP {path.name} (duplicate sha256 in batch)")
+            skipped += 1
+            continue
+        seen_sha.add(digest)
         body, ctype = _multipart(path, args.kb_name)
         req = urllib.request.Request(
             f"{base}/ingest",
@@ -69,15 +81,21 @@ def main() -> int:
         )
         try:
             with urllib.request.urlopen(req, timeout=180) as resp:
+                code = resp.getcode()
                 payload = json.loads(resp.read().decode())
-            print(
-                f"[{i}/{len(files)}] {path.name} -> {payload.get('status')} {payload.get('job_id')}"
-            )
-            ok += 1
+            if code == 200 and payload.get("dedup_hit"):
+                doc_id = str(payload.get("document_id", ""))[:8]
+                print(f"[{i}/{len(files)}] DEDUP {path.name} -> existing {doc_id}")
+                skipped += 1
+            else:
+                status = payload.get("status")
+                job_id = payload.get("job_id")
+                print(f"[{i}/{len(files)}] {path.name} -> {status} {job_id}")
+                ok += 1
         except urllib.error.HTTPError as exc:
             print(f"[{i}/{len(files)}] FAIL {path.name}: {exc.code} {exc.read()[:200]!r}")
         time.sleep(args.concurrency_gap)
-    print(f"submitted {ok}/{len(files)}")
+    print(f"submitted {ok}/{len(files)} skipped {skipped}")
     return 0 if ok else 1
 
 

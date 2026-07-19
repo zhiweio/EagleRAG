@@ -1,4 +1,4 @@
-"""Biomed query-side collection routing (G15/G20 rule + UMLS entity triggers)."""
+"""Biomed query-side collection routing (G15/G20 UMLS + specialized collections)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any
 
 from eagle_rag.config import get_settings
 from eagle_rag.plugins.routing import CollectionQueryPlan, QueryRouteDecision
-from plugins.biomed.umls import load_umls_index, match_entities
+from plugins.biomed.umls import load_umls_index, match_drug_entities, match_entities, resolve_entity
 
 __all__ = ["BiomedQueryRouteClassifier", "_load_rules"]
 
@@ -26,7 +26,7 @@ def _compile_patterns(rules: dict[str, Any]) -> dict[str, list[re.Pattern[str]]]
 
 
 class BiomedQueryRouteClassifier:
-    """Rule-based query router for biomed specialized collections."""
+    """Biomed query router: default dense biomedical index + optional general/hybrid plans."""
 
     def __init__(self) -> None:
         self._rules = _load_rules()
@@ -67,24 +67,33 @@ class BiomedQueryRouteClassifier:
         biomed_cfg = plugin_options("biomed", settings)
         dual = bool(biomed_cfg.get("default_dual_text_search", False))
         exploratory = list(biomed_cfg.get("exploratory_search_collections") or [])
+        plan_top_k = int(biomed_cfg.get("collection_recall_top_k", 20))
         mode = (route_mode or "text").lower()
         plans: dict[str, CollectionQueryPlan] = {}
 
-        def add(collection: str, encoder: str, *, top_k: int = 5) -> None:
+        def add(collection: str, encoder: str, *, top_k: int = plan_top_k) -> None:
             plans[collection] = CollectionQueryPlan(
                 collection=collection,
                 encoder=encoder,
                 top_k=top_k,
             )
 
-        add(settings.milvus.text_collection, "text-embedding-v4")
+        if mode in ("text", "hybrid"):
+            add("eagle_text_biomed", "pubmedbert")
+            if dual:
+                add(settings.milvus.text_collection, "text-embedding-v4")
 
         umls_hits = self._match_umls(query)
-        if umls_hits or dual:
-            add("eagle_text_biomed", "pubmedbert")
+        drug_hits = match_drug_entities(query)
 
-        if self._match_smiles(query):
+        if self._match_smiles(query) or drug_hits:
             add("eagle_chemical", "molformer")
+
+        for entity in umls_hits:
+            related = resolve_entity(entity).get("related_drugs") or []
+            if related and entity not in drug_hits:
+                add("eagle_chemical", "molformer")
+                break
 
         if self._match_keywords(query, "radiology"):
             add("eagle_medical_radiology", "medimageinsight")
@@ -98,6 +107,8 @@ class BiomedQueryRouteClassifier:
         for extra in exploratory:
             if extra == "eagle_text_biomed":
                 add("eagle_text_biomed", "pubmedbert")
+            elif extra == "eagle_text":
+                add(settings.milvus.text_collection, "text-embedding-v4")
             elif extra == "eagle_chemical":
                 add("eagle_chemical", "molformer")
             elif extra == "eagle_medical_radiology":
@@ -105,13 +116,12 @@ class BiomedQueryRouteClassifier:
             elif extra == "eagle_medical_pathology":
                 add("eagle_medical_pathology", "uni2")
 
-        if not umls_hits and not dual:
-            plans.pop("eagle_text_biomed", None)
+        if not plans:
+            return None
 
-        if len(plans) <= 1 and not umls_hits and not self._match_smiles(query):
-            if not self._match_keywords(query, "radiology") and not self._match_keywords(
-                query, "pathology"
-            ):
-                return None
+        if len(plans) == 1 and not umls_hits and not drug_hits and not self._match_smiles(query):
+            only = next(iter(plans.values()))
+            if only.collection == settings.milvus.visual_collection:
+                return QueryRouteDecision(plans=tuple(plans.values()))
 
         return QueryRouteDecision(plans=tuple(plans.values()))

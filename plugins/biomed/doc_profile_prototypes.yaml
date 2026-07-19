@@ -1,0 +1,12 @@
+# Zero-shot prototype texts for TDR Tier-1 (embedded with PubMedBERT at plugin load).
+prototypes:
+  biomedical:
+    - "Randomized phase III trial of a selective kinase inhibitor in metastatic colorectal cancer. Methods, patients, endpoints, adverse events, overall survival."
+    - "PubMed abstract describing VEGFR signaling pathway inhibition and angiogenesis in solid tumors."
+    - "FDA drug label indications dosage contraindications pharmacology adverse reactions clinical pharmacology."
+    - "ClinicalTrials.gov NCT identifier eligibility criteria primary endpoint secondary endpoint investigational drug."
+    - "In vitro phosphorylation assay receptor tyrosine kinase mutation oncogene pathway analysis."
+  general:
+    - "Quarterly financial results revenue growth shareholder return investor relations earnings per share."
+    - "Corporate press release business development market expansion strategic partnership announcement."
+    - "Annual report operating income net profit margin guidance for fiscal year."

@@ -59,15 +59,15 @@ def _multipart(file_path: Path, kb_name: str) -> tuple[bytes, str]:
     return b"".join(parts), f"multipart/form-data; boundary={boundary}"
 
 
-def _sample_files(limit: int) -> list[Path]:
+def _sample_files(limit: int, *, include_fixtures: bool) -> list[Path]:
     files: list[Path] = []
-    if FIXTURES.exists():
-        files.extend(sorted(FIXTURES.rglob("*.md")))
     if CORPUS.exists():
         for sub in ("compounds", "abstracts", "trials", "papers", "labels", "guidance", "company"):
             d = CORPUS / sub
             if d.is_dir():
                 files.extend(sorted(p for p in d.iterdir() if p.is_file()))
+    if include_fixtures and FIXTURES.exists():
+        files.extend(sorted(FIXTURES.rglob("*.md")))
     out: list[Path] = []
     for path in files:
         if path.suffix.lower() in {".md", ".txt", ".pdf"}:
@@ -83,6 +83,16 @@ def main() -> int:
     ap.add_argument("--kb-name", default="hutchmed")
     ap.add_argument("--ingest-limit", type=int, default=5)
     ap.add_argument("--poll-timeout", type=int, default=600)
+    ap.add_argument(
+        "--include-fixtures",
+        action="store_true",
+        help="Allow fixture files in ingest sample (default: corpus only)",
+    )
+    ap.add_argument(
+        "--skip-ingest",
+        action="store_true",
+        help="Skip ingest; only run health check and search smoke",
+    )
     args = ap.parse_args()
     base = args.base_url.rstrip("/")
 
@@ -117,60 +127,66 @@ def main() -> int:
         return 1
     print("KB ok", args.kb_name, "http", code)
 
-    samples = _sample_files(args.ingest_limit)
-    if not samples:
-        FIXTURES.mkdir(parents=True, exist_ok=True)
-        sample = FIXTURES / "fruquintinib_overview.md"
-        sample.write_text(
-            "# Fruquintinib (HMPL-013)\n\n"
-            "Selective VEGFR-1/2/3 inhibitor for metastatic colorectal cancer (mCRC). "
-            "Also studied with sintilimab in renal cell carcinoma. "
-            "Keywords: kinase, inhibitor, angiogenesis, pathway, receptor.\n",
-            encoding="utf-8",
-        )
-        samples = [sample]
-        print("WARN no corpus — using fixture; run task biomed:corpus for full set")
+    if not args.skip_ingest:
+        samples = _sample_files(args.ingest_limit, include_fixtures=args.include_fixtures)
+        if not samples:
+            FIXTURES.mkdir(parents=True, exist_ok=True)
+            sample = FIXTURES / "fruquintinib_overview.md"
+            sample.write_text(
+                "# Fruquintinib (HMPL-013)\n\n"
+                "Selective VEGFR-1/2/3 inhibitor for metastatic colorectal cancer (mCRC). "
+                "Also studied with sintilimab in renal cell carcinoma. "
+                "Keywords: kinase, inhibitor, angiogenesis, pathway, receptor.\n",
+                encoding="utf-8",
+            )
+            samples = [sample]
+            print("WARN no corpus — using fixture; run task biomed:corpus for full set")
 
-    job_ids: list[str] = []
-    for path in samples:
-        body, ctype = _multipart(path, args.kb_name)
-        code, resp = _req(
-            "POST",
-            f"{base}/ingest",
-            data=body,
-            headers={"Content-Type": ctype},
-            timeout=180,
-        )
-        status = resp.get("status") if isinstance(resp, dict) else resp
-        print("ingest", path.name, code, status)
-        if code >= 400:
-            print("FAIL ingest", resp)
-            return 1
-        if isinstance(resp, dict) and resp.get("job_id"):
-            job_ids.append(str(resp["job_id"]))
+        job_ids: list[str] = []
+        for path in samples:
+            body, ctype = _multipart(path, args.kb_name)
+            code, resp = _req(
+                "POST",
+                f"{base}/ingest",
+                data=body,
+                headers={"Content-Type": ctype},
+                timeout=180,
+            )
+            status = resp.get("status") if isinstance(resp, dict) else resp
+            if code == 200 and isinstance(resp, dict) and resp.get("dedup_hit"):
+                print("ingest", path.name, code, "dedup", resp.get("document_id", "")[:8])
+                continue
+            print("ingest", path.name, code, status)
+            if code >= 400:
+                print("FAIL ingest", resp)
+                return 1
+            if isinstance(resp, dict) and resp.get("job_id"):
+                job_ids.append(str(resp["job_id"]))
 
-    deadline = time.time() + args.poll_timeout
-    pending = set(job_ids)
-    while pending and time.time() < deadline:
-        done: list[str] = []
-        for job_id in list(pending):
-            code, audit = _req("GET", f"{base}/tasks/{job_id}")
-            state = None
-            if isinstance(audit, dict):
-                state = (audit.get("status") or audit.get("state") or "").lower()
-            if state in {"success", "failed", "succeeded", "completed", "error", "dead"}:
-                print("job", job_id, state)
-                if state in {"failed", "error", "dead"}:
-                    print("FAIL task", audit)
-                    return 1
-                done.append(job_id)
-        for job_id in done:
-            pending.discard(job_id)
+        deadline = time.time() + args.poll_timeout
+        pending = set(job_ids)
+        while pending and time.time() < deadline:
+            done: list[str] = []
+            for job_id in list(pending):
+                code, audit = _req("GET", f"{base}/tasks/{job_id}")
+                state = None
+                if isinstance(audit, dict):
+                    state = (audit.get("status") or audit.get("state") or "").lower()
+                if state in {"success", "failed", "succeeded", "completed", "error", "dead"}:
+                    print("job", job_id, state)
+                    if state in {"failed", "error", "dead"}:
+                        print("FAIL task", audit)
+                        return 1
+                    done.append(job_id)
+            for job_id in done:
+                pending.discard(job_id)
+            if pending:
+                time.sleep(3)
         if pending:
-            time.sleep(3)
-    if pending:
-        print("FAIL timeout waiting for jobs", pending)
-        return 1
+            print("FAIL timeout waiting for jobs", pending)
+            return 1
+    else:
+        print("== skip ingest ==")
 
     print("== search ==")
     code, search = _req(

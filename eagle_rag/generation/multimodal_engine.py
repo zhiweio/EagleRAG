@@ -437,7 +437,7 @@ class EagleMultimodalQueryEngine(CustomQueryEngine):
         if attachment_image_docs:
             image_docs.extend(attachment_image_docs)
 
-        text_sources = [self._text_source(n) for n in top_text]
+        text_sources = self.text_sources_from_nodes(top_text)
         image_sources = [self._image_source(n) for n in top_image]
         sources = {"text": text_sources, "image": image_sources}
 
@@ -812,7 +812,52 @@ class EagleMultimodalQueryEngine(CustomQueryEngine):
             src["source"] = "attachment"
             src["attachment_id"] = meta.get("attachment_id")
             src["file_name"] = meta.get("file_name")
+        elif meta.get("file_name"):
+            src["file_name"] = meta.get("file_name")
+            src["document_name"] = meta.get("document_name") or meta.get("file_name")
         return src
+
+    @staticmethod
+    def _enrich_text_sources(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Join document registry names for KB chunks missing ``file_name``."""
+        missing_ids = [
+            str(src["document_id"])
+            for src in sources
+            if src.get("document_id") and not src.get("file_name")
+        ]
+        if not missing_ids:
+            return sources
+        plugin_namespace: str | None = None
+        try:
+            from eagle_rag.plugins import get_plugin_manager
+
+            plugin_namespace = get_plugin_manager().default_namespace
+        except Exception:  # noqa: BLE001
+            plugin_namespace = None
+        try:
+            from eagle_rag.index.registry import lookup_documents_sync
+
+            docs = lookup_documents_sync(missing_ids, plugin_namespace=plugin_namespace)
+        except Exception:  # noqa: BLE001
+            return sources
+        for src in sources:
+            doc_id = src.get("document_id")
+            if not doc_id or src.get("file_name"):
+                continue
+            doc = docs.get(str(doc_id))
+            if not doc:
+                continue
+            name = doc.get("name")
+            if name:
+                src["file_name"] = name
+                src["document_name"] = name
+        return sources
+
+    @staticmethod
+    def text_sources_from_nodes(nodes: list[NodeWithScore]) -> list[dict[str, Any]]:
+        """Map text nodes to API sources with registry-backed ``file_name``."""
+        sources = [EagleMultimodalQueryEngine._text_source(n) for n in nodes]
+        return EagleMultimodalQueryEngine._enrich_text_sources(sources)
 
     @staticmethod
     def _image_source(nws: NodeWithScore) -> dict:

@@ -19,9 +19,11 @@ from typing import Any
 import yaml
 
 __all__ = [
+    "expand_query_for_dense_retrieval",
     "expand_query_with_entities",
     "load_umls_index",
     "load_umls_metathesaurus",
+    "match_drug_entities",
     "match_entities",
     "resolve_entity",
     "resolve_compound_query",
@@ -35,6 +37,11 @@ _MRCONSO_CUI = 0
 _MRCONSO_LAT = 1
 _MRCONSO_STR = 7
 _MRCONSO_ISPREF = 9
+
+_DRUG_SUFFIX = re.compile(
+    r"(?:mab|zumab|limab|nib|tinib|rafenib|citinib|parib|senib|stat|formin)$",
+    re.IGNORECASE,
+)
 
 
 @lru_cache(maxsize=1)
@@ -174,6 +181,32 @@ def match_entities(query: str) -> list[str]:
     return hits
 
 
+@lru_cache(maxsize=1)
+def _drug_entity_keys() -> frozenset[str]:
+    """Curated drug names for chemical-collection routing and entity boost."""
+    rules = _merged_index()
+    keys: set[str] = set()
+    chemical = rules.get("chemical", {})
+    aliases = chemical.get("name_aliases", {}) if isinstance(chemical, dict) else {}
+    if isinstance(aliases, dict):
+        keys.update(str(name).lower() for name in aliases)
+    for entity, meta in (rules.get("umls_entities", {}) or {}).items():
+        if not isinstance(meta, dict):
+            continue
+        if meta.get("entity_type") == "drug":
+            keys.add(str(entity).lower())
+            continue
+        if _DRUG_SUFFIX.search(str(entity)):
+            keys.add(str(entity).lower())
+    return frozenset(keys)
+
+
+def match_drug_entities(query: str) -> list[str]:
+    """Return drug entity keys matched in ``query`` (subset of ``match_entities``)."""
+    drug_keys = _drug_entity_keys()
+    return [hit for hit in match_entities(query) if hit.lower() in drug_keys]
+
+
 def resolve_entity(entity: str) -> dict[str, Any]:
     """Resolve a single entity to aliases / pathways / related drugs."""
     rules = _merged_index()
@@ -253,6 +286,14 @@ def expand_query_with_entities(query: str, *, limit: int = 12) -> str | None:
     if not ordered:
         return None
     return f"[biomed entities: {', '.join(ordered[:limit])}]"
+
+
+def expand_query_for_dense_retrieval(query: str) -> str | None:
+    """Append UMLS aliases for dense embedding only (sparse keeps the raw query)."""
+    suffix = expand_query_with_entities(query)
+    if not suffix:
+        return None
+    return f"{query} {suffix}"
 
 
 def resolve_compound_query(smiles_or_name: str) -> str:

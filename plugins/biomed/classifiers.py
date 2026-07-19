@@ -1,4 +1,4 @@
-"""Rule-based biomed content classifiers (ingest-side, G15/P1-9)."""
+"""Biomed content classifiers (ingest-side, G15/P1-9)."""
 
 from __future__ import annotations
 
@@ -9,14 +9,6 @@ from eagle_rag.plugins.classifier import ClassificationContext, ClassificationDe
 
 __all__ = ["BiomedImageClassifier", "BiomedTextClassifier"]
 
-_BIOMED_TERM_RE = re.compile(
-    r"\b("
-    r"HER2|ERBB2|SMILES|InChI|kinase|pathway|receptor|mutation|"
-    r"oncogene|phosphorylation|inhibitor|ligand|compound|"
-    r"CT\b|MRI|ultrasound|H&E|histopathology|biopsy"
-    r")\b",
-    re.IGNORECASE,
-)
 _SMILES_RE = re.compile(r"(InChI=|SMILES\b|C\(=O\)|\[[A-Z][a-z]?@?\])", re.IGNORECASE)
 _RADIOLOGY_RE = re.compile(
     r"\b(CT scan|computed tomography|MRI|magnetic resonance|ultrasound|radiograph)\b",
@@ -30,7 +22,7 @@ _CHEMICAL_IMAGE_RE = re.compile(r"\b(SMILES|molfile|compound structure|chemical 
 
 
 class BiomedTextClassifier:
-    """Route text chunks to general or biomed-specialized text collections."""
+    """Route text chunks using document-level TDR profile + chemical hard overrides."""
 
     def classify(self, ctx: ClassificationContext) -> ClassificationDecision | None:
         if ctx.modality != "text":
@@ -40,16 +32,6 @@ class BiomedTextClassifier:
             return None
 
         settings = get_settings()
-        if _BIOMED_TERM_RE.search(text):
-            return ClassificationDecision(
-                category="biomed_term",
-                target_collection="eagle_text_biomed",
-                target_encoder="pubmedbert",
-                chunk_type="biomed_text",
-                confidence=0.75,
-                exclusive_group="biomed_text",
-                metadata={"rule": "biomed_term_keyword"},
-            )
 
         if _SMILES_RE.search(text):
             return ClassificationDecision(
@@ -62,25 +44,27 @@ class BiomedTextClassifier:
                 metadata={"rule": "smiles_or_chemical_token"},
             )
 
-        section = str(ctx.extra.get("section", "")).lower()
-        if section in {"methods", "results"} and len(text.split()) >= 40:
+        text_profile = str(ctx.extra.get("text_profile") or "biomedical").lower()
+        profile_rule = str(ctx.extra.get("text_profile_rule") or "tdr_default")
+        profile_conf = ctx.extra.get("text_profile_confidence")
+
+        if text_profile == "general":
             return ClassificationDecision(
-                category="biomed_term",
-                target_collection="eagle_text_biomed",
-                target_encoder="pubmedbert",
-                chunk_type="biomed_text",
-                confidence=0.6,
-                exclusive_group="biomed_text",
-                metadata={"rule": "imrad_methods_results"},
+                category="general_text",
+                target_collection=settings.milvus.text_collection,
+                target_encoder="text-embedding-v4",
+                chunk_type="text",
+                confidence=float(profile_conf) if isinstance(profile_conf, (int, float)) else 0.6,
+                metadata={"rule": profile_rule, "text_profile": "general"},
             )
 
         return ClassificationDecision(
-            category="general_text",
-            target_collection=settings.milvus.text_collection,
-            target_encoder="text-embedding-v4",
-            chunk_type="text",
-            confidence=0.55,
-            metadata={"rule": "biomed_default_text"},
+            category="biomed_text",
+            target_collection="eagle_text_biomed",
+            target_encoder="pubmedbert",
+            chunk_type="biomed_text",
+            confidence=float(profile_conf) if isinstance(profile_conf, (int, float)) else 0.75,
+            metadata={"rule": profile_rule, "text_profile": "biomedical"},
         )
 
 
@@ -88,7 +72,6 @@ class BiomedImageClassifier:
     """Route visual assets to biomed or core visual collections."""
 
     def classify(self, ctx: ClassificationContext) -> ClassificationDecision | None:
-        # Accept PixelRAG tiles and Knowhere image/table chunks, not only modality="visual".
         if ctx.modality not in {"visual", "image", "table", "tile", "medical_image"}:
             return None
 

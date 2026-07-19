@@ -55,6 +55,7 @@ def _ensure_text_collection(
     schema.add_field("chunk_type", DataType.VARCHAR, max_length=32, default_value="text")
     schema.add_field("source_type", DataType.VARCHAR, max_length=32, nullable=True)
     schema.add_field("source_chunk_id", DataType.VARCHAR, max_length=128, nullable=True)
+    schema.add_field("primary_drugs", DataType.VARCHAR, max_length=2048, nullable=True)
     client.create_collection(
         coll_name,
         schema=schema,

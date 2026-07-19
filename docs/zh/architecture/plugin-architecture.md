@@ -426,7 +426,10 @@ profiles:
 | 医学影像 | Label `medimageinsight` → **BiomedCLIP + `open_clip`**（建议 `uv sync --extra biomed`）；病理 → `uni2`（UNI 2）— **永不**回落 Qwen3-VL |
 | CHUNK 富化 | 仅 IMRaD/专利章节标签（`biomed_section` / `biomed_doc_type`）；保留 Knowhere `path` / body / `chunk_id` |
 | 查询路由 | 规则 + 精选 UMLS 子集（`routing_rules.yaml` / `umls.py`）；可选 `EAGLE_BIOMED_UMLS_MRCONSO_PATH` 合并英文首选别名 |
-| MCP | 实体查询 + 化合物检索（MolFormer ANN → `eagle_chemical`） |
+| 混合检索 | PubMedBERT 稠密 ANN + 进程内稀疏词项融合（`hybrid_text_retriever.py`）；`recall_top_k`（默认 30）→ 领域 rerank → `final_top_k`（5） |
+| Rerank | 集合内 PubMedBERT cosine（`RERANK` hook）；`use_general_rerank: false` 跳过 RRF 后 `qwen3-rerank` |
+| 实体路由 | 药物名 UMLS 命中同时查 `eagle_chemical`；可选 `primary_drugs` 标量（`task biomed:reindex-sparse` 回填） |
+| MCP | 实体查询 + 化合物检索（`eagle_chemical` MolFormer ANN） |
 | 编码器模式 | `auto` / `require_native` / `deterministic`（CI）；checkpoint 可用 `EAGLE_BIOMED_*_MODEL` 覆盖 |
 
 ### `plugins/lakehouse_bi`（开发中）

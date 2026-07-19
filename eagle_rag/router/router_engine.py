@@ -125,18 +125,26 @@ class EagleRouterQueryEngine:
             default_ns = get_plugin_manager().default_namespace
         except Exception:  # noqa: BLE001
             default_ns = get_settings().plugins.default_namespace
+        router_cfg = get_settings().router
+        self.recall_top_k = router_cfg.recall_top_k
+        self.top_k = top_k if top_k != 5 else router_cfg.final_top_k
         self.text_retriever = (
             text_retriever
             if text_retriever is not None
-            else KnowhereGraphRetriever(top_k=top_k, kb_name=kb_name, plugin_namespace=default_ns)
+            else KnowhereGraphRetriever(
+                top_k=self.recall_top_k,
+                kb_name=kb_name,
+                plugin_namespace=default_ns,
+            )
         )
         self.visual_retriever = (
             visual_retriever
             if visual_retriever is not None
-            else PixelRAGVisualRetriever(top_k=top_k, kb_name=kb_name, plugin_namespace=default_ns)
+            else PixelRAGVisualRetriever(
+                top_k=self.top_k, kb_name=kb_name, plugin_namespace=default_ns
+            )
         )
-        self.mode = mode or get_settings().router.mode
-        self.top_k = top_k
+        self.mode = mode or router_cfg.mode
 
     @staticmethod
     def _effective_query(query: str) -> tuple[str, str]:
@@ -454,6 +462,19 @@ class EagleRouterQueryEngine:
         return nodes, decision
 
     @staticmethod
+    def _uses_domain_rerank_only() -> bool:
+        try:
+            from eagle_rag.config import get_settings, plugin_options
+            from eagle_rag.plugins import get_plugin_manager
+
+            if get_plugin_manager().default_namespace != "biomed":
+                return False
+            biomed_cfg = plugin_options("biomed", get_settings())
+            return not bool(biomed_cfg.get("use_general_rerank", False))
+        except Exception:  # noqa: BLE001
+            return False
+
+    @staticmethod
     def _map_nodes_to_search_payload(
         nodes: list[NodeWithScore],
         decision: RouteDecision,
@@ -464,18 +485,22 @@ class EagleRouterQueryEngine:
             n for n in nodes if isinstance(n.node, TextNode) and not isinstance(n.node, ImageNode)
         ]
         image_nodes = [n for n in nodes if isinstance(n.node, ImageNode)]
-        text_sources = [EagleMultimodalQueryEngine._text_source(n) for n in text_nodes]
+        text_sources = EagleMultimodalQueryEngine.text_sources_from_nodes(text_nodes)
         image_sources = [EagleMultimodalQueryEngine._image_source(n) for n in image_nodes]
+        rerank_model = (
+            "domain" if EagleRouterQueryEngine._uses_domain_rerank_only() else "qwen3-rerank"
+        )
         steps: list[dict[str, Any]] = [
             {"name": "route", **decision.to_dict()},
             {
                 "name": "recall",
                 "text_count": len(text_sources),
                 "visual_count": len(image_sources),
+                "recall_top_k": get_settings().router.recall_top_k,
             },
             {
                 "name": "rerank",
-                "model": "qwen3-rerank",
+                "model": rerank_model,
                 "text_count": len(text_sources),
             },
         ]

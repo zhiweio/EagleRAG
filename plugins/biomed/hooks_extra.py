@@ -49,14 +49,16 @@ def biomed_rerank(
     encoder: str | None = None,
     **kwargs: object,
 ) -> list[Any] | None:
-    """Rerank ``eagle_text_biomed`` hits with PubMedBERT cosine similarity.
-
-    Other collections abstain (return None) so Core qwen3-rerank can apply.
-    """
+    """Rerank biomed text/chemical hits with domain encoder cosine similarity."""
     del kwargs
     coll = collection or (ctx.extra or {}).get("collection")
     enc = encoder or (ctx.extra or {}).get("encoder")
-    if coll != "eagle_text_biomed" and enc != "pubmedbert":
+    encoder_name: str | None = None
+    if coll == "eagle_text_biomed" or enc == "pubmedbert":
+        encoder_name = "pubmedbert"
+    elif coll == "eagle_chemical" or enc == "molformer":
+        encoder_name = "molformer"
+    if encoder_name is None:
         return None
     if not nodes:
         return nodes
@@ -67,7 +69,7 @@ def biomed_rerank(
         return None
 
     try:
-        q_vec = encode_text_for_encoder("pubmedbert", query)
+        q_vec = encode_text_for_encoder(encoder_name, query)
     except Exception:  # noqa: BLE001
         return None
 
@@ -83,7 +85,7 @@ def biomed_rerank(
         else:
             text = str(getattr(node, "text", "") or "")
         try:
-            d_vec = encode_text_for_encoder("pubmedbert", text[:2048])
+            d_vec = encode_text_for_encoder(encoder_name, text[:2048])
         except Exception:  # noqa: BLE001
             scored.append((getattr(node, "score", 0.0) or 0.0, node))
             continue

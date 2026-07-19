@@ -186,6 +186,38 @@ def _has_knowhere_structure(meta: dict[str, Any]) -> bool:
     return bool(path or chunk_id)
 
 
+def _primary_drugs_for_node(
+    meta: dict[str, Any],
+    hook_ctx: HookContext,
+    text: str,
+) -> list[str]:
+    """Stamp document-level drug hints for entity-aware retrieval."""
+    from plugins.biomed.umls import match_drug_entities
+
+    hints: list[str] = []
+    for blob in (
+        str(meta.get("file_name") or ""),
+        str(meta.get("source_uri") or ""),
+        str(meta.get("path") or ""),
+        text[:512],
+    ):
+        hints.extend(match_drug_entities(blob))
+    extra = meta.get("primary_drugs")
+    if isinstance(extra, list):
+        hints.extend(str(item) for item in extra if item)
+    if hook_ctx.document_id:
+        hints.extend(match_drug_entities(str(hook_ctx.document_id)))
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for item in hints:
+        key = item.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        ordered.append(item)
+    return ordered[:8]
+
+
 def biomed_chunk_transform(
     hook_ctx: HookContext,
     nodes: list[Any],
@@ -231,6 +263,29 @@ def biomed_chunk_transform(
         # Enrich only — do not rewrite path / body / Knowhere structure keys.
         meta["biomed_section"] = section
         meta["biomed_doc_type"] = doc_type
+        primary_drugs = _primary_drugs_for_node(meta, hook_ctx, original_text)
+        if primary_drugs:
+            meta["primary_drugs"] = primary_drugs
         node.metadata = meta
         out.append(node)
+
+    if out:
+        from plugins.biomed.doc_profile import (
+            apply_text_profile_to_nodes,
+            classify_document_text_profile,
+        )
+
+        doc_profile = classify_document_text_profile(out)
+        apply_text_profile_to_nodes(out, doc_profile)
+        logger.info(
+            "TDR document text profile",
+            extra={
+                "document_id": hook_ctx.document_id,
+                "kb_name": hook_ctx.kb_name,
+                "profile": doc_profile.profile,
+                "rule": doc_profile.rule,
+                "tier": doc_profile.tier,
+                "confidence": doc_profile.confidence,
+            },
+        )
     return out

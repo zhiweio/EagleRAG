@@ -292,6 +292,13 @@ class RouterSettings(BaseModel):
     parent_doc_retrieval: bool = True
     # RRF fusion constant for multi-collection merge (G8).
     rrf_k: int = 60
+    # ANN recall width before rerank; final response is capped at ``final_top_k``.
+    recall_top_k: int = 30
+    final_top_k: int = 5
+    # Dense vs sparse weight for in-process hybrid fusion (1.0 = dense only).
+    hybrid_alpha: float = 0.6
+    # Enable dense+sparse hybrid fusion on biomed text collections.
+    hybrid_text_enabled: bool = True
 
 
 class QueueConfig(BaseModel):

@@ -15,6 +15,9 @@ if TYPE_CHECKING:
 
 __all__ = ["ingest_text_nodes", "ingest_visual_record"]
 
+# Keep in sync with ``DASHSCOPE_TEXT_EMBED_BATCH_MAX`` in milvus_text_store.
+_DASHSCOPE_EMBED_BATCH_MAX = 10
+
 
 def ingest_text_nodes(
     nodes: list[TextNode],
@@ -46,13 +49,15 @@ def ingest_text_nodes(
         from eagle_rag.index.milvus_text_store import upsert_text_nodes
 
         record_ingest_collection(default_coll)
-        node_ids.extend(
-            upsert_text_nodes(
-                default_batch,
-                plugin_namespace=plugin_namespace,
-                collection=default_coll,
+        for offset in range(0, len(default_batch), _DASHSCOPE_EMBED_BATCH_MAX):
+            chunk = default_batch[offset : offset + _DASHSCOPE_EMBED_BATCH_MAX]
+            node_ids.extend(
+                upsert_text_nodes(
+                    chunk,
+                    plugin_namespace=plugin_namespace,
+                    collection=default_coll,
+                )
             )
-        )
         default_batch = []
 
     for node in nodes:
@@ -70,6 +75,10 @@ def ingest_text_nodes(
             extra={
                 "section": meta.get("biomed_section") or meta.get("section") or "",
                 "doc_type": meta.get("biomed_doc_type") or meta.get("doc_type") or "",
+                "text_profile": meta.get("biomed_text_profile") or "biomedical",
+                "text_profile_rule": meta.get("biomed_text_profile_rule") or "",
+                "text_profile_confidence": meta.get("biomed_text_profile_confidence"),
+                "text_profile_tier": meta.get("biomed_text_profile_tier") or "",
             },
         )
         decision = orchestrator.classify(hook_ctx, class_ctx)

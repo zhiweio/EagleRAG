@@ -36,6 +36,9 @@ if TYPE_CHECKING:
     from llama_index.core.schema import TextNode
     from llama_index.vector_stores.milvus import MilvusVectorStore
 
+# DashScope text-embedding-v4 rejects batches larger than 10 (returns HTTP 400).
+DASHSCOPE_TEXT_EMBED_BATCH_MAX = 10
+
 __all__ = [
     "MILVUS_VARCHAR_TEXT_MAX",
     "clamp_milvus_varchar",
@@ -281,8 +284,32 @@ def upsert_text_nodes(
     if coll != get_settings().milvus.text_collection:
         return _upsert_text_nodes_direct(nodes, collection=coll, plugin_namespace=plugin_namespace)
     index = get_text_index(plugin_namespace)
-    index.insert_nodes(nodes)
-    return [n.node_id for n in nodes]
+    ids: list[str] = []
+    step = DASHSCOPE_TEXT_EMBED_BATCH_MAX
+    for offset in range(0, len(nodes), step):
+        batch = nodes[offset : offset + step]
+        index.insert_nodes(batch)
+        ids.extend(n.node_id for n in batch)
+    return ids
+
+
+def _collection_field_names(client: Any, collection: str) -> set[str]:
+    try:
+        desc = client.describe_collection(collection)
+    except Exception:  # noqa: BLE001
+        return set()
+    fields = desc.get("fields") if isinstance(desc, dict) else None
+    if fields is None and hasattr(desc, "fields"):
+        fields = desc.fields
+    names: set[str] = set()
+    for field in fields or []:
+        if isinstance(field, dict):
+            name = field.get("name")
+        else:
+            name = getattr(field, "name", None)
+        if name:
+            names.add(str(name))
+    return names
 
 
 def _upsert_text_nodes_direct(
@@ -295,6 +322,7 @@ def _upsert_text_nodes_direct(
     from eagle_rag.index.milvus_pool import get_milvus_pool
 
     client = get_milvus_pool().get(plugin_namespace=plugin_namespace)
+    schema_fields = _collection_field_names(client, collection)
     rows: list[dict[str, Any]] = []
     ids: list[str] = []
     for node in nodes:
@@ -314,19 +342,24 @@ def _upsert_text_nodes_direct(
         # ``chunk_type`` and omit bare ``type`` so non-dynamic schemas accept rows.
         chunk_type = meta.get("chunk_type") or meta.get("type") or "text"
         path = clamp_milvus_varchar(str(meta.get("path") or ""), _MILVUS_VARCHAR_PATH_MAX)
-        rows.append(
-            {
-                "id": row_id,
-                "vector": vector,
-                "text": text,
-                "document_id": meta.get("document_id", ""),
-                "kb_name": meta.get("kb_name", get_settings().kb_name),
-                "path": path,
-                "chunk_type": chunk_type,
-                "source_type": meta.get("source_type"),
-                "source_chunk_id": meta.get("source_chunk_id"),
-            }
-        )
+        row: dict[str, Any] = {
+            "id": row_id,
+            "vector": vector,
+            "text": text,
+            "document_id": meta.get("document_id", ""),
+            "kb_name": meta.get("kb_name", get_settings().kb_name),
+            "path": path,
+            "chunk_type": chunk_type,
+            "source_type": meta.get("source_type"),
+            "source_chunk_id": meta.get("source_chunk_id"),
+        }
+        primary_drugs = meta.get("primary_drugs")
+        if primary_drugs and (not schema_fields or "primary_drugs" in schema_fields):
+            if isinstance(primary_drugs, list):
+                row["primary_drugs"] = json.dumps(primary_drugs, ensure_ascii=False)
+            elif isinstance(primary_drugs, str):
+                row["primary_drugs"] = primary_drugs
+        rows.append(row)
         ids.append(row_id)
     if rows:
         client.upsert(collection_name=collection, data=rows)

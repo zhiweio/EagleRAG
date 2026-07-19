@@ -102,16 +102,48 @@ def rerank_merged(
 ) -> list[NodeWithScore]:
     """Post-RRF cross-encoder rerank on text nodes; visual nodes pass through.
 
-    Applies DashScope ``qwen3-rerank`` to the fused text hits so that noise
-    injected by weakly-related collections (e.g. deterministic-embedding
-    fallbacks) is filtered after RRF. ``ImageNode`` hits are appended unchanged
-    (no visual reranker is wired). On any failure the RRF order is returned so
-    retrieval never breaks due to the rerank service.
+      Applies DashScope ``qwen3-rerank`` to the fused text hits so that noise
+      injected by weakly-related collections (e.g. deterministic-embedding
+      fallbacks) is filtered after RRF. ``ImageNode`` hits are appended unchanged
+      (no visual reranker is wired). On any failure the RRF order is returned so
+      retrieval never breaks due to the rerank service.
+
+    Biomed deployments may disable the general reranker via
+    ``settings.plugins.options.biomed.use_general_rerank`` (default ``false``) so
+    domain PubMedBERT rerank from the ``RERANK`` hook is preserved.
     """
     text_nodes = [n for n in nodes if not isinstance(n.node, ImageNode)]
     image_nodes = [n for n in nodes if isinstance(n.node, ImageNode)]
     if not text_nodes:
         return nodes
+
+    if not _use_general_rerank(plugin_namespace):
+        if plugin_namespace == "biomed":
+            from eagle_rag.router.biomed_post_rerank import biomed_post_rrf_rerank
+
+            reranked = biomed_post_rrf_rerank(
+                text_nodes,
+                query,
+                top_n=top_n,
+                plugin_namespace=plugin_namespace or "biomed",
+            )
+            if audit is not None:
+                audit.log_decision(
+                    category="rerank",
+                    reason="post_rrf_biomed",
+                    plugin_namespace=plugin_namespace,
+                    extra={"text_in": len(text_nodes), "text_out": len(reranked)},
+                )
+            return reranked + image_nodes
+        trimmed = text_nodes[:top_n] + image_nodes
+        if audit is not None:
+            audit.log_decision(
+                category="rerank",
+                reason="post_rrf_domain_only",
+                plugin_namespace=plugin_namespace,
+                extra={"text_in": len(text_nodes), "text_out": len(trimmed)},
+            )
+        return trimmed
 
     try:
         from eagle_rag.generation.multimodal_engine import _default_text_reranker
@@ -135,3 +167,15 @@ def rerank_merged(
             extra={"text_in": len(text_nodes), "text_out": len(reranked)},
         )
     return reranked + image_nodes
+
+
+def _use_general_rerank(plugin_namespace: str | None) -> bool:
+    if plugin_namespace != "biomed":
+        return True
+    try:
+        from eagle_rag.config import get_settings, plugin_options
+
+        biomed_cfg = plugin_options("biomed", get_settings())
+        return bool(biomed_cfg.get("use_general_rerank", False))
+    except Exception:  # noqa: BLE001
+        return False

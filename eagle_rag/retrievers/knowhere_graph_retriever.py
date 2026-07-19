@@ -231,6 +231,14 @@ class KnowhereGraphRetriever(BaseRetriever):
             try:
                 text_index = get_text_index(plugin_namespace=self.plugin_namespace)
                 use_parent_doc = get_settings().router.parent_doc_retrieval
+                if use_parent_doc and self.plugin_namespace == "biomed":
+                    try:
+                        from plugins.biomed.umls import match_drug_entities
+
+                        if match_drug_entities(query_str):
+                            use_parent_doc = False
+                    except Exception:  # noqa: BLE001
+                        pass
                 if use_parent_doc:
                     raw_nodes = self._parent_doc_retrieve(text_index, query_str)
                 else:
