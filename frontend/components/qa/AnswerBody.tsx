@@ -138,7 +138,7 @@ export function AnswerBody({ content, flat, onCite, streaming = false }: AnswerB
   );
 
   return (
-    <span className="inline">
+    <div className="w-full min-w-0">
       <Response components={components}>{linkified}</Response>
       {streaming ? (
         <span
@@ -146,6 +146,6 @@ export function AnswerBody({ content, flat, onCite, streaming = false }: AnswerB
           className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-primary align-middle"
         />
       ) : null}
-    </span>
+    </div>
   );
 }
