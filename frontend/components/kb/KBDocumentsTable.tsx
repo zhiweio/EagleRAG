@@ -66,7 +66,7 @@ function DocumentRow({
       }
     >
       <div className="flex min-w-0 items-center gap-2.5">
-        <FileBadge name={doc.name} size={36} />
+        <FileBadge name={doc.name} sourceUri={doc.source_uri} size={36} />
         <div className="flex min-w-0 flex-col gap-0.5">
           <button
             type="button"

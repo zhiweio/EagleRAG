@@ -11,7 +11,7 @@ import {
   taskPhase,
   taskRowAction,
 } from "@/components/ingest/status";
-import { FileBadge } from "@/components/kb/kb-visuals";
+import { FileBadge, isHttpUri } from "@/components/kb/kb-visuals";
 import { TablePagination, cn } from "@/components/ui";
 import type { Task } from "@/lib/types";
 import { Button, Skeleton } from "@heroui/react";
@@ -56,6 +56,8 @@ function TaskRow({
   const phase = taskPhase(task);
   const action = taskRowAction(task);
   const pct = progressPercent(task);
+  const displayName = documentName(task);
+  const isUrl = isHttpUri(task.source_uri) || isHttpUri(displayName);
   const isVisual = pipelineKind(task) === "pixelrag";
   const tint = ROW_TINT[phase];
   const note = task.error?.trim()
@@ -85,18 +87,19 @@ function TaskRow({
 
       <div className="flex min-w-0 items-center gap-2.5">
         <FileBadge
-          name={documentName(task)}
+          name={displayName}
+          sourceUri={task.source_uri}
           size={36}
-          forceIcon={isVisual ? FileImage : undefined}
+          forceIcon={isVisual && !isUrl ? FileImage : undefined}
         />
         <div className="flex min-w-0 flex-col gap-0.5">
           <button
             type="button"
             onClick={() => onViewLogs(task)}
             className="truncate text-left text-sm font-semibold text-foreground hover:text-accent"
-            title={documentName(task)}
+            title={displayName}
           >
-            {documentName(task)}
+            {displayName}
           </button>
           {!hideKbBadge && task.kb_name ? (
             <span className="inline-flex w-fit items-center rounded bg-(--surface-muted) px-1.5 py-0.5 font-mono text-[10px] text-foreground-tertiary">
