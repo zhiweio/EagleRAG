@@ -112,4 +112,4 @@ Parent-document retrieval: recall `type="section_summary"` first, drill down by 
 
 ## Sync on architecture changes
 
-Update `README.md`, `AGENTS.md`, `docs/en/architecture/multimodal-fusion.md`, `docs/zh/architecture/multimodal-fusion.md`, `docs/en/architecture/plugin-architecture.md`, `docs/zh/architecture/plugin-architecture.md`, and `eagle_rag/settings.yaml` when behavior changes.
+Update `README.md`, `README.zh.md`, `AGENTS.md`, `docs/en/architecture/multimodal-fusion.md`, `docs/zh/architecture/multimodal-fusion.md`, `docs/en/architecture/plugin-architecture.md`, `docs/zh/architecture/plugin-architecture.md`, `docs/en/architecture/biomed-plugin.md`, `docs/zh/architecture/biomed-plugin.md`, `docs/en/architecture/biomed-retrieval.md`, `docs/zh/architecture/biomed-retrieval.md`, `docs/en/architecture/glossary-plugin.md`, `docs/zh/architecture/glossary-plugin.md`, `docs/en/guides/authoring-industry-plugin.md`, `docs/zh/guides/authoring-industry-plugin.md`, and `eagle_rag/settings.yaml` when behavior changes.

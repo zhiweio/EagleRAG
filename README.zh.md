@@ -269,6 +269,7 @@ eagle-rag/
 - **中文文档** → [docs/zh/index.md](docs/zh/index.md)
 - **学习路径** → [docs/zh/learning-path.md](docs/zh/learning-path.md)（RAG 推荐阅读顺序）
 - **架构设计** → [docs/zh/architecture/index.md](docs/zh/architecture/index.md) · [插件架构](docs/zh/architecture/plugin-architecture.md) · [多模态融合](docs/zh/architecture/multimodal-fusion.md)
+- **Biomed 深入**（实验性） -> [Biomed 插件](docs/zh/architecture/biomed-plugin.md) · [Biomed 检索](docs/zh/architecture/biomed-retrieval.md)
 - **API 参考** → [docs/zh/api/index.md](docs/zh/api/index.md)
 - **MCP 工具** → [docs/zh/api/mcp-tools.md](docs/zh/api/mcp-tools.md)
 

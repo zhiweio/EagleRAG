@@ -2,7 +2,7 @@
 
 Eagle-RAG is a **pure RAG data layer**: industry plugins only improve vertical **recall quality / precision / asset structure**, then hand context to downstream Agents via **MCP (primary) / API**. This repository **does not provide or require** domain frontends.
 
-Chinese canonical copy: [`docs/zh/guides/authoring-industry-plugin.md`](../../zh/guides/authoring-industry-plugin.md).
+Chinese canonical copy: `docs/zh/guides/authoring-industry-plugin.md`.
 
 ## Product boundary
 
@@ -16,7 +16,7 @@ Chinese canonical copy: [`docs/zh/guides/authoring-industry-plugin.md`](../../zh
 
 ## Deliverables checklist
 
-1. `plugins/<namespace>/` — implement the `Plugin` protocol (copy [`plugins/_template/`](../../../plugins/_template/))
+1. `plugins/<namespace>/` — implement the `Plugin` protocol (copy `plugins/_template/`)
 2. `register_hooks` — subscribe to hot-path hooks (matrix below)
 3. `register_mcp_tools()` — explicit entrypoint; tools via `@register_mcp_tool`, name `{namespace}_{name}`
 4. `settings.yaml` → `profiles.<name>` — `enabled` + `default_namespace` + `milvus.db_name`
@@ -56,7 +56,7 @@ QUERY_DENSE_EXPAND → ANN (+ hybrid if configured) → RERANK
 
 Register handlers in `plugins/<namespace>/retrieval_hooks.py`; domain scoring in a separate module (e.g. `scoring.py`). Declare hybrid collections via `EncoderRegistry.register_collection(..., hybrid_enabled=True)` and/or `settings.router.hybrid_text_collections` in the profile.
 
-Eval harness for biomed: [`eval/biomed/`](../../../eval/biomed/) — [`RETRIEVAL.md`](../../../eval/biomed/RETRIEVAL.md), [`EVAL.md`](../../../eval/biomed/EVAL.md).
+Eval harness for biomed: `eval/biomed/` — `RETRIEVAL.md`, `EVAL.md`.
 
 ## Observability and audit
 
@@ -107,7 +107,7 @@ Biomed-oriented env extras (reference): `EAGLE_BIOMED_ENCODER_MODE`, `EAGLE_BIOM
 
 ## Reference implementations
 
-- `plugins/biomed` (**experimental**) — specialized collections + encoders + entity-anchored retrieval hooks + IMRaD CHUNK enrich; eval in `eval/biomed/`
-- `plugins/lakehouse_bi` (**under development**) — semantic-layer context packs (read-only retrieval skeleton)
+- `plugins/biomed` (**experimental**) - specialized collections + encoders + entity-anchored retrieval hooks + IMRaD CHUNK enrich. Full deep dive: [Biomed plugin](../architecture/biomed-plugin.md) + [Biomed retrieval](../architecture/biomed-retrieval.md); eval in `eval/biomed/`
+- `plugins/lakehouse_bi` (**under development**) - semantic-layer context packs (read-only retrieval skeleton)
 - ADR-007: [`docs/en/architecture/adr/007-plugin-implementation-status.md`](../architecture/adr/007-plugin-implementation-status.md)
 - ADR-008: [`docs/en/architecture/adr/008-rag-only-plugin-platform.md`](../architecture/adr/008-rag-only-plugin-platform.md)

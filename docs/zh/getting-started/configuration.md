@@ -280,7 +280,7 @@ profiles:
       db_name: biomed
 ```
 
-Biomed 评测套件：[`eval/biomed/`](../../../eval/biomed/)。检索设计：[`eval/biomed/RETRIEVAL.md`](../../../eval/biomed/RETRIEVAL.md)。
+Biomed 评测套件：`eval/biomed/`。检索设计：`eval/biomed/RETRIEVAL.md`。
 
 二开：复制 `plugins/_template/`，见 [编写行业插件](../guides/authoring-industry-plugin.md)。
 

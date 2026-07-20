@@ -241,7 +241,7 @@ Output: tile dicts `{image_bytes, page, position, width, height}`.
 
 #### Visual encoder (`get_visual_encoder`)
 
-[`eagle_rag/ingest/visual_encoder.py`](../../../eagle_rag/ingest/visual_encoder.py) selects a backend from `embedding.visual.provider`:
+`eagle_rag/ingest/visual_encoder.py` selects a backend from `embedding.visual.provider`:
 
 | Provider | Backend | Notes |
 | --- | --- | --- |

@@ -241,7 +241,7 @@ PixelRAG **仅为库** — 无 `pixelrag serve`、无 FAISS、无 `pixelrag.buil
 
 #### 视觉编码器（`get_visual_encoder`）
 
-[`eagle_rag/ingest/visual_encoder.py`](../../../eagle_rag/ingest/visual_encoder.py) 按 `embedding.visual.provider` 选择后端：
+`eagle_rag/ingest/visual_encoder.py` 按 `embedding.visual.provider` 选择后端：
 
 | Provider | 后端 | 说明 |
 | --- | --- | --- |

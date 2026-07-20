@@ -259,7 +259,7 @@ flowchart TB
         PG[("PostgreSQL 16<br/>plugin_namespace 过滤")]
         REDIS[("Redis 7")]
         MINIO[("MinIO")]
-        MILVUS[("每 plugin_namespace 一个 Milvus DB<br/>eagle_text + eagle_visual [+ 专用])"]
+        MILVUS[("每 plugin_namespace 一个 Milvus DB<br/>eagle_text + eagle_visual (+ 专用)")]
     end
 
     subgraph external["External"]

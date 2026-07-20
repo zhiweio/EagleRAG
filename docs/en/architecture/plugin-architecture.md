@@ -2,7 +2,7 @@
 
 Eagle-RAG is a **microkernel RAG platform**: a domain-agnostic Core plus in-process industry plugins that improve recall quality. Plugins share the same process, models, and MCP endpoint; each deployed instance binds a single industry namespace.
 
-Chinese translation: [plugin-architecture.md](../../zh/architecture/plugin-architecture.md).
+Chinese translation: `plugin-architecture.md`.
 
 Authoring guide: [Authoring an industry plugin](../guides/authoring-industry-plugin.md). Template: `plugins/_template/`.
 
@@ -343,7 +343,7 @@ sequenceDiagram
 | Milvus upsert metadata | Schema-aware passthrough (`milvus_text_store`) | CHUNK hook sets domain fields (`primary_drugs`, `biomed_section`, …) |
 | Entity boost / filter | — | Plugin rerank hooks (`RERANK`, `RERANK_MERGED`) |
 
-Core **must not** `import plugins.<domain>` on the query hot path. Biomed eval harness and ops: [`eval/biomed/RETRIEVAL.md`](../../../eval/biomed/RETRIEVAL.md).
+Core **must not** `import plugins.<domain>` on the query hot path. Biomed eval harness and ops: `eval/biomed/RETRIEVAL.md`.
 
 Parent-document retrieval (`settings.router.parent_doc_retrieval`, default `true`) remains a Core two-stage Milvus path on `eagle_text` (`section_summary` then path drill-down). Eagle does not call Knowhere's `RetrievalAgent` / `WorkflowOrchestrator` ([ADR-005](adr/005-knowhere-eagle-boundary.md)).
 
@@ -443,21 +443,9 @@ Default compose profile is `core` (production-safe). Enabling biomed (**experime
 
 ### `plugins/biomed` (experimental)
 
-| Capability | Detail |
-| --- | --- |
-| Specialized collections | `eagle_text_biomed` (768), `eagle_text_medcpt` (768, optional dual index), `eagle_chemical` (768), `eagle_medical_radiology` (1024), `eagle_medical_pathology` (1536) |
-| Text / chemical encoders | Labels `pubmedbert` / `molformer` / `medcpt` via `EncoderRegistry` (`CollectionProfile`: `default_encoder`, `hybrid_enabled`, `extra_output_fields`) |
-| Medical imaging | Label `medimageinsight` → **BiomedCLIP via `open_clip`** (prefer `uv sync --extra biomed`); pathology → `uni2` (UNI 2) — **never** fall back to Qwen3-VL |
-| CHUNK enrich | IMRaD/patent section tags (`biomed_section` / `biomed_doc_type`); `primary_drugs` for entity signals; preserves Knowhere `path` / body / `chunk_id` |
-| Query intent | Text-only `detect_retrieval_intent()` (`drug_entity`, `chemical`, `regulatory`, `combination`, `general`) — **not** eval dataset `workflow` labels |
-| Query routing | Rules + curated UMLS subset (`routing_rules.yaml` / `umls.py`); optional `EAGLE_BIOMED_UMLS_MRCONSO_PATH` merges ENG preferred aliases |
-| Hybrid retrieval | Core dense+sparse fuse when `router.hybrid_text_collections` lists collection (biomed profile: `eagle_text_biomed`, `eagle_text_medcpt`); `recall_top_k` (30) → Tier-1 `RERANK` → `RETRIEVE_SUPPLEMENT` → RRF → `RRF_POST_MERGE` → `RERANK_MERGED` → `final_top_k` (5) |
-| Entity-anchored supplement | `supplement_entity_anchored_hits` — PG registry name lookup + scoped ANN; `RRF_POST_MERGE` injects when `require_entity_match` |
-| Rerank | Tier-1: PubMedBERT cosine + entity filter/boost (`plugins/biomed/scoring.py`). Tier-2: `rerank_policy: domain` + MedCPT CE (`RERANK_MERGED`) |
-| Metadata backfill | `task biomed:reindex-sparse` (`primary_drugs`); `eval/biomed/scripts/reindex_biomed_metadata.py` (`biomed_section`) |
-| Eval baseline | Aligned smoke (46 queries): Hit@5 **0.87**, MRR **0.85** — see [`eval/biomed/EVAL.md`](../../../eval/biomed/EVAL.md) |
-| MCP | Entity query + compound retrieve (MolFormer ANN on `eagle_chemical`) |
-| Encoder modes | `auto` / `require_native` / `deterministic` (CI); override checkpoints via `EAGLE_BIOMED_*_MODEL` |
+Specialized collections (`eagle_text_biomed` / `eagle_text_medcpt` / `eagle_chemical` / `eagle_medical_radiology` / `eagle_medical_pathology`), 7 domain encoders (`pubmedbert` / `molformer` / `medcpt-*` / `medimageinsight` [BiomedCLIP via `open_clip`] / `uni2`), IMRaD CHUNK enrich, Tiered Document Router (TDR), entity-anchored supplement, and MedCPT + signal-fusion Tier-2 rerank. Eval baseline (aligned 46 queries): Hit@5 / MRR **0.85-0.87**.
+
+**Full deep dive**: [Biomed plugin](biomed-plugin.md) (collections, encoders, ingest, UMLS, MCP, config) + [Biomed retrieval](biomed-retrieval.md) (intent, routing, Tier-1/Tier-2 rerank fusion, supplement, RRF). Ops-facing failure diagnosis: `eval/biomed/RETRIEVAL.md`.
 
 ### `plugins/lakehouse_bi` (under development)
 
@@ -541,6 +529,8 @@ tests/plugins/              # Contract, isolation, hook, domain tests
 
 | Doc | Topic |
 | --- | --- |
+| [Biomed plugin](biomed-plugin.md) | Biomed collections, encoders, ingest, UMLS, MCP, config |
+| [Biomed retrieval](biomed-retrieval.md) | Biomed retrieval algorithms (intent, routing, Tier-1/Tier-2 rerank, supplement, RRF) |
 | [Authoring an industry plugin](../guides/authoring-industry-plugin.md) | How to add a vertical |
 | [Plugin glossary](glossary-plugin.md) | Term cheat sheet |
 | [Multimodal fusion](multimodal-fusion.md) | Knowhere + PixelRAG anchors |

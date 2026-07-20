@@ -123,7 +123,7 @@ Infrastructure: Milvus (one **Database** per `plugin_namespace`) + PostgreSQL (n
 | **Infrastructure** | Milvus 2.6 (DB per `plugin_namespace`; base `eagle_text` + `eagle_visual`), PostgreSQL 16, Redis 7, MinIO, Docker Compose |
 | **Integration** | MCP (Model Context Protocol) over HTTP (default `/mcp`) + stdio fallback, OpenAPI-generated TypeScript SDK |
 
-> **Multimodal fusion architecture**: visual tiles are stored in `eagle_visual` using Milvus's built-in HNSW / DiskANN engine (replacing PixelRAG's native FAISS), and anchored back to the Knowhere semantic tree via four semantic-tree anchor fields (`chunk_type` / `parent_section` / `content_summary` / `source_chunk_id`) — see [Multimodal Fusion Architecture](docs/zh/architecture/multimodal-fusion.md).
+> **Multimodal fusion architecture**: visual tiles are stored in `eagle_visual` using Milvus's built-in HNSW / DiskANN engine (replacing PixelRAG's native FAISS), and anchored back to the Knowhere semantic tree via four semantic-tree anchor fields (`chunk_type` / `parent_section` / `content_summary` / `source_chunk_id`) — see [Multimodal Fusion Architecture](docs/en/architecture/multimodal-fusion.md).
 
 ## Prerequisites
 
@@ -274,6 +274,7 @@ eagle-rag/
 - **中文文档** → [docs/zh/index.md](docs/zh/index.md)
 - **Learning path** → [docs/en/learning-path.md](docs/en/learning-path.md) (curated RAG reading order)
 - **Architecture** → [docs/en/architecture/index.md](docs/en/architecture/index.md) · [Plugin architecture](docs/en/architecture/plugin-architecture.md) · [Multimodal fusion](docs/en/architecture/multimodal-fusion.md)
+- **Biomed deep dive** (experimental) -> [Biomed plugin](docs/en/architecture/biomed-plugin.md) · [Biomed retrieval](docs/en/architecture/biomed-retrieval.md)
 - **API reference** → [docs/en/api/index.md](docs/en/api/index.md)
 - **MCP tools** → [docs/en/api/mcp-tools.md](docs/en/api/mcp-tools.md)
 

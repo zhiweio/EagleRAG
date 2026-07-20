@@ -280,7 +280,7 @@ profiles:
       db_name: biomed
 ```
 
-Biomed eval harness: [`eval/biomed/`](../../../eval/biomed/). Retrieval design: [`eval/biomed/RETRIEVAL.md`](../../../eval/biomed/RETRIEVAL.md).
+Biomed eval harness: `eval/biomed/`. Retrieval design: `eval/biomed/RETRIEVAL.md`.
 
 Authoring: copy `plugins/_template/`; see [Authoring an industry plugin](../guides/authoring-industry-plugin.md).
 

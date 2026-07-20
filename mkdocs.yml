@@ -102,6 +102,8 @@ nav:
       - Multimodal fusion: architecture/multimodal-fusion.md
       - Reliability: architecture/reliability.md
       - Plugin architecture: architecture/plugin-architecture.md
+      - Biomed plugin: architecture/biomed-plugin.md
+      - Biomed retrieval: architecture/biomed-retrieval.md
       - Plugin glossary: architecture/glossary-plugin.md
       - ADR-007 implementation status: architecture/adr/007-plugin-implementation-status.md
       - ADR-008 RAG-only platform: architecture/adr/008-rag-only-plugin-platform.md

@@ -343,7 +343,7 @@ sequenceDiagram
 | Milvus upsert 元数据 | 按 schema 透传（`milvus_text_store`） | CHUNK hook 写入领域字段（`primary_drugs`、`biomed_section` 等） |
 | 实体加权 / 过滤 | — | 插件 rerank hook（`RERANK`、`RERANK_MERGED`） |
 
-Core 在 query 热路径上 **不得** `import plugins.<domain>`。Biomed 评测与运维见 [`eval/biomed/RETRIEVAL.md`](../../../eval/biomed/RETRIEVAL.md)。
+Core 在 query 热路径上 **不得** `import plugins.<domain>`。Biomed 评测与运维见 `eval/biomed/RETRIEVAL.md`。
 
 父文档检索（`settings.router.parent_doc_retrieval`，默认 `true`）仍是 Core 在 `eagle_text` 上的两阶段 Milvus 路径（先 `section_summary`，再 path 下钻）。Eagle **不调用** Knowhere 的 `RetrievalAgent` / `WorkflowOrchestrator`（[ADR-005](adr/005-knowhere-eagle-boundary.md)）。
 
@@ -443,21 +443,9 @@ profiles:
 
 ### `plugins/biomed`（实验性）
 
-| 能力 | 细节 |
-| --- | --- |
-| 专用 collection | `eagle_text_biomed`（768）、`eagle_text_medcpt`（768，可选双索引）、`eagle_chemical`（768）、`eagle_medical_radiology`（1024）、`eagle_medical_pathology`（1536） |
-| 文本 / 化学编码器 | Label `pubmedbert` / `molformer` / `medcpt`（经 `EncoderRegistry`，`CollectionProfile`：`default_encoder`、`hybrid_enabled`、`extra_output_fields`） |
-| 医学影像 | Label `medimageinsight` → **BiomedCLIP + `open_clip`**（建议 `uv sync --extra biomed`）；病理 → `uni2`（UNI 2）— **永不**回落 Qwen3-VL |
-| CHUNK 富化 | IMRaD/专利章节（`biomed_section` / `biomed_doc_type`）；`primary_drugs` 供实体信号；保留 Knowhere `path` / body / `chunk_id` |
-| 查询意图 | 纯文本 `detect_retrieval_intent()`（`drug_entity`、`chemical`、`regulatory`、`combination`、`general`）— **不**读取评测集 `workflow` 标签 |
-| 查询路由 | 规则 + 精选 UMLS 子集（`routing_rules.yaml` / `umls.py`）；可选 `EAGLE_BIOMED_UMLS_MRCONSO_PATH` 合并英文首选别名 |
-| 混合检索 | 当 `router.hybrid_text_collections` 列出 collection 时 Core 做稠密+稀疏融合（biomed profile：`eagle_text_biomed`、`eagle_text_medcpt`）；`recall_top_k`（30）→ Tier-1 `RERANK` → `RETRIEVE_SUPPLEMENT` → RRF → `RRF_POST_MERGE` → `RERANK_MERGED` → `final_top_k`（5） |
-| 实体锚定 supplement | `supplement_entity_anchored_hits` — PG registry 药名查找 + 限定 ANN；`require_entity_match` 时 `RRF_POST_MERGE` 注入 |
-| Rerank | Tier-1：PubMedBERT cosine + 实体过滤/加权（`plugins/biomed/scoring.py`）。Tier-2：`rerank_policy: domain` + MedCPT CE（`RERANK_MERGED`） |
-| 元数据回填 | `task biomed:reindex-sparse`（`primary_drugs`）；`eval/biomed/scripts/reindex_biomed_metadata.py`（`biomed_section`） |
-| Eval 基线 | Aligned smoke（46 题）：Hit@5 **0.87**，MRR **0.85** — 见 [`eval/biomed/EVAL.md`](../../../eval/biomed/EVAL.md) |
-| MCP | 实体查询 + 化合物检索（`eagle_chemical` MolFormer ANN） |
-| 编码器模式 | `auto` / `require_native` / `deterministic`（CI）；checkpoint 可用 `EAGLE_BIOMED_*_MODEL` 覆盖 |
+专用 collection（`eagle_text_biomed` / `eagle_text_medcpt` / `eagle_chemical` / `eagle_medical_radiology` / `eagle_medical_pathology`），7 个领域编码器（`pubmedbert` / `molformer` / `medcpt-*` / `medimageinsight` [BiomedCLIP + `open_clip`] / `uni2`），IMRaD CHUNK 富化，分层文档路由器（TDR），实体锚定补召回，以及 MedCPT + 信号融合 Tier-2 重排。评测基线（aligned 46 题）：Hit@5 / MRR **0.85-0.87**。
+
+**完整深入**：[Biomed 插件](biomed-plugin.md)（collection、编码器、入库、UMLS、MCP、配置）+ [Biomed 检索](biomed-retrieval.md)（意图、路由、Tier-1/Tier-2 重排融合、补召回、RRF）。运维侧失败诊断：`eval/biomed/RETRIEVAL.md`。
 
 ### `plugins/lakehouse_bi`（开发中）
 
@@ -541,6 +529,8 @@ tests/plugins/              # 契约、隔离、hook、垂类测试
 
 | 文档 | 主题 |
 | --- | --- |
+| [Biomed 插件](biomed-plugin.md) | Biomed collection、编码器、入库、UMLS、MCP、配置 |
+| [Biomed 检索](biomed-retrieval.md) | Biomed 检索算法（意图、路由、Tier-1/Tier-2 重排、补召回、RRF） |
 | [编写行业 RAG 插件](../guides/authoring-industry-plugin.md) | 如何新增垂类 |
 | [插件术语表](glossary-plugin.md) | 术语速查 |
 | [多模态融合](multimodal-fusion.md) | Knowhere + PixelRAG 锚点 |
